@@ -76,6 +76,7 @@ export function UploadPanel() {
   const [status, setStatus] = useState<AnalysisStatus>("idle")
   const [progress, setProgress] = useState(0)
   const [results, setResults] = useState<AnalysisResult[]>([])
+  const analysisTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return
@@ -94,12 +95,23 @@ export function UploadPanel() {
     [addFiles],
   )
 
-  const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index))
-    if (files.length <= 1) {
-      setResults([])
-      setStatus("idle")
+  const stopAnalysis = useCallback(() => {
+    if (analysisTimerRef.current) {
+      clearInterval(analysisTimerRef.current)
+      analysisTimerRef.current = null
     }
+    setStatus("idle")
+    setProgress(0)
+  }, [])
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => {
+      const updated = prev.filter((_, i) => i !== index)
+      if (updated.length === 0) {
+        stopAnalysis()
+      }
+      return updated
+    })
   }
 
   // Mock 분석 실행 함수
@@ -116,32 +128,36 @@ export function UploadPanel() {
     const steps = duration / intervalTime
     const increment = 100 / steps
 
-    const timer = setInterval(() => {
+    analysisTimerRef.current = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) {
-          clearInterval(timer)
+          if (analysisTimerRef.current) {
+            clearInterval(analysisTimerRef.current)
+            analysisTimerRef.current = null
+          }
+          
+          // 분석 완료 후 결과 생성 (비동기 처리를 위해 setTimeout 사용)
+          setTimeout(() => {
+            setFiles(currentFiles => {
+              if (currentFiles.length === 0) return currentFiles;
+              
+              const mockResults: AnalysisResult[] = currentFiles.map(file => ({
+                fileName: file.name,
+                success: true,
+                analysisId: Math.random().toString(36).substring(2, 7).toUpperCase(),
+                riskScore: Math.floor(Math.random() * 40) + 60,
+              }))
+              setResults(mockResults)
+              setStatus("completed")
+              return currentFiles
+            })
+          }, 100)
+          
           return 100
         }
         return prev + increment
       })
     }, intervalTime)
-
-    // 실제 API 호출 대신 2초 대기
-    await new Promise((resolve) => setTimeout(resolve, duration))
-    
-    clearInterval(timer)
-    setProgress(100)
-
-    // 각 파일에 대한 Mock 결과 생성
-    const mockResults: AnalysisResult[] = files.map(file => ({
-      fileName: file.name,
-      success: true,
-      analysisId: Math.random().toString(36).substring(2, 7).toUpperCase(),
-      riskScore: Math.floor(Math.random() * 40) + 60, // 60~100 사이의 점수
-    }))
-
-    setResults(mockResults)
-    setStatus("completed")
   }
 
   return (
@@ -246,10 +262,11 @@ export function UploadPanel() {
                       {status === "completed" && "분석 완료"}
                     </p>
                   </div>
-                  {status === "idle" && (
+                  {(status === "idle" || status === "analyzing") && (
                     <button
                       type="button"
                       onClick={() => removeFile(i)}
+                      title={status === "analyzing" ? "분석 중단" : "파일 제거"}
                       className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
                       <X className="size-4" aria-hidden="true" />
@@ -341,24 +358,27 @@ export function UploadPanel() {
               초기화
             </Button>
           )}
-          <Button
-            size="lg"
-            disabled={files.length === 0 || status === "analyzing"}
-            onClick={handleAnalyze}
-            className="min-w-[120px] gap-2"
-          >
-            {status === "analyzing" ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                분석 중...
-              </>
-            ) : (
-              <>
-                <FileSearch className="size-4" aria-hidden="true" />
-                분석 시작 {files.length > 0 && results.length === 0 && `(${files.length})`}
-              </>
-            )}
-          </Button>
+          {status === "analyzing" ? (
+            <Button
+              size="lg"
+              variant="destructive"
+              onClick={stopAnalysis}
+              className="min-w-[120px] gap-2"
+            >
+              <X className="size-4" aria-hidden="true" />
+              분석 중단
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              disabled={files.length === 0}
+              onClick={handleAnalyze}
+              className="min-w-[120px] gap-2"
+            >
+              <FileSearch className="size-4" aria-hidden="true" />
+              분석 시작 {files.length > 0 && results.length === 0 && `(${files.length})`}
+            </Button>
+          )}
         </div>
       </div>
     </section>
