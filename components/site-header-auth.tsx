@@ -41,10 +41,18 @@ export function SiteHeaderAuth() {
   if (isLoggedIn) {
     return (
       <div className="flex items-center gap-2">
-        {/* 설정 드롭다운이 항상 먼저 오게 합니다 */}
+        {/* 1. 개인정보 수정 버튼 */}
+        <Link href="/mypage/edit">
+          <Button variant="ghost" size="sm" className="gap-2">
+            <UserCog className="size-4" />
+            <span className="hidden sm:inline">개인정보 수정</span>
+          </Button>
+        </Link>
+
+        {/* 2. 설정 드롭다운 */}
         <SettingsDropdown />
         
-        {/* 로그아웃 버튼 */}
+        {/* 3. 로그아웃 버튼 */}
         <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
           <LogOut className="size-4" />
           <span className="hidden sm:inline">로그아웃</span>
