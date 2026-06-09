@@ -20,7 +20,7 @@ const cocLogs = [
 export default function AdminPage() {
   return (
     <div className="min-h-screen bg-background">
-      <SiteHeader />
+      <SiteHeader variant="admin" />
 
       <main className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
         <div>

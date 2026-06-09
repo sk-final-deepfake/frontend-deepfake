@@ -1,8 +1,14 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
+import {
+  MOCK_ADMIN,
+  MOCK_USER,
+  setSession,
+} from "@/lib/mock-auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -22,9 +28,6 @@ const inputClassName = cn(
   "disabled:cursor-not-allowed disabled:opacity-50"
 )
 
-const MOCK_ID = "1111"
-const MOCK_PASSWORD = "2222"
-
 export function LoginForm() {
   const router = useRouter()
   const [employeeId, setEmployeeId] = useState("")
@@ -36,8 +39,15 @@ export function LoginForm() {
     e.preventDefault()
     setErrorMessage("")
 
-    if (employeeId === MOCK_ID && password === MOCK_PASSWORD) {
-      router.push("/dashboard")
+    if (employeeId === MOCK_USER.id && password === MOCK_USER.password) {
+      setSession({ role: "user", userId: employeeId })
+      router.push("/main")
+      return
+    }
+
+    if (employeeId === MOCK_ADMIN.id && password === MOCK_ADMIN.password) {
+      setSession({ role: "admin", userId: employeeId })
+      router.push("/admin")
       return
     }
 
@@ -132,14 +142,16 @@ export function LoginForm() {
             >
               아이디/비밀번호 찾기
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="flex-1"
-            >
-              회원가입
-            </Button>
+            <Link href="/signup" className="flex-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+              >
+                회원가입
+              </Button>
+            </Link>
           </div>
 
           {showContactMessage && (
