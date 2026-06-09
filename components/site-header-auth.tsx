@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { LogIn, LogOut, UserCog } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SettingsDropdown } from "@/components/settings-dropdown"
 import { clearSession, getSession } from "@/lib/mock-auth"
 
 export function SiteHeaderAuth() {
@@ -37,28 +38,20 @@ export function SiteHeaderAuth() {
     setIsLoggedIn(false)
   }
 
-  // 하이드레이션 오류 방지를 위해 마운트 전에는 렌더링을 최소화하거나 고정된 UI 유지
-  if (!mounted) {
-    return <div className="h-9 w-20" /> // 레이아웃 시프트 방지용 자리 표시자
-  }
-
   if (isLoggedIn) {
     return (
       <div className="flex items-center gap-2">
-        <Link href="/mypage/edit">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <UserCog className="size-4" />
-            <span className="hidden sm:inline">개인정보 수정</span>
-          </Button>
-        </Link>
+        {/* 설정 드롭다운이 항상 먼저 오게 합니다 */}
+        <SettingsDropdown />
+        
+        {/* 로그아웃 버튼 */}
         <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
           <LogOut className="size-4" />
-          로그아웃
+          <span className="hidden sm:inline">로그아웃</span>
         </Button>
       </div>
     )
   }
-
   return (
     <Link href="/login">
       <Button variant="outline" size="sm">

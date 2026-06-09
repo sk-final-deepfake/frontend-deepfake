@@ -1,7 +1,7 @@
 // 담당: 윤형진
 // 역할: 마이페이지 및 분석 기록 화면 구현
 import { SiteHeader } from "@/components/site-header"
-import { CaseHistoryList } from "@/app/mypage/_components/case-history-list"
+import { CaseHistorySection } from "@/app/mypage/_components/case-history-section"
 import { mockCases } from "@/app/mypage/_data/mock-cases"
 
 export default function MyPage() {
@@ -34,7 +34,7 @@ export default function MyPage() {
             </div>
           </div>
 
-          <CaseHistoryList cases={cases} />
+          <CaseHistorySection cases={cases} />
         </section>
       </main>
     </div>
