@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useCallback, useRef, useState, useEffect } from "react"
+import { useCallback, useRef, useState } from "react"
 import {
   UploadCloud,
   AudioLines,
@@ -16,7 +16,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Progress, ProgressTrack, ProgressIndicator } from "@/components/ui/progress"
+import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
@@ -24,6 +24,7 @@ type MediaKind = "all" | "audio" | "video" | "image"
 type AnalysisStatus = "idle" | "analyzing" | "completed"
 
 interface AnalysisResult {
+  fileName: string
   success: boolean
   analysisId: string
   riskScore: number
@@ -74,13 +75,13 @@ export function UploadPanel() {
   // 분석 관련 상태
   const [status, setStatus] = useState<AnalysisStatus>("idle")
   const [progress, setProgress] = useState(0)
-  const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [results, setResults] = useState<AnalysisResult[]>([])
 
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return
     setFiles((prev) => [...prev, ...Array.from(list)])
     // 새 파일 추가 시 이전 결과 초기화
-    setResult(null)
+    setResults([])
     setStatus("idle")
   }, [])
 
@@ -96,7 +97,7 @@ export function UploadPanel() {
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index))
     if (files.length <= 1) {
-      setResult(null)
+      setResults([])
       setStatus("idle")
     }
   }
@@ -107,7 +108,7 @@ export function UploadPanel() {
 
     setStatus("analyzing")
     setProgress(0)
-    setResult(null)
+    setResults([])
 
     // 2초 동안 프로그레스 바 시뮬레이션
     const duration = 2000
@@ -131,14 +132,15 @@ export function UploadPanel() {
     clearInterval(timer)
     setProgress(100)
 
-    // Mock JSON 응답 생성
-    const mockResponse: AnalysisResult = {
+    // 각 파일에 대한 Mock 결과 생성
+    const mockResults: AnalysisResult[] = files.map(file => ({
+      fileName: file.name,
       success: true,
       analysisId: Math.random().toString(36).substring(2, 7).toUpperCase(),
       riskScore: Math.floor(Math.random() * 40) + 60, // 60~100 사이의 점수
-    }
+    }))
 
-    setResult(mockResponse)
+    setResults(mockResults)
     setStatus("completed")
   }
 
@@ -258,53 +260,57 @@ export function UploadPanel() {
             })}
           </ul>
 
-          {/* 프로그레스 바 (분석 중일 때 표시) */}
+          {/* 프로그레스 바 (분석 중일 때 한 개만 표시) */}
           {status === "analyzing" && (
             <div className="space-y-2">
               <div className="flex justify-between text-xs font-medium">
                 <span className="text-primary">인공지능 모델 분석 중...</span>
                 <span>{Math.round(progress)}%</span>
               </div>
-              <Progress value={progress} className="h-2">
-                <ProgressTrack>
-                  <ProgressIndicator className="bg-primary" />
-                </ProgressTrack>
-              </Progress>
+              <Progress value={progress} className="h-2" />
             </div>
           )}
 
-          {/* 분석 결과 표시 */}
-          {status === "completed" && result && (
-            <div className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-primary/20 bg-primary/5 p-4 duration-500">
-              <div className="flex items-start justify-between">
-                <div className="flex gap-3">
-                  <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
-                    <CheckCircle2 className="size-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      분석이 완료되었습니다
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      분석 ID: {result.analysisId} · 서버 응답 성공
-                    </p>
+          {/* 분석 결과 표시 (각 파일별로 표시) */}
+          {status === "completed" && results.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <CheckCircle2 className="size-4 text-primary" />
+                분석 완료 보고서 ({results.length}건)
+              </h3>
+              {results.map((res, idx) => (
+                <div key={res.analysisId} className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-primary/20 bg-primary/5 p-4 duration-500">
+                  <div className="flex items-start justify-between">
+                    <div className="flex gap-3">
+                      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
+                        <span className="text-xs font-bold">{idx + 1}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-semibold text-foreground truncate max-w-[200px] sm:max-w-xs">
+                          {res.fileName}
+                        </h4>
+                        <p className="text-[10px] text-muted-foreground">
+                          분석 ID: {res.analysisId} · 서버 응답 성공
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-muted-foreground">위험도 점수</p>
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn(
+                          "text-lg font-bold font-mono",
+                          res.riskScore > 80 ? "text-destructive" : "text-amber-500"
+                        )}>
+                          {res.riskScore}
+                        </span>
+                        <Badge variant={res.riskScore > 80 ? "destructive" : "secondary"} className="h-4 px-1 text-[9px]">
+                          {res.riskScore > 80 ? "고위험" : "주의"}
+                        </Badge>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">위험도 점수</p>
-                  <div className="flex items-center gap-1.5">
-                    <span className={cn(
-                      "text-xl font-bold font-mono",
-                      result.riskScore > 80 ? "text-destructive" : "text-amber-500"
-                    )}>
-                      {result.riskScore}
-                    </span>
-                    <Badge variant={result.riskScore > 80 ? "destructive" : "secondary"} className="h-5 px-1.5 text-[10px]">
-                      {result.riskScore > 80 ? "고위험" : "주의"}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
+              ))}
               <div className="mt-3 flex items-center gap-2 border-t border-primary/10 pt-3">
                 <AlertTriangle className="size-3.5 text-amber-500" />
                 <p className="text-[11px] text-muted-foreground">
@@ -328,7 +334,7 @@ export function UploadPanel() {
               variant="outline"
               onClick={() => {
                 setFiles([]);
-                setResult(null);
+                setResults([]);
                 setStatus("idle");
               }}
             >
@@ -349,7 +355,7 @@ export function UploadPanel() {
             ) : (
               <>
                 <FileSearch className="size-4" aria-hidden="true" />
-                분석 시작 {files.length > 0 && !result && `(${files.length})`}
+                분석 시작 {files.length > 0 && results.length === 0 && `(${files.length})`}
               </>
             )}
           </Button>
