@@ -3,21 +3,25 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { LogIn, LogOut } from "lucide-react"
+import { LogIn, LogOut, UserCog } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SettingsDropdown } from "@/components/settings-dropdown"
 import { clearSession, getSession } from "@/lib/mock-auth"
 
 export function SiteHeaderAuth() {
   const router = useRouter()
+  // 초기 상태를 getSession()으로 설정하여 클라이언트 사이드에서 최대한 빨리 반영되도록 함
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
+    setIsLoggedIn(getSession() !== null)
+
     function syncAuthState() {
       setIsLoggedIn(getSession() !== null)
     }
 
-    syncAuthState()
     window.addEventListener("auth-change", syncAuthState)
     window.addEventListener("storage", syncAuthState)
 
@@ -30,24 +34,28 @@ export function SiteHeaderAuth() {
   function handleLogout() {
     clearSession()
     router.push("/login")
+    // 로그아웃 후 상태 즉시 반영
+    setIsLoggedIn(false)
   }
 
   if (isLoggedIn) {
     return (
       <div className="flex items-center gap-2">
+        {/* 설정 드롭다운이 항상 먼저 오게 합니다 */}
         <SettingsDropdown />
-        <Button variant="outline" size="sm" onClick={handleLogout}>
-          <LogOut data-icon="inline-start" />
-          로그아웃
+        
+        {/* 로그아웃 버튼 */}
+        <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
+          <LogOut className="size-4" />
+          <span className="hidden sm:inline">로그아웃</span>
         </Button>
       </div>
     )
   }
-
   return (
     <Link href="/login">
       <Button variant="outline" size="sm">
-        <LogIn data-icon="inline-start" />
+        <LogIn className="size-4" />
         로그인
       </Button>
     </Link>
