@@ -1,6 +1,7 @@
 import Link from "next/link"
-import { ShieldCheck, Lock } from "lucide-react"
+import { ShieldCheck, Lock, LogIn } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 
 const navItems = [
   { label: "분석", href: "/main" },
@@ -9,7 +10,11 @@ const navItems = [
   { label: "로그인", href: "/login" },
 ]
 
-export function SiteHeader() {
+type SiteHeaderProps = {
+  minimal?: boolean
+}
+
+export function SiteHeader({ minimal = false }: SiteHeaderProps) {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
@@ -27,17 +32,19 @@ export function SiteHeader() {
           </div>
         </div>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="주 메뉴">
-          {navItems.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        {!minimal && (
+          <nav className="hidden items-center gap-1 md:flex" aria-label="주 메뉴">
+            {navItems.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        )}
 
         <div className="flex items-center gap-3">
           <Badge
@@ -47,14 +54,14 @@ export function SiteHeader() {
             <Lock className="size-3" aria-hidden="true" />
             내부망 전용
           </Badge>
-          <div className="flex items-center gap-2">
-            <div className="flex size-8 items-center justify-center rounded-full bg-secondary text-xs font-medium text-secondary-foreground">
-              KIM
-            </div>
-            <span className="hidden text-sm text-muted-foreground lg:inline">
-              김분석 수사관
-            </span>
-          </div>
+          {!minimal && (
+            <Link href="/login">
+              <Button variant="outline" size="sm">
+                <LogIn data-icon="inline-start" />
+                로그인
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
     </header>
