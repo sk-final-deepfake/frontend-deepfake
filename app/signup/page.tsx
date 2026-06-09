@@ -6,9 +6,19 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { ShieldCheck, User, Lock, Mail, Building2, Briefcase, Eye, EyeOff, Check, ChevronLeft } from "lucide-react"
+import { ShieldCheck, User, Lock, Mail, Landmark, Briefcase, Phone, KeyRound, Eye, EyeOff, Check, ChevronLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import SignupAgreementStep, { type Agreements } from "./SignupAgreementStep"
+import DepartmentAutocomplete from "./DepartmentAutocomplete"
+import { ORG_TYPES, type OrgType, isValidInviteCode } from "./organizationData"
+
+// 010-0000-0000 형태로 자동 포맷
+function formatPhone(v: string) {
+  const d = v.replace(/\D/g, "").slice(0, 11)
+  if (d.length < 4) return d
+  if (d.length < 8) return `${d.slice(0, 3)}-${d.slice(3)}`
+  return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`
+}
 
 const TAKEN_IDS = ["admin", "test", "forenshield"]
 
@@ -29,14 +39,19 @@ export default function SignupPage() {
   const [passwordConfirm, setPasswordConfirm] = useState("")
   const [showPw, setShowPw] = useState(false)
   const [showPwc, setShowPwc] = useState(false)
+  const [orgType, setOrgType] = useState<OrgType | "">("")
   const [dept, setDept] = useState("")
   const [position, setPosition] = useState("")
   const [email, setEmail] = useState("")
+  const [phone, setPhone] = useState("")
+  const [inviteCode, setInviteCode] = useState("")
 
   const [error, setError] = useState("")
   const [submitted, setSubmitted] = useState(false)
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  const phoneValid = /^01\d{8,9}$/.test(phone.replace(/\D/g, ""))
+  const inviteValid = isValidInviteCode(inviteCode)
 
   const pwRules = [
     { label: "8자 이상", ok: password.length >= 8 },
@@ -59,10 +74,28 @@ export default function SignupPage() {
     if (usernameStatus !== "available") return setError("아이디 중복확인을 완료해 주세요.")
     if (!passwordValid) return setError("비밀번호 조건을 모두 충족해 주세요.")
     if (!passwordMatch) return setError("비밀번호가 일치하지 않습니다.")
-    if (!dept) return setError("소속 부서를 입력해 주세요.")
+    if (!orgType) return setError("기관 유형을 선택해 주세요.")
+    if (!dept) return setError("소속 기관/부서를 입력해 주세요.")
+    if (!position) return setError("직책 / 담당 업무를 입력해 주세요.")
     if (!emailValid) return setError("올바른 이메일을 입력해 주세요.")
+    if (!phoneValid) return setError("올바른 연락처를 입력해 주세요.")
+    if (!inviteValid) return setError("유효한 초대코드를 입력해 주세요.")
     setError("")
     // TODO: authApi.signup(...) 연동 예정 (현재는 목업)
+    //
+    // 가입 신청 시 백엔드로 보낼 요청 예시:
+    // {
+    //   "loginId": "kimminhee",
+    //   "password": "Password123!",
+    //   "name": "김민희",
+    //   "organizationType": "POLICE",            // ORG_TYPES.value
+    //   "department": "서울경찰청 사이버수사과",   // 자동완성 선택/직접입력
+    //   "position": "디지털 증거 분석 담당자",
+    //   "email": "kim@example.go.kr",
+    //   "phone": "010-0000-0000",
+    //   "inviteCode": "FSAI-POLICE-2026",         // 기관 발급 초대(승인)코드
+    //   "status": "PENDING"                       // 관리자 승인 대기
+    // }
     setSubmitted(true)
   }
 
@@ -89,13 +122,13 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-6">
       {/* ===== 1단계: 약관/보안 동의 ===== */}
       {step === "agree" ? (
         <SignupAgreementStep value={agree} onChange={setAgree} onNext={() => setStep("form")} />
       ) : (
         /* ===== 2단계: 정보 입력 ===== */
-        <div className="w-full max-w-md space-y-4">
+        <div className="w-full max-w-md space-y-3">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -116,7 +149,7 @@ export default function SignupPage() {
             </div>
           </div>
 
-          <form className="space-y-3" onSubmit={handleSubmit}>
+          <form className="space-y-2" onSubmit={handleSubmit}>
             {/* 계정 정보 */}
             <div className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
               <Row icon={User}>
@@ -193,7 +226,7 @@ export default function SignupPage() {
               </div>
             )}
 
-            {/* 소속 정보 */}
+            {/* 신원 + 기관 유형 */}
             <div className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
               <Row icon={User}>
                 <input
@@ -204,15 +237,32 @@ export default function SignupPage() {
                   className={fieldClass}
                 />
               </Row>
-              <Row icon={Building2}>
-                <input
-                  type="text"
-                  value={dept}
-                  onChange={(e) => setDept(e.target.value)}
-                  placeholder="소속 부서 (예: ○○경찰서 디지털포렌식과)"
-                  className={fieldClass}
-                />
+              <Row icon={Landmark}>
+                <select
+                  value={orgType}
+                  onChange={(e) => {
+                    setOrgType(e.target.value as OrgType)
+                    setDept("") // 유형 변경 시 부서 초기화 (정합성 유지)
+                  }}
+                  className={`${fieldClass} ${orgType ? "text-foreground" : "text-muted-foreground"}`}
+                >
+                  <option value="" disabled>
+                    기관 유형 선택
+                  </option>
+                  {ORG_TYPES.map((t) => (
+                    <option key={t.value} value={t.value} className="text-foreground">
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
               </Row>
+            </div>
+
+            {/* 소속 기관/부서 자동완성 (기관 유형 종속, mock, 위치기반 미사용) */}
+            <DepartmentAutocomplete orgType={orgType} value={dept} onChange={setDept} />
+
+            {/* 직책 · 연락처 · 초대코드 (한 묶음) */}
+            <div className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
               <Row icon={Briefcase}>
                 <input
                   type="text"
@@ -222,24 +272,47 @@ export default function SignupPage() {
                   className={fieldClass}
                 />
               </Row>
-            </div>
-
-            {/* 이메일 */}
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
               <Row icon={Mail}>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="이메일 (관리자 승인 및 연락용)"
+                  placeholder="이메일 (예: kim@example.go.kr)"
                   className={fieldClass}
                 />
+              </Row>
+              <Row icon={Phone}>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={phone}
+                  onChange={(e) => setPhone(formatPhone(e.target.value))}
+                  placeholder="연락처 (010-0000-0000)"
+                  className={fieldClass}
+                />
+              </Row>
+              <Row icon={KeyRound}>
+                <input
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  placeholder="초대코드 (예: FSAI-POLICE-2026)"
+                  className={fieldClass}
+                />
+                {inviteCode.length > 0 &&
+                  (inviteValid ? (
+                    <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
+                      <Check className="size-3.5" aria-hidden="true" /> 확인됨
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-xs text-muted-foreground">확인 중…</span>
+                  ))}
               </Row>
             </div>
 
             {error && <p className="px-1 text-sm text-destructive">{error}</p>}
 
-            <Button type="submit" size="lg" className="h-12 w-full text-base">
+            <Button type="submit" size="lg" className="h-11 w-full text-base">
               가입 신청
             </Button>
           </form>
@@ -262,7 +335,7 @@ const fieldClass =
 // NAVER 스타일 입력 행
 function Row({ icon: Icon, children }: { icon?: React.ElementType; children: React.ReactNode }) {
   return (
-    <div className="flex h-13 items-center gap-3 px-4">
+    <div className="flex h-12 items-center gap-3 px-4">
       {Icon ? (
         <Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
       ) : (
