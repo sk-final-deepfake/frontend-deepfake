@@ -18,10 +18,18 @@ export default function AdminProfilePage() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [passwordError, setPasswordError] = useState("")
+  const [profileError, setProfileError] = useState("")
   const { toast } = useAdminToast()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setProfileError("")
+
+    if (!/^[a-z0-9_]{4,20}$/.test(profile.username)) {
+      setProfileError("아이디는 4~20자의 영문 소문자, 숫자, 밑줄(_)만 사용할 수 있습니다.")
+      return
+    }
+
     setSaving(true)
     try {
       await new Promise((resolve) => setTimeout(resolve, 800))
@@ -78,9 +86,19 @@ export default function AdminProfilePage() {
         className="space-y-5 rounded-xl border border-border bg-card p-6"
       >
         <div className="space-y-1.5">
-          <label className="text-sm font-medium text-foreground">아이디</label>
-          <input value={profile.username} disabled className={inputClassName} />
-          <p className="text-xs text-muted-foreground">아이디는 변경할 수 없습니다.</p>
+          <label htmlFor="username" className="text-sm font-medium text-foreground">
+            아이디
+          </label>
+          <input
+            id="username"
+            value={profile.username}
+            onChange={(e) => setProfile({ ...profile, username: e.target.value })}
+            className={`${inputClassName} font-mono`}
+            required
+          />
+          <p className="text-xs text-muted-foreground">
+            4~20자, 영문 소문자·숫자·밑줄(_) (API 연동 시 중복 확인 필요)
+          </p>
         </div>
 
         <div className="space-y-1.5">
@@ -136,6 +154,12 @@ export default function AdminProfilePage() {
           <label className="text-sm font-medium text-foreground">역할</label>
           <input value={profile.role} disabled className={inputClassName} />
         </div>
+
+        {profileError && (
+          <p role="alert" className="text-sm text-destructive">
+            {profileError}
+          </p>
+        )}
 
         <div className="flex justify-end gap-2 pt-2">
           <Button

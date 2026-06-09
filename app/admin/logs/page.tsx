@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MOCK_ADMIN_LOGS, getLogActors } from "@/app/admin/_data/mock-admin"
+import { MOCK_ADMIN_LOGS, getLogDepartments } from "@/app/admin/_data/mock-admin"
 import type { AdminLog, LogCategory } from "@/app/admin/_types/admin"
 
 const PAGE_SIZE = 8
@@ -39,23 +39,38 @@ function getCategoryBadge(category: LogCategory) {
 
 export default function AdminLogsPage() {
   const [tab, setTab] = useState<"ALL" | "COC">("ALL")
-  const [actorFilter, setActorFilter] = useState("ALL")
+  const [departmentFilter, setDepartmentFilter] = useState("ALL")
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
 
-  const actors = useMemo(() => getLogActors(MOCK_ADMIN_LOGS), [])
+  const departments = useMemo(() => getLogDepartments(MOCK_ADMIN_LOGS), [])
 
   const filteredLogs = useMemo(() => {
     return MOCK_ADMIN_LOGS.filter((log) => {
       const matchesTab = tab === "ALL" || log.category === "COC"
-      const matchesActor = actorFilter === "ALL" || log.actor === actorFilter
+      const matchesDepartment =
+        departmentFilter === "ALL" || log.department === departmentFilter
       const matchesSearch =
         log.action.includes(search) ||
+        log.department.includes(search) ||
         log.actor.includes(search) ||
         (log.detail?.includes(search) ?? false)
-      return matchesTab && matchesActor && matchesSearch
+      return matchesTab && matchesDepartment && matchesSearch
     })
-  }, [tab, actorFilter, search])
+  }, [tab, departmentFilter, search])
+
+  const departmentStats = useMemo(() => {
+    const source = tab === "COC"
+      ? MOCK_ADMIN_LOGS.filter((log) => log.category === "COC")
+      : MOCK_ADMIN_LOGS
+
+    return departments
+      .map((department) => ({
+        department,
+        count: source.filter((log) => log.department === department).length,
+      }))
+      .filter((item) => item.count > 0)
+  }, [departments, tab])
 
   const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE))
   const pagedLogs = filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -69,7 +84,7 @@ export default function AdminLogsPage() {
           로그 대시보드
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          시스템 로그와 CoC 로그를 조회하고 사용자별로 필터링합니다.
+          시스템 로그와 CoC 로그를 부서별로 조회합니다.
         </p>
       </div>
 
@@ -111,6 +126,27 @@ export default function AdminLogsPage() {
         </Button>
       </div>
 
+      <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {departmentStats.map((item) => (
+          <button
+            key={item.department}
+            type="button"
+            onClick={() => {
+              setDepartmentFilter(item.department)
+              setPage(1)
+            }}
+            className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+              departmentFilter === item.department
+                ? "border-primary bg-primary/10"
+                : "border-border bg-card hover:bg-accent/30"
+            }`}
+          >
+            <p className="text-sm font-medium text-foreground">{item.department}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{item.count}건</p>
+          </button>
+        ))}
+      </div>
+
       <div className="mb-4 flex flex-col gap-3 sm:flex-row">
         <input
           value={search}
@@ -118,21 +154,21 @@ export default function AdminLogsPage() {
             setSearch(e.target.value)
             setPage(1)
           }}
-          placeholder="행위, 사용자, 상세 검색"
+          placeholder="행위, 부서, 사용자, 상세 검색"
           className="h-9 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         />
         <select
-          value={actorFilter}
+          value={departmentFilter}
           onChange={(e) => {
-            setActorFilter(e.target.value)
+            setDepartmentFilter(e.target.value)
             setPage(1)
           }}
           className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         >
-          <option value="ALL">전체 사용자</option>
-          {actors.map((actor) => (
-            <option key={actor} value={actor}>
-              {actor}
+          <option value="ALL">전체 부서</option>
+          {departments.map((department) => (
+            <option key={department} value={department}>
+              {department}
             </option>
           ))}
         </select>
@@ -144,6 +180,7 @@ export default function AdminLogsPage() {
             <TableRow>
               <TableHead>시간</TableHead>
               <TableHead>구분</TableHead>
+              <TableHead>부서</TableHead>
               <TableHead>사용자</TableHead>
               <TableHead>행위</TableHead>
               <TableHead>상세</TableHead>
@@ -152,14 +189,12 @@ export default function AdminLogsPage() {
           <TableBody>
             {pagedLogs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                   조건에 맞는 로그가 없습니다.
                 </TableCell>
               </TableRow>
             ) : (
-              pagedLogs.map((log) => (
-                <LogRow key={log.id} log={log} />
-              ))
+              pagedLogs.map((log) => <LogRow key={log.id} log={log} />)
             )}
           </TableBody>
         </Table>
@@ -168,6 +203,7 @@ export default function AdminLogsPage() {
       <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
         <span>
           총 {filteredLogs.length}건 · {page}/{totalPages} 페이지
+          {departmentFilter !== "ALL" && ` · ${departmentFilter}`}
         </span>
         <div className="flex gap-2">
           <Button
@@ -199,7 +235,8 @@ function LogRow({ log }: { log: AdminLog }) {
         {log.timestamp}
       </TableCell>
       <TableCell>{getCategoryBadge(log.category)}</TableCell>
-      <TableCell className="font-medium text-primary">{log.actor}</TableCell>
+      <TableCell className="font-medium text-foreground">{log.department}</TableCell>
+      <TableCell className="text-primary">{log.actor}</TableCell>
       <TableCell>{log.action}</TableCell>
       <TableCell className="text-muted-foreground">{log.detail ?? "-"}</TableCell>
     </TableRow>

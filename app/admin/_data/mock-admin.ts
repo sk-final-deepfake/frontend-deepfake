@@ -67,18 +67,18 @@ export const MOCK_INVITE_CODES: InviteCode[] = [
 ]
 
 export const MOCK_ADMIN_LOGS: AdminLog[] = [
-  { id: "l1", timestamp: "2026-06-09 09:12", category: "AUTH", actor: "admin_kim", actorId: "1", action: "로그인", detail: "내부망 접속" },
-  { id: "l2", timestamp: "2026-06-09 09:15", category: "COC", actor: "lee_forensic", actorId: "2", action: "증거 업로드", detail: "interview_clip_04.mp4" },
-  { id: "l3", timestamp: "2026-06-09 09:18", category: "ANALYSIS", actor: "system", actorId: "system", action: "분석 요청", detail: "CASE-2026-0412" },
-  { id: "l4", timestamp: "2026-06-09 09:22", category: "COC", actor: "park_invest", actorId: "3", action: "증거 해시 검증", detail: "SHA-256 일치" },
-  { id: "l5", timestamp: "2026-06-09 09:25", category: "ANALYSIS", actor: "system", actorId: "system", action: "분석 완료", detail: "위변조 의심 96%" },
-  { id: "l6", timestamp: "2026-06-09 09:30", category: "ADMIN", actor: "admin_kim", actorId: "1", action: "가입 승인", detail: "park_invest" },
-  { id: "l7", timestamp: "2026-06-09 10:01", category: "COC", actor: "choi_audit", actorId: "4", action: "결과 열람", detail: "CASE-2026-0410" },
-  { id: "l8", timestamp: "2026-06-09 10:05", category: "AUTH", actor: "lee_forensic", actorId: "2", action: "로그인", detail: "내부망 접속" },
-  { id: "l9", timestamp: "2026-06-09 10:12", category: "ADMIN", actor: "admin_kim", actorId: "1", action: "생성코드 발급", detail: "VF-B8N1-4Q6R" },
-  { id: "l10", timestamp: "2026-06-09 10:20", category: "COC", actor: "admin_kim", actorId: "1", action: "CoC 로그보내기", detail: "CSV 120건" },
-  { id: "l11", timestamp: "2026-06-09 11:00", category: "ANALYSIS", actor: "park_invest", actorId: "3", action: "분석 요청", detail: "voicemail_evidence.wav" },
-  { id: "l12", timestamp: "2026-06-09 11:15", category: "COC", actor: "lee_forensic", actorId: "2", action: "증거 다운로드", detail: "scene_photo_117.jpg" },
+  { id: "l1", timestamp: "2026-06-09 09:12", category: "AUTH", actor: "admin_kim", actorId: "1", department: "사이버수사과", action: "로그인", detail: "내부망 접속" },
+  { id: "l2", timestamp: "2026-06-09 09:15", category: "COC", actor: "lee_forensic", actorId: "2", department: "디지털분석팀", action: "증거 업로드", detail: "interview_clip_04.mp4" },
+  { id: "l3", timestamp: "2026-06-09 09:18", category: "ANALYSIS", actor: "system", actorId: "system", department: "시스템", action: "분석 요청", detail: "CASE-2026-0412" },
+  { id: "l4", timestamp: "2026-06-09 09:22", category: "COC", actor: "park_invest", actorId: "3", department: "과학수사부", action: "증거 해시 검증", detail: "SHA-256 일치" },
+  { id: "l5", timestamp: "2026-06-09 09:25", category: "ANALYSIS", actor: "system", actorId: "system", department: "시스템", action: "분석 완료", detail: "위변조 의심 96%" },
+  { id: "l6", timestamp: "2026-06-09 09:30", category: "ADMIN", actor: "admin_kim", actorId: "1", department: "사이버수사과", action: "가입 승인", detail: "park_invest" },
+  { id: "l7", timestamp: "2026-06-09 10:01", category: "COC", actor: "choi_audit", actorId: "4", department: "감사팀", action: "결과 열람", detail: "CASE-2026-0410" },
+  { id: "l8", timestamp: "2026-06-09 10:05", category: "AUTH", actor: "lee_forensic", actorId: "2", department: "디지털분석팀", action: "로그인", detail: "내부망 접속" },
+  { id: "l9", timestamp: "2026-06-09 10:12", category: "ADMIN", actor: "admin_kim", actorId: "1", department: "사이버수사과", action: "생성코드 발급", detail: "VF-B8N1-4Q6R" },
+  { id: "l10", timestamp: "2026-06-09 10:20", category: "COC", actor: "admin_kim", actorId: "1", department: "사이버수사과", action: "CoC 로그보내기", detail: "CSV 120건" },
+  { id: "l11", timestamp: "2026-06-09 11:00", category: "ANALYSIS", actor: "park_invest", actorId: "3", department: "과학수사부", action: "분석 요청", detail: "voicemail_evidence.wav" },
+  { id: "l12", timestamp: "2026-06-09 11:15", category: "COC", actor: "lee_forensic", actorId: "2", department: "디지털분석팀", action: "증거 다운로드", detail: "scene_photo_117.jpg" },
 ]
 
 export const MOCK_ADMIN_PROFILE: AdminProfile = {
@@ -90,6 +90,6 @@ export const MOCK_ADMIN_PROFILE: AdminProfile = {
   role: "시스템 관리자",
 }
 
-export function getLogActors(logs: AdminLog[]): string[] {
-  return [...new Set(logs.map((log) => log.actor))].sort()
+export function getLogDepartments(logs: AdminLog[]): string[] {
+  return [...new Set(logs.map((log) => log.department))].sort()
 }
