@@ -1,71 +1,56 @@
 "use client"
 
-import * as React from "react"
-import { useState, useEffect } from "react"
-import { SiteHeader } from "@/components/site-header"
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import { useMemo, useState } from "react"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { useToast } from "@/components/ui/use-toast"
-import { Loader2, CheckCircle, XCircle, UserPlus } from "lucide-react"
+import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
+import { Loader2, CheckCircle, XCircle, Trash2, Search, Pencil } from "lucide-react"
+import { MOCK_ADMIN_USERS } from "@/app/admin/_data/mock-admin"
+import type { AdminUser, UserStatus } from "@/app/admin/_types/admin"
+import { DeleteUserDialog } from "@/app/admin/_components/delete-user-dialog"
+import {
+  EditUserDialog,
+  type UserEditPayload,
+} from "@/app/admin/_components/edit-user-dialog"
 
-type UserStatus = "PENDING" | "APPROVED" | "REJECTED"
-
-interface User {
-  id: string
-  username: string
-  email: string
-  department: string
-  joinedAt: string
-  status: UserStatus
-}
-
-const MOCK_USERS: User[] = [
-  {
-    id: "1",
-    username: "admin_kim",
-    email: "kim@police.go.kr",
-    department: "사이버수사과",
-    joinedAt: "2026-06-01",
-    status: "PENDING",
-  },
-  {
-    id: "2",
-    username: "lee_forensic",
-    email: "lee@nfs.go.kr",
-    department: "디지털분석팀",
-    joinedAt: "2026-06-03",
-    status: "PENDING",
-  },
-  {
-    id: "3",
-    username: "park_invest",
-    email: "park@prosecution.go.kr",
-    department: "과학수사부",
-    joinedAt: "2026-05-28",
-    status: "APPROVED",
-  },
-]
+const PAGE_SIZE = 10
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<User[]>(MOCK_USERS)
+  const [users, setUsers] = useState<AdminUser[]>(MOCK_ADMIN_USERS)
   const [processingId, setProcessingId] = useState<string | null>(null)
-  const { toast } = useToast()
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<"ALL" | UserStatus>("ALL")
+  const [page, setPage] = useState(1)
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
+  const [editTarget, setEditTarget] = useState<AdminUser | null>(null)
+  const { toast } = useAdminToast()
 
-  const handleAction = async (userId: string, action: "APPROVE" | "REJECT") => {
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
+      const matchesSearch =
+        user.username.toLowerCase().includes(search.toLowerCase()) ||
+        user.displayName.includes(search) ||
+        user.email.toLowerCase().includes(search.toLowerCase())
+      const matchesStatus = statusFilter === "ALL" || user.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [users, search, statusFilter])
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE))
+  const pagedUsers = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  async function handleAction(userId: string, action: "APPROVE" | "REJECT") {
     setProcessingId(`${userId}-${action}`)
-    
     try {
-      // API 호출 시뮬레이션 (1.5초)
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      
+      await new Promise((resolve) => setTimeout(resolve, 800))
       setUsers((prev) =>
         prev.map((user) =>
           user.id === userId
@@ -73,72 +58,148 @@ export default function AdminUsersPage() {
             : user
         )
       )
-
       toast({
         title: action === "APPROVE" ? "가입 승인 완료" : "가입 반려 완료",
-        description: `${userId} 사용자의 가입 요청이 ${action === "APPROVE" ? "승인" : "반려"}되었습니다.`,
-      })
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "처리 실패",
-        description: "요청을 처리하는 중 오류가 발생했습니다. 다시 시도해 주세요.",
+        description: `사용자 계정이 ${action === "APPROVE" ? "승인" : "반려"}되었습니다.`,
       })
     } finally {
       setProcessingId(null)
     }
   }
 
-  const getStatusBadge = (status: UserStatus) => {
+  async function handleEdit(payload: UserEditPayload) {
+    if (!editTarget) return
+    setProcessingId(`${editTarget.id}-EDIT`)
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 800))
+      setUsers((prev) =>
+        prev.map((user) =>
+          user.id === editTarget.id
+            ? {
+                ...user,
+                displayName: payload.displayName,
+                email: payload.email,
+                department: payload.department,
+              }
+            : user
+        )
+      )
+      toast({
+        title: "계정 정보 수정 완료",
+        description: payload.newPassword
+          ? `${editTarget.username} 정보 및 비밀번호가 수정되었습니다. (mock)`
+          : `${editTarget.username} 계정 정보가 수정되었습니다.`,
+      })
+      setEditTarget(null)
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setProcessingId(`${deleteTarget.id}-DELETE`)
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 800))
+      setUsers((prev) => prev.filter((user) => user.id !== deleteTarget.id))
+      toast({
+        title: "계정 삭제 완료",
+        description: `${deleteTarget.username} 계정이 삭제되었습니다.`,
+      })
+      setDeleteTarget(null)
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  function getStatusBadge(status: UserStatus) {
     switch (status) {
       case "PENDING":
-        return <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200">대기 중</Badge>
+        return (
+          <Badge variant="outline" className="border-amber-200 bg-amber-100 text-amber-700">
+            대기 중
+          </Badge>
+        )
       case "APPROVED":
-        return <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200">승인됨</Badge>
+        return (
+          <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-emerald-700">
+            승인됨
+          </Badge>
+        )
       case "REJECTED":
-        return <Badge variant="outline" className="bg-rose-100 text-rose-700 border-rose-200">반려됨</Badge>
+        return (
+          <Badge variant="outline" className="border-rose-200 bg-rose-100 text-rose-700">
+            반려됨
+          </Badge>
+        )
     }
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50 dark:bg-background">
-      <SiteHeader variant="admin" />
-      
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-foreground">
-              관리자 가입 승인 관리
-            </h1>
-            <p className="mt-1 text-sm text-slate-600 dark:text-muted-foreground">
-              신규 관리자 계정의 가입 요청을 검토하고 승인 또는 반려할 수 있습니다.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg bg-white p-2 shadow-sm dark:bg-card border border-border">
-             <UserPlus className="size-5 text-primary" />
-             <span className="text-sm font-medium">대기 중: {users.filter(u => u.status === 'PENDING').length}명</span>
-          </div>
-        </div>
+    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          전체 계정 관리
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          사용자 계정을 검색·필터링하고 정보 수정, 승인, 반려, 삭제할 수 있습니다.
+        </p>
+      </div>
 
-        <div className="rounded-xl border border-border bg-white dark:bg-card shadow-sm overflow-hidden">
-          <Table>
-            <TableHeader className="bg-slate-50 dark:bg-muted/50">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }}
+            placeholder="아이디, 이름, 이메일 검색"
+            className="h-9 w-full rounded-lg border border-border bg-background pr-3 pl-9 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value as "ALL" | UserStatus)
+            setPage(1)
+          }}
+          className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <option value="ALL">전체 상태</option>
+          <option value="PENDING">대기 중</option>
+          <option value="APPROVED">승인됨</option>
+          <option value="REJECTED">반려됨</option>
+        </select>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead>아이디</TableHead>
+              <TableHead>이름 / 이메일</TableHead>
+              <TableHead>소속</TableHead>
+              <TableHead>가입일</TableHead>
+              <TableHead>상태</TableHead>
+              <TableHead className="text-right">관리</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pagedUsers.length === 0 ? (
               <TableRow>
-                <TableHead className="w-[150px]">아이디</TableHead>
-                <TableHead>이름/이메일</TableHead>
-                <TableHead>소속 부서</TableHead>
-                <TableHead>가입 요청일</TableHead>
-                <TableHead>상태</TableHead>
-                <TableHead className="text-right">관리</TableHead>
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  조건에 맞는 계정이 없습니다.
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((user) => (
+            ) : (
+              pagedUsers.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell className="font-mono font-medium">{user.username}</TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span className="font-medium text-foreground">사용자 {user.id}</span>
+                      <span className="font-medium">{user.displayName}</span>
                       <span className="text-xs text-muted-foreground">{user.email}</span>
                     </div>
                   </TableCell>
@@ -146,47 +207,103 @@ export default function AdminUsersPage() {
                   <TableCell className="text-muted-foreground">{user.joinedAt}</TableCell>
                   <TableCell>{getStatusBadge(user.status)}</TableCell>
                   <TableCell className="text-right">
-                    {user.status === "PENDING" ? (
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
-                          onClick={() => handleAction(user.id, "APPROVE")}
-                          disabled={processingId !== null}
-                        >
-                          {processingId === `${user.id}-APPROVE` ? (
-                            <Loader2 className="mr-1 size-3 animate-spin" />
-                          ) : (
-                            <CheckCircle className="mr-1 size-3" />
-                          )}
-                          승인
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
-                          onClick={() => handleAction(user.id, "REJECT")}
-                          disabled={processingId !== null}
-                        >
-                          {processingId === `${user.id}-REJECT` ? (
-                            <Loader2 className="mr-1 size-3 animate-spin" />
-                          ) : (
-                            <XCircle className="mr-1 size-3" />
-                          )}
-                          반려
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground italic">처리 완료</span>
-                    )}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setEditTarget(user)}
+                        disabled={processingId !== null}
+                      >
+                        <Pencil className="size-3" />
+                        수정
+                      </Button>
+                      {user.status === "PENDING" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleAction(user.id, "APPROVE")}
+                            disabled={processingId !== null}
+                          >
+                            {processingId === `${user.id}-APPROVE` ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : (
+                              <CheckCircle className="size-3" />
+                            )}
+                            승인
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleAction(user.id, "REJECT")}
+                            disabled={processingId !== null}
+                          >
+                            {processingId === `${user.id}-REJECT` ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : (
+                              <XCircle className="size-3" />
+                            )}
+                            반려
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => setDeleteTarget(user)}
+                        disabled={processingId !== null}
+                      >
+                        <Trash2 className="size-3" />
+                        삭제
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+        <span>
+          총 {filteredUsers.length}명 · {page}/{totalPages} 페이지
+        </span>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            이전
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            다음
+          </Button>
         </div>
-      </main>
-    </div>
+      </div>
+
+      <EditUserDialog
+        user={editTarget}
+        open={editTarget !== null}
+        loading={processingId?.endsWith("-EDIT") ?? false}
+        onSave={handleEdit}
+        onCancel={() => setEditTarget(null)}
+      />
+
+      <DeleteUserDialog
+        username={deleteTarget?.username ?? ""}
+        open={deleteTarget !== null}
+        loading={processingId?.endsWith("-DELETE") ?? false}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+    </main>
   )
 }
