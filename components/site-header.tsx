@@ -1,11 +1,12 @@
+import Link from "next/link"
 import { ShieldCheck, Lock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
 const navItems = [
-  { label: "분석", href: "#analyze" },
-  { label: "사건 관리", href: "#cases" },
-  { label: "보고서", href: "#reports" },
-  { label: "설정", href: "#settings" },
+  { label: "분석", href: "/main" },
+  { label: "내 분석 기록", href: "/mypage" },
+  { label: "관리자", href: "/admin" },
+  { label: "로그인", href: "/login" },
 ]
 
 export function SiteHeader() {
@@ -28,13 +29,13 @@ export function SiteHeader() {
 
         <nav className="hidden items-center gap-1 md:flex" aria-label="주 메뉴">
           {navItems.map((item) => (
-            <a
+            <Link
               key={item.label}
               href={item.href}
               className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               {item.label}
-            </a>
+            </Link>
           ))}
         </nav>
 

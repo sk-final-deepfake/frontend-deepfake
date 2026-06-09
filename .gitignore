@@ -13,3 +13,12 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+
+# IDE
+.idea/
+
+# Next.js generated
+next-env.d.ts
+
+# Package manager (이 프로젝트는 pnpm 사용)
+package-lock.json
