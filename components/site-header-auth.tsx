@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { LogIn, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SettingsDropdown } from "@/components/settings-dropdown"
 import { clearSession, getSession } from "@/lib/mock-auth"
 
 export function SiteHeaderAuth() {
@@ -33,10 +34,13 @@ export function SiteHeaderAuth() {
 
   if (isLoggedIn) {
     return (
-      <Button variant="outline" size="sm" onClick={handleLogout}>
-        <LogOut data-icon="inline-start" />
-        로그아웃
-      </Button>
+      <div className="flex items-center gap-2">
+        <SettingsDropdown />
+        <Button variant="outline" size="sm" onClick={handleLogout}>
+          <LogOut data-icon="inline-start" />
+          로그아웃
+        </Button>
+      </div>
     )
   }
 

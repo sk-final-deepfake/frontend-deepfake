@@ -4,8 +4,15 @@ import type { CaseSummary } from "@/app/mypage/_types/case"
 import { formatCreatedAt } from "@/app/mypage/_lib/format-date"
 import { CaseStatusBadge } from "@/app/mypage/_components/case-status-badge"
 import { CaseHistoryEmpty } from "@/app/mypage/_components/case-history-empty"
+import type { DateFormat } from "@/lib/user-settings"
 
-export function CaseHistoryList({ cases }: { cases: CaseSummary[] }) {
+export function CaseHistoryList({
+  cases,
+  dateFormat = "ko-full",
+}: {
+  cases: CaseSummary[]
+  dateFormat?: DateFormat
+}) {
   if (cases.length === 0) {
     return <CaseHistoryEmpty />
   }
@@ -28,7 +35,7 @@ export function CaseHistoryList({ cases }: { cases: CaseSummary[] }) {
                   {item.caseName}
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {formatCreatedAt(item.createdAt)} · 증거 {item.evidenceCount}건
+                  {formatCreatedAt(item.createdAt, dateFormat)} · 증거 {item.evidenceCount}건
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -72,7 +79,7 @@ export function CaseHistoryList({ cases }: { cases: CaseSummary[] }) {
                   <CaseStatusBadge status={item.status} />
                 </td>
                 <td className="px-5 py-3.5 whitespace-nowrap text-muted-foreground">
-                  {formatCreatedAt(item.createdAt)}
+                  {formatCreatedAt(item.createdAt, dateFormat)}
                 </td>
                 <td className="px-5 py-3.5 text-muted-foreground">
                   {item.evidenceCount}건
