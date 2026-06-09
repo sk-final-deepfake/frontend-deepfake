@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 
 type MediaKind = "all" | "audio" | "video" | "image"
@@ -69,6 +71,7 @@ const kindIcon: Record<MediaKind, React.ElementType> = {
 export function UploadPanel() {
   const [kind, setKind] = useState<MediaKind>("all")
   const [isDragging, setIsDragging] = useState(false)
+  const [caseName, setCaseName] = useState("")
   const [files, setFiles] = useState<File[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -185,6 +188,21 @@ export function UploadPanel() {
             ))}
           </TabsList>
         </Tabs>
+      </div>
+
+      {/* 사건명 입력 */}
+      <div className="mb-5 space-y-2">
+        <Label htmlFor="case-name" className="text-sm font-medium">
+          사건명 <span className="text-xs text-muted-foreground font-normal">(선택사항)</span>
+        </Label>
+        <Input
+          id="case-name"
+          placeholder="예: 2026-서울-0123 딥페이크 유포 사건"
+          value={caseName}
+          onChange={(e) => setCaseName(e.target.value)}
+          disabled={status === "analyzing"}
+          className="max-w-md"
+        />
       </div>
 
       {/* 업로드 영역 */}
@@ -350,6 +368,7 @@ export function UploadPanel() {
             <Button
               variant="outline"
               onClick={() => {
+                setCaseName("");
                 setFiles([]);
                 setResults([]);
                 setStatus("idle");
