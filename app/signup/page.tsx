@@ -113,7 +113,7 @@ export default function SignupPage() {
             <br />
             승인 결과는 등록하신 이메일로 안내됩니다.
           </p>
-          <Button render={<Link href="/login" />} size="lg" className="w-full">
+          <Button render={<Link href="/login" />} nativeButton={false} size="lg" className="w-full">
             로그인 화면으로
           </Button>
         </div>
