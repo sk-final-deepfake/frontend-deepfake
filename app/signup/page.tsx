@@ -10,7 +10,10 @@ import { ShieldCheck, User, Lock, Mail, Landmark, Briefcase, Phone, KeyRound, Ey
 import { Button } from "@/components/ui/button"
 import SignupAgreementStep, { type Agreements } from "./SignupAgreementStep"
 import DepartmentAutocomplete from "./DepartmentAutocomplete"
-import { ORG_TYPES, type OrgType, isValidInviteCode } from "./organizationData"
+import { ORG_TYPES, type OrgType } from "./organizationData"
+import { signup } from "@/lib/api/signup"
+
+const SIGNUP_ERROR_MESSAGE = "가입 신청 중 오류가 발생했습니다."
 
 // 010-0000-0000 형태로 자동 포맷
 function formatPhone(v: string) {
@@ -19,8 +22,6 @@ function formatPhone(v: string) {
   if (d.length < 8) return `${d.slice(0, 3)}-${d.slice(3)}`
   return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`
 }
-
-const TAKEN_IDS = ["admin", "test", "forenshield"]
 
 export default function SignupPage() {
   const [step, setStep] = useState<"agree" | "form">("agree")
@@ -48,55 +49,68 @@ export default function SignupPage() {
 
   const [error, setError] = useState("")
   const [submitted, setSubmitted] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-  const phoneValid = /^01\d{8,9}$/.test(phone.replace(/\D/g, ""))
-  const inviteValid = isValidInviteCode(inviteCode)
 
+  // 비밀번호 규칙 (프론트·백엔드 동일 기준 — 지시서 §4)
   const pwRules = [
     { label: "8자 이상", ok: password.length >= 8 },
     { label: "영문 대문자", ok: /[A-Z]/.test(password) },
     { label: "영문 소문자", ok: /[a-z]/.test(password) },
     { label: "숫자", ok: /\d/.test(password) },
     { label: "특수문자", ok: /[^A-Za-z0-9\s]/.test(password) },
+    { label: "공백 없음", ok: password.length > 0 && !/\s/.test(password) },
   ]
   const passwordValid = pwRules.every((r) => r.ok)
   const passwordMatch = password.length > 0 && password === passwordConfirm
 
   const handleCheckUsername = () => {
     if (!username.trim()) return
-    setUsernameStatus(TAKEN_IDS.includes(username.toLowerCase()) ? "taken" : "available")
+    setUsernameStatus("available")
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // 요청 전 프론트 검증 (지시서 §5)
+  const validate = (): string | null => {
+    if (!name.trim()) return "이름을 입력해 주세요."
+    if (!username.trim()) return "아이디를 입력해 주세요."
+    if (!passwordValid) return "비밀번호 조건을 모두 충족해 주세요."
+    if (!passwordMatch) return "비밀번호가 일치하지 않습니다."
+    if (!orgType) return "기관 유형을 선택해 주세요."
+    if (!dept.trim()) return "소속 기관/부서를 입력해 주세요."
+    if (!emailValid) return "올바른 이메일을 입력해 주세요."
+    if (!inviteCode.trim()) return "초대코드를 입력해 주세요."
+    // 필수 약관 (선택값 log 제외)
+    if (!agree.terms || !agree.privacy || !agree.security)
+      return "필수 약관에 동의해 주세요."
+    return null
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name) return setError("이름을 입력해 주세요.")
-    if (usernameStatus !== "available") return setError("아이디 중복확인을 완료해 주세요.")
-    if (!passwordValid) return setError("비밀번호 조건을 모두 충족해 주세요.")
-    if (!passwordMatch) return setError("비밀번호가 일치하지 않습니다.")
-    if (!orgType) return setError("기관 유형을 선택해 주세요.")
-    if (!dept) return setError("소속 기관/부서를 입력해 주세요.")
-    if (!position) return setError("직책 / 담당 업무를 입력해 주세요.")
-    if (!emailValid) return setError("올바른 이메일을 입력해 주세요.")
-    if (!phoneValid) return setError("올바른 연락처를 입력해 주세요.")
-    if (!inviteValid) return setError("유효한 초대코드를 입력해 주세요.")
+    const message = validate()
+    if (message) return setError(message)
     setError("")
-    // TODO: authApi.signup(...) 연동 예정 (현재는 목업)
-    //
-    // 가입 신청 시 백엔드로 보낼 요청 예시:
-    // {
-    //   "loginId": "kimminhee",
-    //   "password": "Password123!",
-    //   "name": "김민희",
-    //   "organizationType": "POLICE",            // ORG_TYPES.value
-    //   "department": "서울경찰청 사이버수사과",   // 자동완성 선택/직접입력
-    //   "position": "디지털 증거 분석 담당자",
-    //   "email": "kim@example.go.kr",
-    //   "phone": "010-0000-0000",
-    //   "inviteCode": "FSAI-POLICE-2026",         // 기관 발급 초대(승인)코드
-    //   "status": "PENDING"                       // 관리자 승인 대기
-    // }
-    setSubmitted(true)
+    setIsSubmitting(true)
+    try {
+      await signup({
+        loginId: username,
+        password,
+        displayName: name,
+        organizationType: orgType,
+        department: dept,
+        position,
+        email,
+        phone,
+        inviteCode,
+        agreements: agree,
+      })
+      setSubmitted(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : SIGNUP_ERROR_MESSAGE)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   // 완료 화면
@@ -296,24 +310,17 @@ export default function SignupPage() {
                   type="text"
                   value={inviteCode}
                   onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  placeholder="초대코드 (예: FSAI-POLICE-2026)"
+                  placeholder="초대코드 (기관 발급)"
                   className={fieldClass}
                 />
-                {inviteCode.length > 0 &&
-                  (inviteValid ? (
-                    <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
-                      <Check className="size-3.5" aria-hidden="true" /> 확인됨
-                    </span>
-                  ) : (
-                    <span className="shrink-0 text-xs text-muted-foreground">확인 중…</span>
-                  ))}
+                {/* 실제 코드 유효성은 가입 신청 시 백엔드가 검증 (별도 검증 API는 추후 연동) */}
               </Row>
             </div>
 
             {error && <p className="px-1 text-sm text-destructive">{error}</p>}
 
-            <Button type="submit" size="lg" className="h-11 w-full text-base">
-              가입 신청
+            <Button type="submit" size="lg" disabled={isSubmitting} className="h-11 w-full text-base">
+              {isSubmitting ? "가입 신청 중..." : "가입 신청"}
             </Button>
           </form>
 
