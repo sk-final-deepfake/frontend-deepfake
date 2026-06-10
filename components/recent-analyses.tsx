@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import Link from "next/link"
 import {
   AudioLines,
@@ -9,10 +8,8 @@ import {
   ChevronRight,
   FileText,
   Search,
-  X,
   FileSearch,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
 import type { UploadResult } from "@/lib/evidence-api"
@@ -49,8 +46,6 @@ type RecentAnalysesProps = {
 }
 
 export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
-  const [selectedUpload, setSelectedUpload] = useState<UploadResult | null>(null)
-
   return (
     <section
       id="reports"
@@ -118,7 +113,8 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
                     variant="outline"
                     size="xs"
                     className="h-7 gap-1.5 text-xs"
-                    onClick={() => setSelectedUpload(item)}
+                    render={<Link href={`/cases/${item.evidenceId}`} />}
+                    nativeButton={false}
                   >
                     <Search className="size-3" />
                     상세 보기
@@ -128,50 +124,6 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
             )
           })}
         </ul>
-      )}
-
-      {selectedUpload && (
-        <div className="absolute inset-0 z-10 flex flex-col rounded-xl bg-card animate-in fade-in zoom-in-95 duration-200">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <h3 className="font-semibold text-foreground">분석 상세</h3>
-            <Button variant="ghost" size="icon-sm" onClick={() => setSelectedUpload(null)}>
-              <X className="size-4" />
-            </Button>
-          </div>
-          <div className="flex-1 space-y-4 overflow-auto p-5">
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">대상 파일</p>
-              <p className="text-sm font-medium">{selectedUpload.fileName}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">증거 ID</p>
-                <p className="font-mono text-sm font-bold">{selectedUpload.evidenceId}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">업로드 일시</p>
-                <p className="text-sm">{formatUploadedAt(selectedUpload.uploadedAt)}</p>
-              </div>
-            </div>
-            {selectedUpload.caseName ? (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">사건명</p>
-                <p className="text-sm">{selectedUpload.caseName}</p>
-              </div>
-            ) : null}
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">SHA-256 해시</p>
-              <p className="break-all rounded bg-muted/50 p-2 font-mono text-[10px]">
-                {selectedUpload.hashValue}
-              </p>
-            </div>
-          </div>
-          <div className="border-t border-border p-4">
-            <Button className="w-full" size="sm" onClick={() => setSelectedUpload(null)}>
-              확인
-            </Button>
-          </div>
-        </div>
       )}
     </section>
   )
