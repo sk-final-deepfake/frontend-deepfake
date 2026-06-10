@@ -1,5 +1,6 @@
-// 담당: 나중
-// 역할: 관리자 대시보드 허브
+"use client"
+
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   Users,
@@ -8,12 +9,10 @@ import {
   UserCog,
   UserPlus,
   Activity,
+  Loader2,
 } from "lucide-react"
-import {
-  MOCK_ADMIN_LOGS,
-  MOCK_ADMIN_USERS,
-  MOCK_INVITE_CODES,
-} from "@/app/admin/_data/mock-admin"
+import { fetchAdminDashboardStats, type AdminDashboardStats } from "@/lib/api/admin"
+import { ApiError } from "@/lib/api/client"
 
 const cards = [
   {
@@ -21,38 +20,64 @@ const cards = [
     title: "계정 관리",
     description: "전체 사용자 승인·삭제·상태 관리",
     icon: Users,
-    metric: `${MOCK_ADMIN_USERS.length}명`,
-    sub: `대기 ${MOCK_ADMIN_USERS.filter((u) => u.status === "PENDING").length}명`,
   },
   {
     href: "/admin/invite-codes",
     title: "생성코드",
     description: "가입용 유효 코드 발급 및 저장",
     icon: Ticket,
-    metric: `${MOCK_INVITE_CODES.filter((c) => c.status === "UNUSED").length}개`,
-    sub: "미사용 코드",
   },
   {
     href: "/admin/logs",
     title: "로그 대시보드",
     description: "시스템·CoC 로그 조회 및 필터",
     icon: ScrollText,
-    metric: `${MOCK_ADMIN_LOGS.length}건`,
-    sub: `CoC ${MOCK_ADMIN_LOGS.filter((l) => l.category === "COC").length}건`,
   },
   {
     href: "/admin/profile",
     title: "관리자 내 정보",
     description: "관리자 개인정보 수정",
     icon: UserCog,
-    metric: "프로필",
-    sub: "정보 수정",
   },
 ]
 
 export default function AdminDashboardPage() {
-  const pendingCount = MOCK_ADMIN_USERS.filter((u) => u.status === "PENDING").length
-  const todayLogs = MOCK_ADMIN_LOGS.filter((l) => l.timestamp.startsWith("2026-06-09")).length
+  const [stats, setStats] = useState<AdminDashboardStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      setError("")
+      try {
+        const response = await fetchAdminDashboardStats()
+        setStats(response)
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "통계를 불러오지 못했습니다.")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void load()
+  }, [])
+
+  if (loading) {
+    return (
+      <main className="mx-auto flex max-w-7xl items-center justify-center px-4 py-24">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </main>
+    )
+  }
+
+  if (!stats) {
+    return (
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <p className="text-sm text-destructive">{error || "통계를 불러오지 못했습니다."}</p>
+      </main>
+    )
+  }
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
@@ -71,23 +96,21 @@ export default function AdminDashboardPage() {
             <UserPlus className="size-4" />
             가입 대기
           </div>
-          <p className="mt-2 text-2xl font-semibold text-foreground">{pendingCount}명</p>
+          <p className="mt-2 text-2xl font-semibold text-foreground">{stats.pendingUsers}명</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Users className="size-4" />
             전체 계정
           </div>
-          <p className="mt-2 text-2xl font-semibold text-foreground">
-            {MOCK_ADMIN_USERS.length}명
-          </p>
+          <p className="mt-2 text-2xl font-semibold text-foreground">{stats.totalUsers}명</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Activity className="size-4" />
             오늘 로그
           </div>
-          <p className="mt-2 text-2xl font-semibold text-foreground">{todayLogs}건</p>
+          <p className="mt-2 text-2xl font-semibold text-foreground">{stats.todayLogs}건</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -95,7 +118,7 @@ export default function AdminDashboardPage() {
             미사용 코드
           </div>
           <p className="mt-2 text-2xl font-semibold text-foreground">
-            {MOCK_INVITE_CODES.filter((c) => c.status === "UNUSED").length}개
+            {stats.unusedInviteCodes}개
           </p>
         </div>
       </div>
@@ -103,6 +126,23 @@ export default function AdminDashboardPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {cards.map((card) => {
           const Icon = card.icon
+          const metric =
+            card.href === "/admin/users"
+              ? `${stats.totalUsers}명`
+              : card.href === "/admin/invite-codes"
+                ? `${stats.unusedInviteCodes}개`
+                : card.href === "/admin/logs"
+                  ? `${stats.todayLogs}건`
+                  : "프로필"
+          const sub =
+            card.href === "/admin/users"
+              ? `대기 ${stats.pendingUsers}명`
+              : card.href === "/admin/invite-codes"
+                ? "미사용 코드"
+                : card.href === "/admin/logs"
+                  ? `CoC ${stats.cocLogs}건`
+                  : "정보 수정"
+
           return (
             <Link
               key={card.href}
@@ -118,8 +158,8 @@ export default function AdminDashboardPage() {
                   <p className="mt-2 text-sm text-muted-foreground">{card.description}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-semibold text-foreground">{card.metric}</p>
-                  <p className="text-xs text-muted-foreground">{card.sub}</p>
+                  <p className="text-lg font-semibold text-foreground">{metric}</p>
+                  <p className="text-xs text-muted-foreground">{sub}</p>
                 </div>
               </div>
             </Link>

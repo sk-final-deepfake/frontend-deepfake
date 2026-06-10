@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Table,
   TableBody,
@@ -11,8 +11,11 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MOCK_ADMIN_LOGS, getLogDepartments } from "@/app/admin/_data/mock-admin"
+import { Loader2, Download } from "lucide-react"
 import type { AdminLog, LogCategory } from "@/app/admin/_types/admin"
+import { exportAdminLogsCsv, fetchAdminDashboardStats, fetchAdminLogs } from "@/lib/api/admin"
+import { ApiError } from "@/lib/api/client"
+import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
 
 const PAGE_SIZE = 8
 
@@ -41,41 +44,98 @@ export default function AdminLogsPage() {
   const [tab, setTab] = useState<"ALL" | "COC">("ALL")
   const [departmentFilter, setDepartmentFilter] = useState("ALL")
   const [search, setSearch] = useState("")
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(0)
+  const [logs, setLogs] = useState<AdminLog[]>([])
+  const [departments, setDepartments] = useState<string[]>([])
+  const [total, setTotal] = useState(0)
+  const [todayCount, setTodayCount] = useState(0)
+  const [cocCount, setCocCount] = useState(0)
+  const [totalLogCount, setTotalLogCount] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const { toast } = useAdminToast()
 
-  const departments = useMemo(() => getLogDepartments(MOCK_ADMIN_LOGS), [])
+  const loadLogs = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetchAdminLogs({
+        category: tab === "COC" ? "COC" : "ALL",
+        department: departmentFilter,
+        search,
+        page,
+        size: PAGE_SIZE,
+      })
+      setLogs(response.items)
+      setTotal(response.total)
+      setDepartments(response.departments)
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "로그 목록을 불러오지 못했습니다."
+      toast({ title: "조회 실패", description: message })
+    } finally {
+      setLoading(false)
+    }
+  }, [departmentFilter, page, search, tab, toast])
 
-  const filteredLogs = useMemo(() => {
-    return MOCK_ADMIN_LOGS.filter((log) => {
-      const matchesTab = tab === "ALL" || log.category === "COC"
-      const matchesDepartment =
-        departmentFilter === "ALL" || log.department === departmentFilter
-      const matchesSearch =
-        log.action.includes(search) ||
-        log.department.includes(search) ||
-        log.actor.includes(search) ||
-        (log.detail?.includes(search) ?? false)
-      return matchesTab && matchesDepartment && matchesSearch
-    })
-  }, [tab, departmentFilter, search])
+  useEffect(() => {
+    void loadLogs()
+  }, [loadLogs])
+
+  useEffect(() => {
+    async function loadSummary() {
+      try {
+        const stats = await fetchAdminDashboardStats()
+        setTodayCount(stats.todayLogs)
+        setCocCount(stats.cocLogs)
+        const allLogs = await fetchAdminLogs({ page: 0, size: 1 })
+        setTotalLogCount(allLogs.total)
+      } catch {
+        // summary cards are optional if logs fail
+      }
+    }
+
+    void loadSummary()
+  }, [])
 
   const departmentStats = useMemo(() => {
-    const source = tab === "COC"
-      ? MOCK_ADMIN_LOGS.filter((log) => log.category === "COC")
-      : MOCK_ADMIN_LOGS
-
     return departments
       .map((department) => ({
         department,
-        count: source.filter((log) => log.department === department).length,
+        count: logs.filter((log) => log.department === department).length,
       }))
       .filter((item) => item.count > 0)
-  }, [departments, tab])
+  }, [departments, logs])
 
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE))
-  const pagedLogs = filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const todayCount = MOCK_ADMIN_LOGS.filter((l) => l.timestamp.startsWith("2026-06-09")).length
-  const cocCount = MOCK_ADMIN_LOGS.filter((l) => l.category === "COC").length
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  async function handleExportCsv() {
+    setExporting(true)
+    try {
+      const blob = await exportAdminLogsCsv({
+        category: tab === "COC" ? "COC" : "ALL",
+        department: departmentFilter,
+        search,
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `admin-logs-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      toast({
+        title: "CSV 내보내기 완료",
+        description: "현재 필터 조건의 로그가 다운로드되었습니다.",
+      })
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "CSV 내보내기에 실패했습니다."
+      toast({ title: "내보내기 실패", description: message })
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -91,7 +151,7 @@ export default function AdminLogsPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">전체 로그</p>
-          <p className="mt-1 text-2xl font-semibold">{MOCK_ADMIN_LOGS.length}건</p>
+          <p className="mt-1 text-2xl font-semibold">{totalLogCount}건</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">오늘 로그</p>
@@ -103,13 +163,13 @@ export default function AdminLogsPage() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           variant={tab === "ALL" ? "default" : "outline"}
           onClick={() => {
             setTab("ALL")
-            setPage(1)
+            setPage(0)
           }}
         >
           전체 로그
@@ -119,40 +179,56 @@ export default function AdminLogsPage() {
           variant={tab === "COC" ? "default" : "outline"}
           onClick={() => {
             setTab("COC")
-            setPage(1)
+            setPage(0)
           }}
         >
           CoC 로그
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto"
+          disabled={exporting || loading}
+          onClick={() => void handleExportCsv()}
+        >
+          {exporting ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <Download className="size-3" />
+          )}
+          CSV 내보내기
+        </Button>
       </div>
 
-      <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {departmentStats.map((item) => (
-          <button
-            key={item.department}
-            type="button"
-            onClick={() => {
-              setDepartmentFilter(item.department)
-              setPage(1)
-            }}
-            className={`rounded-lg border px-4 py-3 text-left transition-colors ${
-              departmentFilter === item.department
-                ? "border-primary bg-primary/10"
-                : "border-border bg-card hover:bg-accent/30"
-            }`}
-          >
-            <p className="text-sm font-medium text-foreground">{item.department}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{item.count}건</p>
-          </button>
-        ))}
-      </div>
+      {departmentStats.length > 0 && (
+        <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {departmentStats.map((item) => (
+            <button
+              key={item.department}
+              type="button"
+              onClick={() => {
+                setDepartmentFilter(item.department)
+                setPage(0)
+              }}
+              className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                departmentFilter === item.department
+                  ? "border-primary bg-primary/10"
+                  : "border-border bg-card hover:bg-accent/30"
+              }`}
+            >
+              <p className="text-sm font-medium text-foreground">{item.department}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{item.count}건</p>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row">
         <input
           value={search}
           onChange={(e) => {
             setSearch(e.target.value)
-            setPage(1)
+            setPage(0)
           }}
           placeholder="행위, 부서, 사용자, 상세 검색"
           className="h-9 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -161,7 +237,7 @@ export default function AdminLogsPage() {
           value={departmentFilter}
           onChange={(e) => {
             setDepartmentFilter(e.target.value)
-            setPage(1)
+            setPage(0)
           }}
           className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         >
@@ -187,14 +263,20 @@ export default function AdminLogsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pagedLogs.length === 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  <Loader2 className="mx-auto size-5 animate-spin" />
+                </TableCell>
+              </TableRow>
+            ) : logs.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                   조건에 맞는 로그가 없습니다.
                 </TableCell>
               </TableRow>
             ) : (
-              pagedLogs.map((log) => <LogRow key={log.id} log={log} />)
+              logs.map((log) => <LogRow key={log.id} log={log} />)
             )}
           </TableBody>
         </Table>
@@ -202,14 +284,14 @@ export default function AdminLogsPage() {
 
       <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
         <span>
-          총 {filteredLogs.length}건 · {page}/{totalPages} 페이지
+          총 {total}건 · {page + 1}/{totalPages} 페이지
           {departmentFilter !== "ALL" && ` · ${departmentFilter}`}
         </span>
         <div className="flex gap-2">
           <Button
             size="sm"
             variant="outline"
-            disabled={page <= 1}
+            disabled={page <= 0 || loading}
             onClick={() => setPage((p) => p - 1)}
           >
             이전
@@ -217,7 +299,7 @@ export default function AdminLogsPage() {
           <Button
             size="sm"
             variant="outline"
-            disabled={page >= totalPages}
+            disabled={page + 1 >= totalPages || loading}
             onClick={() => setPage((p) => p + 1)}
           >
             다음
