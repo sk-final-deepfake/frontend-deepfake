@@ -1,19 +1,29 @@
 import Link from "next/link"
 import { ShieldCheck, Lock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { SiteHeaderAuth } from "@/components/site-header-auth"
 
 const navItems = [
   { label: "분석", href: "/main" },
   { label: "내 분석 기록", href: "/mypage" },
-  { label: "관리자", href: "/admin" },
-  { label: "로그인", href: "/login" },
 ]
 
-export function SiteHeader() {
+type SiteHeaderProps = {
+  minimal?: boolean
+  variant?: "default" | "admin" | "minimal"
+}
+
+export function SiteHeader({
+  minimal = false,
+  variant = minimal ? "minimal" : "default",
+}: SiteHeaderProps) {
+  const showNav = variant === "default"
+  const showAuth = variant !== "minimal"
+
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3">
+        <Link href={variant === "admin" ? "/admin" : "/main"} className="flex items-center gap-3">
           <div className="flex size-9 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-primary/30">
             <ShieldCheck className="size-5" aria-hidden="true" />
           </div>
@@ -22,22 +32,26 @@ export function SiteHeader() {
               VeriForensics
             </span>
             <span className="text-[11px] text-muted-foreground">
-              Digital Media Authentication
+              {variant === "admin"
+                ? "Administration Console"
+                : "Digital Media Authentication"}
             </span>
           </div>
-        </div>
+        </Link>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="주 메뉴">
-          {navItems.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        {showNav && (
+          <nav className="hidden items-center gap-1 md:flex" aria-label="주 메뉴">
+            {navItems.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        )}
 
         <div className="flex items-center gap-3">
           <Badge
@@ -45,16 +59,9 @@ export function SiteHeader() {
             className="hidden gap-1.5 border-primary/30 bg-primary/10 text-primary sm:flex"
           >
             <Lock className="size-3" aria-hidden="true" />
-            내부망 전용
+            {variant === "admin" ? "관리자 전용" : "내부망 전용"}
           </Badge>
-          <div className="flex items-center gap-2">
-            <div className="flex size-8 items-center justify-center rounded-full bg-secondary text-xs font-medium text-secondary-foreground">
-              KIM
-            </div>
-            <span className="hidden text-sm text-muted-foreground lg:inline">
-              김분석 수사관
-            </span>
-          </div>
+          {showAuth && <SiteHeaderAuth />}
         </div>
       </div>
     </header>

@@ -1,133 +1,130 @@
-import { AudioLines, Video, ImageIcon, ChevronRight } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+"use client"
 
-type Verdict = "authentic" | "suspicious" | "manipulated"
+import Link from "next/link"
+import {
+  AudioLines,
+  Video,
+  ImageIcon,
+  ChevronRight,
+  FileText,
+  Search,
+  FileSearch,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
+import type { UploadResult } from "@/lib/evidence-api"
 
-type Analysis = {
-  id: string
-  name: string
-  kind: "audio" | "video" | "image"
-  verdict: Verdict
-  confidence: number
-  time: string
+type MediaKind = "audio" | "video" | "image" | "unknown"
+
+function kindFromFileName(name: string): MediaKind {
+  const lower = name.toLowerCase()
+  if (/\.(mp3|wav|aac|flac|ogg|m4a)$/.test(lower)) return "audio"
+  if (/\.(mp4|mov|avi|mkv|webm)$/.test(lower)) return "video"
+  if (/\.(jpg|jpeg|png|gif|webp|bmp)$/.test(lower)) return "image"
+  return "unknown"
 }
-
-const recent: Analysis[] = [
-  {
-    id: "CASE-2026-0412",
-    name: "interview_clip_04.mp4",
-    kind: "video",
-    verdict: "manipulated",
-    confidence: 96,
-    time: "12분 전",
-  },
-  {
-    id: "CASE-2026-0411",
-    name: "voicemail_evidence.wav",
-    kind: "audio",
-    verdict: "suspicious",
-    confidence: 71,
-    time: "47분 전",
-  },
-  {
-    id: "CASE-2026-0410",
-    name: "scene_photo_117.jpg",
-    kind: "image",
-    verdict: "authentic",
-    confidence: 99,
-    time: "1시간 전",
-  },
-  {
-    id: "CASE-2026-0409",
-    name: "cctv_export_2230.mp4",
-    kind: "video",
-    verdict: "authentic",
-    confidence: 94,
-    time: "3시간 전",
-  },
-]
 
 const kindIcon = {
   audio: AudioLines,
   video: Video,
   image: ImageIcon,
+  unknown: FileSearch,
 }
 
-const verdictConfig: Record<
-  Verdict,
-  { label: string; className: string; dot: string }
-> = {
-  authentic: {
-    label: "정상",
-    className: "border-chart-5/40 bg-chart-5/10 text-chart-5",
-    dot: "bg-chart-5",
-  },
-  suspicious: {
-    label: "의심",
-    className: "border-chart-3/40 bg-chart-3/10 text-chart-3",
-    dot: "bg-chart-3",
-  },
-  manipulated: {
-    label: "위변조",
-    className: "border-destructive/40 bg-destructive/10 text-destructive",
-    dot: "bg-destructive",
-  },
+function formatUploadedAt(iso: string) {
+  return new Date(iso).toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
-export function RecentAnalyses() {
+type RecentAnalysesProps = {
+  uploads: UploadResult[]
+}
+
+export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
   return (
     <section
       id="reports"
-      className="rounded-xl border border-border bg-card"
+      className="relative rounded-xl border border-border bg-card shadow-sm"
       aria-label="최근 분석 내역"
     >
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
-        <h2 className="text-base font-semibold text-card-foreground">
-          최근 분석 내역
-        </h2>
-        <a
-          href="#cases"
-          className="flex items-center gap-0.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        <div className="flex items-center gap-2">
+          <FileText className="size-4 text-primary" />
+          <h2 className="text-base font-semibold text-card-foreground">
+            최근 분석 내역
+          </h2>
+        </div>
+        <Link
+          href="/mypage"
+          className="flex items-center gap-0.5 text-sm text-muted-foreground transition-colors hover:text-primary"
         >
           전체 보기
           <ChevronRight className="size-4" aria-hidden="true" />
-        </a>
+        </Link>
       </div>
 
-      <ul className="divide-y divide-border">
-        {recent.map((item) => {
-          const Icon = kindIcon[item.kind]
-          const v = verdictConfig[item.verdict]
-          return (
-            <li
-              key={item.id}
-              className="flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-accent/40"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">
-                <Icon className="size-4" aria-hidden="true" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">
-                  {item.name}
-                </p>
-                <p className="font-mono text-xs text-muted-foreground">
-                  {item.id} · {item.time}
-                </p>
-              </div>
-              <div className="hidden text-right sm:block">
-                <p className="font-mono text-sm text-foreground">
-                  {item.confidence}%
-                </p>
-                <p className="text-[11px] text-muted-foreground">신뢰도</p>
-              </div>
-              <Badge variant="outline" className={`gap-1.5 ${v.className}`}>
-                <span className={`size-1.5 rounded-full ${v.dot}`} aria-hidden="true" />
-                {v.label}
-              </Badge>
-            </li>
-          )
-        })}
-      </ul>
+      {uploads.length === 0 ? (
+        <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+          아직 분석을 시작한 증거가 없습니다.
+        </div>
+      ) : (
+        <ul className="divide-y divide-border">
+          {uploads.map((item) => {
+            const kind = kindFromFileName(item.fileName)
+            const Icon = kindIcon[kind]
+            return (
+              <li
+                key={item.hashValue}
+                className="group flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-accent/40"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">
+                    <Icon className="size-4" aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {item.fileName}
+                      </p>
+                      <AnalysisStatusBadge
+                        status={item.analysisStatus ?? "PENDING"}
+                        className="h-5 px-1.5"
+                      />
+                    </div>
+                    <p className="font-mono text-[10px] text-muted-foreground">
+                      EV-{item.evidenceId}
+                      {item.caseName ? ` · ${item.caseName}` : ""}
+                    </p>
+                  </div>
+                  <div className="hidden text-right sm:block">
+                    <p className="font-mono text-[10px] text-muted-foreground">
+                      {formatUploadedAt(item.uploadedAt)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-7 gap-1.5 text-xs"
+                    render={<Link href={`/cases/${item.evidenceId}`} />}
+                    nativeButton={false}
+                  >
+                    <Search className="size-3" />
+                    상세 보기
+                  </Button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </section>
   )
 }

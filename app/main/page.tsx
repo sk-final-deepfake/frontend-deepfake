@@ -1,15 +1,13 @@
 // 담당: 이새연
 // 역할: 메인페이지 및 파일 업로드 화면 (클론 디자인 기반)
 import { SiteHeader } from "@/components/site-header"
-import { UploadPanel } from "@/components/upload-panel"
-import { CapabilitiesSection } from "@/components/capabilities-section"
-import { RecentAnalyses } from "@/components/recent-analyses"
+import { MainDashboard } from "@/components/main-dashboard"
 import { Badge } from "@/components/ui/badge"
-import { Activity } from "lucide-react"
+import { Activity, LayoutDashboard, History } from "lucide-react"
 
 export default function MainPage() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-slate-50/50 dark:bg-background">
       <SiteHeader />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -21,27 +19,25 @@ export default function MainPage() {
             <Activity className="size-3" aria-hidden="true" />
             포렌식 분석 시스템 · 정상 운영 중
           </Badge>
-          <h1 className="text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-            딥페이크 및 디지털 미디어 위변조 분석
+          <h1 className="text-balance text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            디지털 미디어 위변조 분석 대시보드
           </h1>
           <p className="max-w-2xl text-pretty text-sm leading-relaxed text-muted-foreground">
-            음성·영상·이미지 증거물의 합성 및 편집 흔적을 자동으로 탐지하고,
-            법정 제출용 분석 보고서를 생성하는 수사관 보조 플랫폼입니다.
+            첨단 AI 모델을 활용하여 미디어 증거물의 무결성을 검증합니다.
+            업로드된 파일은 안전하게 분석되며, 결과 보고서를 즉시 확인할 수 있습니다.
           </p>
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-3">
-          <div className="space-y-8 lg:col-span-2">
-            <UploadPanel />
-            <CapabilitiesSection />
-          </div>
-          <div className="lg:col-span-1">
-            <RecentAnalyses />
-          </div>
+        {/* 분석 기록 섹션 타이틀 */}
+        <div className="mb-6 flex items-center gap-2 border-b border-border pb-2">
+          <History className="size-5 text-primary" />
+          <h2 className="text-xl font-semibold text-foreground">분석 기록 및 새 분석 시작</h2>
         </div>
+
+        <MainDashboard />
       </main>
 
-      <footer className="border-t border-border">
+      <footer className="border-t border-border bg-white dark:bg-card">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 py-6 text-xs text-muted-foreground sm:flex-row sm:px-6 lg:px-8">
           <p>VeriForensics · 디지털 미디어 인증 시스템 v1.0</p>
           <p className="font-mono">내부망 전용 · 외부 반출 금지</p>

@@ -1,4 +1,8 @@
-import { AudioLines, Video, ImageIcon, ScanFace, Waves, Layers } from "lucide-react"
+"use client"
+
+import { useEffect, useState } from "react"
+import { AudioLines, Video, ImageIcon, ScanFace, Waves, Layers, Loader2 } from "lucide-react"
+import { fetchEvidenceStats } from "@/lib/evidence-api"
 
 const capabilities = [
   {
@@ -21,17 +25,57 @@ const capabilities = [
   },
 ]
 
-const mediaStats = [
-  { icon: ImageIcon, label: "이미지 분석", value: "1,284", unit: "건" },
-  { icon: Video, label: "영상 분석", value: "642", unit: "건" },
-  { icon: AudioLines, label: "음성 분석", value: "389", unit: "건" },
+const mediaStatConfig = [
+  { key: "imageCount" as const, icon: ImageIcon, label: "이미지 분석" },
+  { key: "videoCount" as const, icon: Video, label: "영상 분석" },
+  { key: "audioCount" as const, icon: AudioLines, label: "음성 분석" },
 ]
 
-export function CapabilitiesSection() {
+function formatCount(value: number) {
+  return value.toLocaleString("ko-KR")
+}
+
+type CapabilitiesSectionProps = {
+  refreshKey?: number
+}
+
+export function CapabilitiesSection({ refreshKey = 0 }: CapabilitiesSectionProps) {
+  const [stats, setStats] = useState({ imageCount: 0, videoCount: 0, audioCount: 0 })
+  const [isLoading, setIsLoading] = useState(true)
+  const [hasError, setHasError] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadStats() {
+      setIsLoading(true)
+      setHasError(false)
+      try {
+        const data = await fetchEvidenceStats()
+        if (!cancelled) {
+          setStats(data)
+        }
+      } catch {
+        if (!cancelled) {
+          setHasError(true)
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadStats()
+    return () => {
+      cancelled = true
+    }
+  }, [refreshKey])
+
   return (
     <section className="space-y-6" aria-label="분석 역량">
       <div className="grid gap-4 sm:grid-cols-3">
-        {mediaStats.map((s) => (
+        {mediaStatConfig.map((s) => (
           <div
             key={s.label}
             className="flex items-center gap-4 rounded-xl border border-border bg-card p-4"
@@ -42,10 +86,18 @@ export function CapabilitiesSection() {
             <div>
               <p className="text-xs text-muted-foreground">{s.label}</p>
               <p className="font-mono text-xl font-semibold text-foreground">
-                {s.value}
-                <span className="ml-1 text-sm font-normal text-muted-foreground">
-                  {s.unit}
-                </span>
+                {isLoading ? (
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                ) : hasError ? (
+                  <span className="text-sm text-destructive">조회 실패</span>
+                ) : (
+                  <>
+                    {formatCount(stats[s.key])}
+                    <span className="ml-1 text-sm font-normal text-muted-foreground">
+                      건
+                    </span>
+                  </>
+                )}
               </p>
             </div>
           </div>
