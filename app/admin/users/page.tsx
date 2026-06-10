@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   Table,
   TableBody,
@@ -13,55 +13,79 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
 import { Loader2, CheckCircle, XCircle, Trash2, Search, Pencil } from "lucide-react"
-import { MOCK_ADMIN_USERS } from "@/app/admin/_data/mock-admin"
 import type { AdminUser, UserStatus } from "@/app/admin/_types/admin"
 import { DeleteUserDialog } from "@/app/admin/_components/delete-user-dialog"
 import {
   EditUserDialog,
   type UserEditPayload,
 } from "@/app/admin/_components/edit-user-dialog"
+import {
+  approveAdminUser,
+  deleteAdminUser,
+  fetchAdminUsers,
+  rejectAdminUser,
+  resetAdminUserPassword,
+  updateAdminUser,
+} from "@/lib/api/admin"
+import { ApiError } from "@/lib/api/client"
 
 const PAGE_SIZE = 10
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<AdminUser[]>(MOCK_ADMIN_USERS)
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<"ALL" | UserStatus>("ALL")
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(0)
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
   const [editTarget, setEditTarget] = useState<AdminUser | null>(null)
   const { toast } = useAdminToast()
 
-  const filteredUsers = useMemo(() => {
-    return users.filter((user) => {
-      const matchesSearch =
-        user.username.toLowerCase().includes(search.toLowerCase()) ||
-        user.displayName.includes(search) ||
-        user.email.toLowerCase().includes(search.toLowerCase())
-      const matchesStatus = statusFilter === "ALL" || user.status === statusFilter
-      return matchesSearch && matchesStatus
-    })
-  }, [users, search, statusFilter])
+  const loadUsers = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetchAdminUsers({
+        search,
+        status: statusFilter,
+        page,
+        size: PAGE_SIZE,
+      })
+      setUsers(response.items)
+      setTotal(response.total)
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "계정 목록을 불러오지 못했습니다."
+      toast({ title: "조회 실패", description: message })
+    } finally {
+      setLoading(false)
+    }
+  }, [page, search, statusFilter, toast])
 
-  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE))
-  const pagedUsers = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  useEffect(() => {
+    void loadUsers()
+  }, [loadUsers])
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   async function handleAction(userId: string, action: "APPROVE" | "REJECT") {
     setProcessingId(`${userId}-${action}`)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800))
-      setUsers((prev) =>
-        prev.map((user) =>
-          user.id === userId
-            ? { ...user, status: action === "APPROVE" ? "APPROVED" : "REJECTED" }
-            : user
-        )
-      )
+      if (action === "APPROVE") {
+        await approveAdminUser(userId)
+      } else {
+        await rejectAdminUser(userId)
+      }
       toast({
         title: action === "APPROVE" ? "가입 승인 완료" : "가입 반려 완료",
         description: `사용자 계정이 ${action === "APPROVE" ? "승인" : "반려"}되었습니다.`,
       })
+      await loadUsers()
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "요청 처리 중 오류가 발생했습니다."
+      toast({ title: "처리 실패", description: message })
     } finally {
       setProcessingId(null)
     }
@@ -71,26 +95,26 @@ export default function AdminUsersPage() {
     if (!editTarget) return
     setProcessingId(`${editTarget.id}-EDIT`)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800))
-      setUsers((prev) =>
-        prev.map((user) =>
-          user.id === editTarget.id
-            ? {
-                ...user,
-                displayName: payload.displayName,
-                email: payload.email,
-                department: payload.department,
-              }
-            : user
-        )
-      )
+      await updateAdminUser(editTarget.id, {
+        displayName: payload.displayName,
+        email: payload.email,
+        department: payload.department,
+      })
+      if (payload.newPassword) {
+        await resetAdminUserPassword(editTarget.id, payload.newPassword)
+      }
       toast({
         title: "계정 정보 수정 완료",
         description: payload.newPassword
-          ? `${editTarget.username} 정보 및 비밀번호가 수정되었습니다. (mock)`
+          ? `${editTarget.username} 정보 및 비밀번호가 수정되었습니다.`
           : `${editTarget.username} 계정 정보가 수정되었습니다.`,
       })
       setEditTarget(null)
+      await loadUsers()
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "계정 수정 중 오류가 발생했습니다."
+      toast({ title: "수정 실패", description: message })
     } finally {
       setProcessingId(null)
     }
@@ -100,13 +124,17 @@ export default function AdminUsersPage() {
     if (!deleteTarget) return
     setProcessingId(`${deleteTarget.id}-DELETE`)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800))
-      setUsers((prev) => prev.filter((user) => user.id !== deleteTarget.id))
+      await deleteAdminUser(deleteTarget.id)
       toast({
         title: "계정 삭제 완료",
         description: `${deleteTarget.username} 계정이 삭제되었습니다.`,
       })
       setDeleteTarget(null)
+      await loadUsers()
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "계정 삭제 중 오류가 발생했습니다."
+      toast({ title: "삭제 실패", description: message })
     } finally {
       setProcessingId(null)
     }
@@ -153,7 +181,7 @@ export default function AdminUsersPage() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value)
-              setPage(1)
+              setPage(0)
             }}
             placeholder="아이디, 이름, 이메일 검색"
             className="h-9 w-full rounded-lg border border-border bg-background pr-3 pl-9 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -163,7 +191,7 @@ export default function AdminUsersPage() {
           value={statusFilter}
           onChange={(e) => {
             setStatusFilter(e.target.value as "ALL" | UserStatus)
-            setPage(1)
+            setPage(0)
           }}
           className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         >
@@ -187,14 +215,20 @@ export default function AdminUsersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pagedUsers.length === 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  <Loader2 className="mx-auto size-5 animate-spin" />
+                </TableCell>
+              </TableRow>
+            ) : users.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                   조건에 맞는 계정이 없습니다.
                 </TableCell>
               </TableRow>
             ) : (
-              pagedUsers.map((user) => (
+              users.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell className="font-mono font-medium">{user.username}</TableCell>
                   <TableCell>
@@ -267,13 +301,13 @@ export default function AdminUsersPage() {
 
       <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
         <span>
-          총 {filteredUsers.length}명 · {page}/{totalPages} 페이지
+          총 {total}명 · {page + 1}/{totalPages} 페이지
         </span>
         <div className="flex gap-2">
           <Button
             size="sm"
             variant="outline"
-            disabled={page <= 1}
+            disabled={page <= 0 || loading}
             onClick={() => setPage((p) => p - 1)}
           >
             이전
@@ -281,7 +315,7 @@ export default function AdminUsersPage() {
           <Button
             size="sm"
             variant="outline"
-            disabled={page >= totalPages}
+            disabled={page + 1 >= totalPages || loading}
             onClick={() => setPage((p) => p + 1)}
           >
             다음

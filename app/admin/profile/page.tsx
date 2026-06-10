@@ -1,17 +1,34 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { Loader2 } from "lucide-react"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
-import { MOCK_ADMIN_PROFILE } from "@/app/admin/_data/mock-admin"
 import type { AdminProfile } from "@/app/admin/_types/admin"
+import {
+  fetchAdminProfile,
+  updateAdminPassword,
+  updateAdminProfile,
+} from "@/lib/api/admin"
+import { ApiError } from "@/lib/api/client"
 
 const inputClassName =
   "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 
+const emptyProfile: AdminProfile = {
+  username: "",
+  displayName: "",
+  email: "",
+  department: "",
+  phone: "",
+  role: "",
+}
+
 export default function AdminProfilePage() {
-  const [profile, setProfile] = useState<AdminProfile>(MOCK_ADMIN_PROFILE)
+  const [profile, setProfile] = useState<AdminProfile>(emptyProfile)
+  const [initialProfile, setInitialProfile] = useState<AdminProfile>(emptyProfile)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
   const [currentPassword, setCurrentPassword] = useState("")
@@ -20,6 +37,25 @@ export default function AdminProfilePage() {
   const [passwordError, setPasswordError] = useState("")
   const [profileError, setProfileError] = useState("")
   const { toast } = useAdminToast()
+
+  useEffect(() => {
+    async function loadProfile() {
+      setLoading(true)
+      try {
+        const response = await fetchAdminProfile()
+        setProfile(response)
+        setInitialProfile(response)
+      } catch (error) {
+        const message =
+          error instanceof ApiError ? error.message : "프로필을 불러오지 못했습니다."
+        toast({ title: "조회 실패", description: message })
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void loadProfile()
+  }, [toast])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -32,11 +68,23 @@ export default function AdminProfilePage() {
 
     setSaving(true)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      const updated = await updateAdminProfile({
+        username: profile.username,
+        displayName: profile.displayName,
+        email: profile.email,
+        department: profile.department,
+        phone: profile.phone,
+      })
+      setProfile(updated)
+      setInitialProfile(updated)
       toast({
         title: "저장 완료",
-        description: "관리자 개인정보가 저장되었습니다. (mock)",
+        description: "관리자 개인정보가 저장되었습니다.",
       })
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "프로필 저장 중 오류가 발생했습니다."
+      setProfileError(message)
     } finally {
       setSaving(false)
     }
@@ -57,17 +105,29 @@ export default function AdminProfilePage() {
 
     setChangingPassword(true)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      await updateAdminPassword(currentPassword, newPassword)
       toast({
         title: "비밀번호 변경 완료",
-        description: "관리자 비밀번호가 변경되었습니다. (mock)",
+        description: "관리자 비밀번호가 변경되었습니다.",
       })
       setCurrentPassword("")
       setNewPassword("")
       setConfirmPassword("")
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "비밀번호 변경 중 오류가 발생했습니다."
+      setPasswordError(message)
     } finally {
       setChangingPassword(false)
     }
+  }
+
+  if (loading) {
+    return (
+      <main className="mx-auto flex max-w-3xl items-center justify-center px-4 py-24">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </main>
+    )
   }
 
   return (
@@ -97,7 +157,7 @@ export default function AdminProfilePage() {
             required
           />
           <p className="text-xs text-muted-foreground">
-            4~20자, 영문 소문자·숫자·밑줄(_) (API 연동 시 중복 확인 필요)
+            4~20자, 영문 소문자·숫자·밑줄(_)
           </p>
         </div>
 
@@ -165,7 +225,7 @@ export default function AdminProfilePage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setProfile(MOCK_ADMIN_PROFILE)}
+            onClick={() => setProfile(initialProfile)}
           >
             초기화
           </Button>

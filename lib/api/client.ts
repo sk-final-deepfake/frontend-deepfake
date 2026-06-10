@@ -68,3 +68,37 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   return (await response.json()) as T
 }
+
+export async function apiDownload(path: string): Promise<Blob> {
+  const token = getToken()
+  if (!token) {
+    throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    let message = "요청 처리 중 오류가 발생했습니다."
+    let errorCode: string | undefined
+
+    try {
+      const errorBody = (await response.json()) as {
+        message?: string
+        errorCode?: string
+        error?: string
+      }
+      message = errorBody.message ?? message
+      errorCode = errorBody.errorCode ?? errorBody.error
+    } catch {
+      // ignore parse errors
+    }
+
+    throw new ApiError(message, response.status, errorCode)
+  }
+
+  return response.blob()
+}

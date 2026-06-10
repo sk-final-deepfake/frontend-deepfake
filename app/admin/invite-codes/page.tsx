@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Copy, Plus, Ticket } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { Copy, Loader2, Plus, Ticket } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -14,11 +14,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
 import type { InviteCode } from "@/app/admin/_types/admin"
-import {
-  generateInviteCode,
-  getInviteCodes,
-  saveInviteCodes,
-} from "@/app/admin/_lib/invite-codes-storage"
+import { createAdminInviteCode, fetchAdminInviteCodes } from "@/lib/api/admin"
+import { ApiError } from "@/lib/api/client"
 
 function getStatusBadge(status: InviteCode["status"]) {
   switch (status) {
@@ -43,39 +40,46 @@ function getStatusBadge(status: InviteCode["status"]) {
   }
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next.toISOString().slice(0, 10)
-}
-
 export default function AdminInviteCodesPage() {
   const [codes, setCodes] = useState<InviteCode[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
   const { toast } = useAdminToast()
 
-  useEffect(() => {
-    setCodes(getInviteCodes())
-  }, [])
-
-  function persist(next: InviteCode[]) {
-    setCodes(next)
-    saveInviteCodes(next)
-  }
-
-  function handleGenerate() {
-    const today = new Date()
-    const newCode: InviteCode = {
-      id: crypto.randomUUID(),
-      code: generateInviteCode(),
-      createdAt: today.toISOString().slice(0, 10),
-      expiresAt: addDays(today, 30),
-      status: "UNUSED",
+  const loadCodes = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetchAdminInviteCodes()
+      setCodes(response)
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "생성코드 목록을 불러오지 못했습니다."
+      toast({ title: "조회 실패", description: message })
+    } finally {
+      setLoading(false)
     }
-    persist([newCode, ...codes])
-    toast({
-      title: "생성코드 발급 완료",
-      description: `${newCode.code} 코드가 저장되었습니다.`,
-    })
+  }, [toast])
+
+  useEffect(() => {
+    void loadCodes()
+  }, [loadCodes])
+
+  async function handleGenerate() {
+    setCreating(true)
+    try {
+      const newCode = await createAdminInviteCode(30)
+      setCodes((prev) => [newCode, ...prev])
+      toast({
+        title: "생성코드 발급 완료",
+        description: `${newCode.code} 코드가 발급되었습니다.`,
+      })
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "생성코드 발급에 실패했습니다."
+      toast({ title: "발급 실패", description: message })
+    } finally {
+      setCreating(false)
+    }
   }
 
   async function handleCopy(code: string) {
@@ -94,11 +98,11 @@ export default function AdminInviteCodesPage() {
             유효 생성코드 관리
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            회원가입용 코드를 생성하고 localStorage에 저장합니다. (API 연동 전 mock)
+            회원가입용 코드를 생성하고 관리합니다.
           </p>
         </div>
-        <Button onClick={handleGenerate}>
-          <Plus data-icon="inline-start" />
+        <Button onClick={handleGenerate} disabled={creating}>
+          {creating ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}
           코드 생성
         </Button>
       </div>
@@ -124,21 +128,35 @@ export default function AdminInviteCodesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {codes.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell className="font-mono font-medium">{item.code}</TableCell>
-                <TableCell className="text-muted-foreground">{item.createdAt}</TableCell>
-                <TableCell className="text-muted-foreground">{item.expiresAt}</TableCell>
-                <TableCell>{getStatusBadge(item.status)}</TableCell>
-                <TableCell className="text-muted-foreground">{item.usedBy ?? "-"}</TableCell>
-                <TableCell className="text-right">
-                  <Button size="sm" variant="outline" onClick={() => handleCopy(item.code)}>
-                    <Copy className="size-3" />
-                    복사
-                  </Button>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  <Loader2 className="mx-auto size-5 animate-spin" />
                 </TableCell>
               </TableRow>
-            ))}
+            ) : codes.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  발급된 생성코드가 없습니다.
+                </TableCell>
+              </TableRow>
+            ) : (
+              codes.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="font-mono font-medium">{item.code}</TableCell>
+                  <TableCell className="text-muted-foreground">{item.createdAt}</TableCell>
+                  <TableCell className="text-muted-foreground">{item.expiresAt ?? "-"}</TableCell>
+                  <TableCell>{getStatusBadge(item.status)}</TableCell>
+                  <TableCell className="text-muted-foreground">{item.usedBy ?? "-"}</TableCell>
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="outline" onClick={() => handleCopy(item.code)}>
+                      <Copy className="size-3" />
+                      복사
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>
