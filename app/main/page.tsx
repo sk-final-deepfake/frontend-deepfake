@@ -1,10 +1,7 @@
 // 담당: 이새연
 // 역할: 메인페이지 및 파일 업로드 화면 (클론 디자인 기반)
 import { SiteHeader } from "@/components/site-header"
-import { UploadPanel } from "@/components/upload-panel"
-import { CapabilitiesSection } from "@/components/capabilities-section"
-import { RecentAnalyses } from "@/components/recent-analyses"
-import { MetadataInfo } from "@/components/metadata-info"
+import { MainDashboard } from "@/components/main-dashboard"
 import { Badge } from "@/components/ui/badge"
 import { Activity, LayoutDashboard, History } from "lucide-react"
 
@@ -37,19 +34,7 @@ export default function MainPage() {
           <h2 className="text-xl font-semibold text-foreground">분석 기록 및 새 분석 시작</h2>
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-3">
-          {/* 왼쪽 영역 (60%) */}
-          <div className="space-y-8 lg:col-span-2">
-            <UploadPanel />
-            <CapabilitiesSection />
-          </div>
-
-          {/* 오른쪽 영역 (40%): 메타데이터 정보 + 최근 분석 내역 */}
-          <div className="space-y-6 lg:col-span-1">
-            <MetadataInfo />
-            <RecentAnalyses />
-          </div>
-        </div>
+        <MainDashboard />
       </main>
 
       <footer className="border-t border-border bg-white dark:bg-card">

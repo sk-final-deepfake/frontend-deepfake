@@ -3,12 +3,16 @@ export type AuthRole = "user" | "admin"
 export type AuthSession = {
   role: AuthRole
   userId: string
+  loginId: string
+  name: string
+  token: string
 }
 
-const STORAGE_KEY = "veriforensics-mock-auth"
+const STORAGE_KEY = "veriforensics-auth"
 
-export const MOCK_USER = { id: "1111", password: "2222" }
-export const MOCK_ADMIN = { id: "3333", password: "4444" }
+export function mapBackendRole(role: string): AuthRole {
+  return role === "ROLE_ADMIN" ? "admin" : "user"
+}
 
 export function getSession(): AuthSession | null {
   if (typeof window === "undefined") return null
@@ -21,6 +25,10 @@ export function getSession(): AuthSession | null {
   } catch {
     return null
   }
+}
+
+export function getToken(): string | null {
+  return getSession()?.token ?? null
 }
 
 export function setSession(session: AuthSession) {

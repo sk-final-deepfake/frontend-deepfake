@@ -1,11 +1,11 @@
 // 담당: 김민희
-// 역할: 소속 기관/부서 자동완성 입력 (기관 유형 종속 → 해당 유형 부서만 검색)
-// 주의: 위치기반(geolocation) 미사용. mock 데이터 기반.
+// 역할: 소속 기관/부서 자동완성 입력 (기관 유형 종속 → API 부서 목록)
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Building2, Search } from "lucide-react"
-import { filterDepartments, type OrgType } from "./organizationData"
+import { fetchDepartments } from "@/lib/signup-api"
+import type { OrgType } from "./organizationData"
 
 export default function DepartmentAutocomplete({
   orgType,
@@ -17,10 +17,49 @@ export default function DepartmentAutocomplete({
   onChange: (v: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [departments, setDepartments] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
 
-  // 기관 유형이 선택돼야 부서 입력 가능
   const disabled = !orgType
-  const results = orgType ? filterDepartments(orgType, value) : []
+
+  useEffect(() => {
+    if (!orgType) {
+      setDepartments([])
+      return
+    }
+
+    let cancelled = false
+    setLoading(true)
+
+    fetchDepartments(orgType)
+      .then((response) => {
+        if (!cancelled) {
+          setDepartments([...response.departments, "기타"])
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDepartments(["기타"])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [orgType])
+
+  const results = useMemo(() => {
+    const q = value.trim().replace(/\s+/g, "").toLowerCase()
+    if (!q) return departments
+    return departments.filter((dept) =>
+      dept.replace(/\s+/g, "").toLowerCase().includes(q)
+    )
+  }, [departments, value])
 
   const select = (dept: string) => {
     onChange(dept)
@@ -35,14 +74,20 @@ export default function DepartmentAutocomplete({
           <input
             type="text"
             value={value}
-            disabled={disabled}
+            disabled={disabled || loading}
             onChange={(e) => {
               onChange(e.target.value)
               setOpen(true)
             }}
             onFocus={() => setOpen(true)}
-            onBlur={() => setTimeout(() => setOpen(false), 120)} // 항목 클릭 여유
-            placeholder={disabled ? "기관 유형을 먼저 선택하세요" : "소속 기관 / 부서 검색"}
+            onBlur={() => setTimeout(() => setOpen(false), 120)}
+            placeholder={
+              disabled
+                ? "기관 유형을 먼저 선택하세요"
+                : loading
+                  ? "부서 목록 불러오는 중..."
+                  : "소속 기관 / 부서 검색"
+            }
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
             role="combobox"
             aria-expanded={open}
@@ -52,14 +97,12 @@ export default function DepartmentAutocomplete({
         </div>
       </div>
 
-      {/* 자동완성 드롭다운 (선택한 기관 유형의 부서만) */}
       {open && !disabled && results.length > 0 && (
         <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-y-auto rounded-xl border border-border bg-card py-1 shadow-lg">
           {results.map((dept) => (
             <li key={dept}>
               <button
                 type="button"
-                // onMouseDown: input의 blur 보다 먼저 실행되어 선택이 유지됨
                 onMouseDown={(e) => {
                   e.preventDefault()
                   select(dept)

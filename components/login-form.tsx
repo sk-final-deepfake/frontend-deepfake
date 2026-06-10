@@ -4,11 +4,9 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
-import {
-  MOCK_ADMIN,
-  MOCK_USER,
-  setSession,
-} from "@/lib/mock-auth"
+import { login } from "@/lib/auth-api"
+import { ApiError } from "@/lib/api-client"
+import { mapBackendRole, setSession } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -34,24 +32,38 @@ export function LoginForm() {
   const [password, setPassword] = useState("")
   const [showContactMessage, setShowContactMessage] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setErrorMessage("")
+    setIsSubmitting(true)
 
-    if (employeeId === MOCK_USER.id && password === MOCK_USER.password) {
-      setSession({ role: "user", userId: employeeId })
-      router.push("/main")
-      return
+    try {
+      const response = await login({
+        loginId: employeeId.trim(),
+        password,
+      })
+
+      const role = mapBackendRole(response.role)
+      setSession({
+        role,
+        userId: String(response.userId),
+        loginId: response.loginId,
+        name: response.name,
+        token: response.token,
+      })
+
+      router.push(role === "admin" ? "/admin" : "/main")
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setErrorMessage(error.message)
+      } else {
+        setErrorMessage("로그인 요청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요.")
+      }
+    } finally {
+      setIsSubmitting(false)
     }
-
-    if (employeeId === MOCK_ADMIN.id && password === MOCK_ADMIN.password) {
-      setSession({ role: "admin", userId: employeeId })
-      router.push("/admin")
-      return
-    }
-
-    setErrorMessage("아이디 또는 비밀번호가 올바르지 않습니다.")
   }
 
   function handleFindAccount() {
@@ -89,12 +101,13 @@ export function LoginForm() {
             <input
               id="employeeId"
               type="text"
-              placeholder="예: 20240001"
+              placeholder="예: 1111"
               value={employeeId}
               onChange={(e) => setEmployeeId(e.target.value)}
               className={inputClassName}
               autoComplete="username"
               required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -114,6 +127,7 @@ export function LoginForm() {
               className={inputClassName}
               autoComplete="current-password"
               required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -128,8 +142,8 @@ export function LoginForm() {
         </CardContent>
 
         <CardFooter className="flex-col gap-3 border-t-0 bg-transparent">
-          <Button type="submit" className="w-full" size="lg">
-            로그인
+          <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+            {isSubmitting ? "로그인 중..." : "로그인"}
           </Button>
 
           <div className="flex w-full gap-2">
@@ -139,6 +153,7 @@ export function LoginForm() {
               size="sm"
               className="flex-1"
               onClick={handleFindAccount}
+              disabled={isSubmitting}
             >
               아이디/비밀번호 찾기
             </Button>
@@ -148,6 +163,7 @@ export function LoginForm() {
                 variant="outline"
                 size="sm"
                 className="w-full"
+                disabled={isSubmitting}
               >
                 회원가입
               </Button>

@@ -15,21 +15,23 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { uploadEvidence, type UploadResult } from "@/lib/evidence-api"
+import { ApiError } from "@/lib/api-client"
 
 type MediaKind = "all" | "audio" | "video" | "image"
-type AnalysisStatus = "idle" | "analyzing" | "completed"
+type UploadStatus = "idle" | "uploading" | "completed" | "error"
 
-interface AnalysisResult {
-  fileName: string
-  success: boolean
-  analysisId: string
-  riskScore: number
+type FileUploadState = {
+  file: File
+  status: "pending" | "uploading" | "success" | "error"
+  result?: UploadResult
+  errorMessage?: string
 }
 
 const acceptMap: Record<MediaKind, string> = {
@@ -68,26 +70,37 @@ const kindIcon: Record<MediaKind, React.ElementType> = {
   image: ImageIcon,
 }
 
-export function UploadPanel() {
+type UploadPanelProps = {
+  onUploadComplete?: (results: UploadResult[]) => void
+}
+
+export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
   const [kind, setKind] = useState<MediaKind>("all")
   const [isDragging, setIsDragging] = useState(false)
+  const [fileStates, setFileStates] = useState<FileUploadState[]>([])
   const [caseName, setCaseName] = useState("")
-  const [files, setFiles] = useState<File[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // 분석 관련 상태
-  const [status, setStatus] = useState<AnalysisStatus>("idle")
+  const [status, setStatus] = useState<UploadStatus>("idle")
   const [progress, setProgress] = useState(0)
-  const [results, setResults] = useState<AnalysisResult[]>([])
-  const analysisTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [globalError, setGlobalError] = useState("")
+
+  const files = fileStates.map((item) => item.file)
+  const isBusy = status === "uploading"
 
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return
-    setFiles((prev) => [...prev, ...Array.from(list)])
-    // 새 파일 추가 시 이전 결과 초기화
-    setResults([])
-    setStatus("idle")
-  }, [])
+    const incoming = Array.from(list).map((file) => ({
+      file,
+      status: "pending" as const,
+    }))
+    setFileStates((prev) => [...prev, ...incoming])
+    setGlobalError("")
+    if (status === "completed" || status === "error") {
+      setStatus("idle")
+      setProgress(0)
+    }
+  }, [status])
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -98,76 +111,87 @@ export function UploadPanel() {
     [addFiles],
   )
 
-  const stopAnalysis = useCallback(() => {
-    if (analysisTimerRef.current) {
-      clearInterval(analysisTimerRef.current)
-      analysisTimerRef.current = null
-    }
-    setStatus("idle")
-    setProgress(0)
-  }, [])
-
   const removeFile = (index: number) => {
-    setFiles((prev) => {
-      const updated = prev.filter((_, i) => i !== index)
-      if (updated.length === 0) {
-        stopAnalysis()
-      }
-      return updated
-    })
+    setFileStates((prev) => prev.filter((_, i) => i !== index))
+    if (fileStates.length <= 1) {
+      setStatus("idle")
+      setProgress(0)
+      setGlobalError("")
+    }
   }
 
-  // Mock 분석 실행 함수
-  const handleAnalyze = async () => {
+  const handleUpload = async () => {
     if (files.length === 0) return
 
-    setStatus("analyzing")
+    setStatus("uploading")
     setProgress(0)
-    setResults([])
+    setGlobalError("")
 
-    // 2초 동안 프로그레스 바 시뮬레이션
-    const duration = 2000
-    const intervalTime = 50
-    const steps = duration / intervalTime
-    const increment = 100 / steps
+    const nextStates = fileStates.map((item) => ({
+      ...item,
+      status: "uploading" as const,
+      errorMessage: undefined,
+    }))
+    setFileStates(nextStates)
 
-    analysisTimerRef.current = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          if (analysisTimerRef.current) {
-            clearInterval(analysisTimerRef.current)
-            analysisTimerRef.current = null
-          }
-          
-          // 분석 완료 후 결과 생성 (비동기 처리를 위해 setTimeout 사용)
-          setTimeout(() => {
-            setFiles(currentFiles => {
-              if (currentFiles.length === 0) return currentFiles;
-              
-              const mockResults: AnalysisResult[] = currentFiles.map(file => ({
-                fileName: file.name,
-                success: true,
-                analysisId: Math.random().toString(36).substring(2, 7).toUpperCase(),
-                riskScore: Math.floor(Math.random() * 40) + 60,
-              }))
-              setResults(mockResults)
-              setStatus("completed")
-              return currentFiles
-            })
-          }, 100)
-          
-          return 100
-        }
-        return prev + increment
-      })
-    }, intervalTime)
+    const completed: UploadResult[] = []
+    let hasError = false
+
+    for (let i = 0; i < nextStates.length; i++) {
+      const item = nextStates[i]
+      try {
+        const result = await uploadEvidence(item.file, caseName)
+        completed.push(result)
+
+        setFileStates((prev) =>
+          prev.map((entry, idx) =>
+            idx === i ? { ...entry, status: "success", result } : entry
+          )
+        )
+      } catch (error) {
+        hasError = true
+        const message =
+          error instanceof ApiError
+            ? error.message
+            : "파일 업로드에 실패했습니다."
+
+        setFileStates((prev) =>
+          prev.map((entry, idx) =>
+            idx === i ? { ...entry, status: "error", errorMessage: message } : entry
+          )
+        )
+      }
+
+      setProgress(Math.round(((i + 1) / nextStates.length) * 100))
+    }
+
+    if (completed.length > 0) {
+      onUploadComplete?.(completed)
+    }
+
+    setStatus(hasError && completed.length === 0 ? "error" : "completed")
+    if (hasError && completed.length === 0) {
+      setGlobalError("모든 파일 업로드에 실패했습니다.")
+    }
+  }
+
+  const successResults = fileStates
+    .filter((item) => item.status === "success" && item.result)
+    .map((item) => item.result!)
+
+  const reset = () => {
+    setFileStates([])
+    setCaseName("")
+    setStatus("idle")
+    setProgress(0)
+    setGlobalError("")
   }
 
   return (
     <section
       id="analyze"
       className="rounded-xl border border-border bg-card p-5 sm:p-6"
-      aria-label="파일 업로드 및 분석"
+      aria-label="파일 업로드"
     >
       <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -175,7 +199,7 @@ export function UploadPanel() {
             증거 파일 업로드
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            분석할 음성·영상·이미지 파일을 업로드하여 딥페이크 여부를 검증하세요.
+            분석할 음성·영상·이미지 파일을 업로드하면 SHA-256 해시와 메타데이터가 서버에 저장됩니다.
           </p>
         </div>
         <Tabs value={kind} onValueChange={(v) => setKind(v as MediaKind)}>
@@ -190,34 +214,32 @@ export function UploadPanel() {
         </Tabs>
       </div>
 
-      {/* 사건명 입력 */}
-      <div className="mb-5 space-y-2">
-        <Label htmlFor="case-name" className="text-sm font-medium">
-          사건명 <span className="text-xs text-muted-foreground font-normal">(선택사항)</span>
+      <div className="mb-4 space-y-1.5">
+        <Label htmlFor="caseName" className="text-xs text-muted-foreground">
+          사건명 (선택)
         </Label>
         <Input
-          id="case-name"
-          placeholder="예: 2026-서울-0123 딥페이크 유포 사건"
+          id="caseName"
           value={caseName}
           onChange={(e) => setCaseName(e.target.value)}
-          disabled={status === "analyzing"}
-          className="max-w-md"
+          placeholder="예: 2026-서울-0123 딥페이크 유포 사건"
+          disabled={isBusy}
+          className="h-9 max-w-md"
         />
       </div>
 
-      {/* 업로드 영역 */}
       <div
         role="button"
         tabIndex={0}
-        onClick={() => status !== "analyzing" && inputRef.current?.click()}
+        onClick={() => !isBusy && inputRef.current?.click()}
         onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && status !== "analyzing") {
+          if ((e.key === "Enter" || e.key === " ") && !isBusy) {
             inputRef.current?.click()
           }
         }}
         onDragOver={(e) => {
           e.preventDefault()
-          if (status !== "analyzing") setIsDragging(true)
+          if (!isBusy) setIsDragging(true)
         }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={onDrop}
@@ -226,7 +248,7 @@ export function UploadPanel() {
           isDragging
             ? "border-primary bg-primary/10"
             : "border-border bg-background/40 hover:border-primary/50 hover:bg-accent/40",
-          status === "analyzing" && "cursor-not-allowed opacity-60"
+          isBusy && "cursor-not-allowed opacity-60"
         )}
       >
         <div className="flex size-14 items-center justify-center rounded-full bg-primary/15 text-primary ring-1 ring-primary/30">
@@ -251,19 +273,18 @@ export function UploadPanel() {
           accept={acceptMap[kind]}
           className="sr-only"
           onChange={(e) => addFiles(e.target.files)}
-          disabled={status === "analyzing"}
+          disabled={isBusy}
         />
       </div>
 
-      {/* 파일 목록 및 상태 */}
       {files.length > 0 && (
         <div className="mt-5 space-y-4">
           <ul className="space-y-2" aria-label="업로드된 파일 목록">
-            {files.map((file, i) => {
-              const Icon = kindIcon[kindFromType(file.type)]
+            {fileStates.map((item, i) => {
+              const Icon = kindIcon[kindFromType(item.file.type)]
               return (
                 <li
-                  key={`${file.name}-${i}`}
+                  key={`${item.file.name}-${i}`}
                   className="flex items-center gap-3 rounded-lg border border-border bg-background/50 px-3 py-2.5"
                 >
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">
@@ -271,20 +292,20 @@ export function UploadPanel() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">
-                      {file.name}
+                      {item.file.name}
                     </p>
                     <p className="font-mono text-xs text-muted-foreground">
-                      {formatBytes(file.size)} · {" "}
-                      {status === "idle" && "분석 대기 중"}
-                      {status === "analyzing" && "분석 진행 중..."}
-                      {status === "completed" && "분석 완료"}
+                      {formatBytes(item.file.size)} ·{" "}
+                      {item.status === "pending" && "업로드 대기 중"}
+                      {item.status === "uploading" && "업로드 진행 중..."}
+                      {item.status === "success" && "업로드 완료"}
+                      {item.status === "error" && (item.errorMessage ?? "업로드 실패")}
                     </p>
                   </div>
-                  {(status === "idle" || status === "analyzing") && (
+                  {status === "idle" && (
                     <button
                       type="button"
                       onClick={() => removeFile(i)}
-                      title={status === "analyzing" ? "분석 중단" : "파일 제거"}
                       className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
                       <X className="size-4" aria-hidden="true" />
@@ -295,61 +316,59 @@ export function UploadPanel() {
             })}
           </ul>
 
-          {/* 프로그레스 바 (분석 중일 때 한 개만 표시) */}
-          {status === "analyzing" && (
+          {status === "uploading" && (
             <div className="space-y-2">
               <div className="flex justify-between text-xs font-medium">
-                <span className="text-primary">인공지능 모델 분석 중...</span>
+                <span className="text-primary">서버에 파일 업로드 중...</span>
                 <span>{Math.round(progress)}%</span>
               </div>
               <Progress value={progress} className="h-2" />
             </div>
           )}
 
-          {/* 분석 결과 표시 (각 파일별로 표시) */}
-          {status === "completed" && results.length > 0 && (
+          {globalError && (
+            <p className="text-sm text-destructive">{globalError}</p>
+          )}
+
+          {status === "completed" && successResults.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
                 <CheckCircle2 className="size-4 text-primary" />
-                분석 완료 보고서 ({results.length}건)
+                업로드 완료 ({successResults.length}건)
               </h3>
-              {results.map((res, idx) => (
-                <div key={res.analysisId} className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-primary/20 bg-primary/5 p-4 duration-500">
-                  <div className="flex items-start justify-between">
-                    <div className="flex gap-3">
+              {successResults.map((res, idx) => (
+                <div
+                  key={res.evidenceId}
+                  className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-primary/20 bg-primary/5 p-4 duration-500"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 gap-3">
                       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
                         <span className="text-xs font-bold">{idx + 1}</span>
                       </div>
                       <div className="min-w-0">
-                        <h4 className="text-sm font-semibold text-foreground truncate max-w-[200px] sm:max-w-xs">
+                        <h4 className="max-w-[200px] truncate text-sm font-semibold text-foreground sm:max-w-xs">
                           {res.fileName}
                         </h4>
                         <p className="text-[10px] text-muted-foreground">
-                          분석 ID: {res.analysisId} · 서버 응답 성공
+                          증거 ID: {res.evidenceId}
+                          {res.caseName ? ` · ${res.caseName}` : ""}
+                        </p>
+                        <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
+                          {res.hashAlgorithm}: {res.hashValue.slice(0, 16)}...
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-muted-foreground">위험도 점수</p>
-                      <div className="flex items-center gap-1.5">
-                        <span className={cn(
-                          "text-lg font-bold font-mono",
-                          res.riskScore > 80 ? "text-destructive" : "text-amber-500"
-                        )}>
-                          {res.riskScore}
-                        </span>
-                        <Badge variant={res.riskScore > 80 ? "destructive" : "secondary"} className="h-4 px-1 text-[9px]">
-                          {res.riskScore > 80 ? "고위험" : "주의"}
-                        </Badge>
-                      </div>
-                    </div>
+                    <Badge variant="secondary" className="shrink-0 text-[10px]">
+                      저장 완료
+                    </Badge>
                   </div>
                 </div>
               ))}
               <div className="mt-3 flex items-center gap-2 border-t border-primary/10 pt-3">
                 <AlertTriangle className="size-3.5 text-amber-500" />
                 <p className="text-[11px] text-muted-foreground">
-                  본 결과는 AI 판독치이며, 법적 증거로 사용 시 전문가의 추가 검토가 권장됩니다.
+                  AI 딥페이크 분석은 별도 요청 API 연동 후 제공됩니다. 현재는 업로드·해시·메타데이터 저장까지 완료됩니다.
                 </p>
               </div>
             </div>
@@ -357,7 +376,6 @@ export function UploadPanel() {
         </div>
       )}
 
-      {/* 하단 컨트롤 */}
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <ShieldQuestion className="size-3.5" aria-hidden="true" />
@@ -365,39 +383,28 @@ export function UploadPanel() {
         </p>
         <div className="flex gap-2">
           {status === "completed" && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setCaseName("");
-                setFiles([]);
-                setResults([]);
-                setStatus("idle");
-              }}
-            >
+            <Button variant="outline" onClick={reset}>
               초기화
             </Button>
           )}
-          {status === "analyzing" ? (
-            <Button
-              size="lg"
-              variant="destructive"
-              onClick={stopAnalysis}
-              className="min-w-[120px] gap-2"
-            >
-              <X className="size-4" aria-hidden="true" />
-              분석 중단
-            </Button>
-          ) : (
-            <Button
-              size="lg"
-              disabled={files.length === 0}
-              onClick={handleAnalyze}
-              className="min-w-[120px] gap-2"
-            >
-              <FileSearch className="size-4" aria-hidden="true" />
-              분석 시작 {files.length > 0 && results.length === 0 && `(${files.length})`}
-            </Button>
-          )}
+          <Button
+            size="lg"
+            disabled={files.length === 0 || isBusy}
+            onClick={handleUpload}
+            className="min-w-[120px] gap-2"
+          >
+            {isBusy ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                업로드 중...
+              </>
+            ) : (
+              <>
+                <UploadCloud className="size-4" aria-hidden="true" />
+                업로드 시작 {files.length > 0 && `(${files.length})`}
+              </>
+            )}
+          </Button>
         </div>
       </div>
     </section>
