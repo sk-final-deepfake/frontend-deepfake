@@ -64,6 +64,12 @@ export async function startEvidenceAnalysis(
   })
 }
 
+export async function cancelEvidence(evidenceId: number): Promise<void> {
+  await apiFetch<void>(`/api/evidences/${evidenceId}`, {
+    method: "DELETE",
+  })
+}
+
 export async function uploadEvidence(
   file: File,
   caseName?: string

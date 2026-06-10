@@ -22,7 +22,12 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
-import { startEvidenceAnalysis, uploadEvidence, type UploadResult } from "@/lib/evidence-api"
+import {
+  cancelEvidence,
+  startEvidenceAnalysis,
+  uploadEvidence,
+  type UploadResult,
+} from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api-client"
 import { loadRecentUploads } from "@/lib/recent-uploads-storage"
 import {
@@ -135,6 +140,18 @@ function dedupeResultsByHash(results: UploadResult[]): UploadResult[] {
   })
 }
 
+function getCancellableEvidenceIds(fileStates: FileUploadState[]): number[] {
+  return fileStates
+    .filter(
+      (item) => item.status === "success" && item.result && !item.analysisStatus
+    )
+    .map((item) => item.result!.evidenceId)
+}
+
+function isCancellableUpload(item: FileUploadState): boolean {
+  return item.status === "success" && !!item.result && !item.analysisStatus
+}
+
 export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanelProps) {
   const [kind, setKind] = useState<MediaKind>("all")
   const [isDragging, setIsDragging] = useState(false)
@@ -147,6 +164,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const [globalError, setGlobalError] = useState("")
   const [hasUploadedOnce, setHasUploadedOnce] = useState(false)
   const [analyzeProgress, setAnalyzeProgress] = useState(0)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const cancellableIdsRef = useRef<number[]>([])
 
   useEffect(() => {
     if (loadRecentUploads().length > 0) {
@@ -158,8 +177,77 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     onMetadataChange?.(buildMetadataItems(fileStates))
   }, [fileStates, onMetadataChange])
 
+  const cancellableEvidenceIds = getCancellableEvidenceIds(fileStates)
+
+  useEffect(() => {
+    cancellableIdsRef.current = cancellableEvidenceIds
+  }, [cancellableEvidenceIds])
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (cancellableIdsRef.current.length === 0) return
+      event.preventDefault()
+      event.returnValue = ""
+    }
+
+    window.addEventListener("beforeunload", onBeforeUnload)
+    return () => window.removeEventListener("beforeunload", onBeforeUnload)
+  }, [])
+
+  useEffect(() => {
+    const onDocumentClick = (event: MouseEvent) => {
+      const ids = cancellableIdsRef.current
+      if (ids.length === 0) return
+
+      const anchor = (event.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null
+      if (!anchor) return
+
+      const href = anchor.getAttribute("href")
+      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+        return
+      }
+
+      const destination = new URL(href, window.location.origin)
+      if (destination.pathname === window.location.pathname) return
+
+      const shouldCancelAndLeave = window.confirm(
+        `분석을 시작하지 않은 업로드 ${ids.length}건이 있습니다.\n\n` +
+          "확인: 업로드를 취소하고 이동\n" +
+          "취소: 이 페이지에 머무르기"
+      )
+
+      if (!shouldCancelAndLeave) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      void (async () => {
+        setIsCancelling(true)
+        try {
+          await Promise.all(ids.map((id) => cancelEvidence(id)))
+          window.location.href = href
+        } catch (error) {
+          const message =
+            error instanceof ApiError
+              ? error.message
+              : "업로드 취소에 실패했습니다."
+          setGlobalError(message)
+        } finally {
+          setIsCancelling(false)
+        }
+      })()
+    }
+
+    document.addEventListener("click", onDocumentClick, true)
+    return () => document.removeEventListener("click", onDocumentClick, true)
+  }, [])
+
   const files = fileStates.map((item) => item.file)
-  const isBusy = status === "uploading" || status === "analyzing"
+  const isBusy = status === "uploading" || status === "analyzing" || isCancelling
   const hasPendingFiles = fileStates.some((item) => item.status === "pending")
   const canUpload = hasPendingFiles && status !== "uploading" && status !== "analyzing"
 
@@ -213,6 +301,53 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
       setStatus("idle")
       setProgress(0)
       setGlobalError("")
+    }
+  }
+
+  const cancelUploadedFiles = async (evidenceIds: number[]) => {
+    if (evidenceIds.length === 0) return
+
+    setIsCancelling(true)
+    setGlobalError("")
+
+    try {
+      await Promise.all(evidenceIds.map((id) => cancelEvidence(id)))
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "업로드 취소에 실패했습니다."
+      setGlobalError(message)
+      throw error
+    } finally {
+      setIsCancelling(false)
+    }
+  }
+
+  const cancelUploadedFile = async (index: number) => {
+    const target = fileStates[index]
+    if (!isCancellableUpload(target)) {
+      removeFile(index)
+      return
+    }
+
+    const confirmed = window.confirm(
+      `"${target.file.name}" 업로드를 취소하고 서버에서 삭제하시겠습니까?`
+    )
+    if (!confirmed) return
+
+    try {
+      await cancelUploadedFiles([target.result!.evidenceId])
+      setFileStates((prev) => {
+        const next = prev.filter((_, i) => i !== index)
+        if (next.length === 0) {
+          setStatus("idle")
+          setProgress(0)
+        }
+        return next
+      })
+    } catch {
+      // error already shown
     }
   }
 
@@ -370,7 +505,21 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     }
   }
 
-  const reset = () => {
+  const reset = async () => {
+    const ids = getCancellableEvidenceIds(fileStates)
+    if (ids.length > 0) {
+      const confirmed = window.confirm(
+        `분석 전 업로드 ${ids.length}건을 서버에서 삭제하고 초기화하시겠습니까?`
+      )
+      if (!confirmed) return
+
+      try {
+        await cancelUploadedFiles(ids)
+      } catch {
+        return
+      }
+    }
+
     setFileStates([])
     setCaseName("")
     setStatus("idle")
@@ -507,11 +656,20 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                       {formatBytes(item.file.size)} · {getFileStatusLabel(item)}
                     </p>
                   </div>
-                  {status === "idle" && (
+                  {!isBusy && (
                     <button
                       type="button"
-                      onClick={() => removeFile(i)}
+                      onClick={() =>
+                        isCancellableUpload(item)
+                          ? void cancelUploadedFile(i)
+                          : removeFile(i)
+                      }
                       className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      title={
+                        isCancellableUpload(item)
+                          ? "업로드 취소 (서버에서 삭제)"
+                          : "목록에서 제거"
+                      }
                     >
                       <X className="size-4" aria-hidden="true" />
                     </button>
@@ -553,8 +711,13 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                   ? `분석 현황 (${displayedSuccessStates.length}건)`
                   : `업로드 완료 (${displayedSuccessStates.length}건)`}
               </h3>
-              {displayedSuccessStates.map((item, idx) => {
-                const res = item.result!
+              {fileStates.map((item, fileIndex) => {
+                if (item.status !== "success" || !item.result) return null
+
+                const res = item.result
+                const successIndex = displayedSuccessStates.findIndex(
+                  (entry) => entry.result?.evidenceId === res.evidenceId
+                )
 
                 return (
                   <div
@@ -562,9 +725,9 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                     className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-primary/20 bg-primary/5 p-4 duration-500"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 gap-3">
+                      <div className="flex min-w-0 flex-1 gap-3">
                         <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
-                          <span className="text-xs font-bold">{idx + 1}</span>
+                          <span className="text-xs font-bold">{successIndex + 1}</span>
                         </div>
                         <div className="min-w-0">
                           <h4 className="max-w-[200px] truncate text-sm font-semibold text-foreground sm:max-w-xs">
@@ -579,15 +742,28 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                           </p>
                         </div>
                       </div>
-                      {item.analysisStatus === "queued" ? (
-                        <AnalysisStatusBadge status="PENDING" />
-                      ) : item.analysisStatus === "failed" ? (
-                        <AnalysisStatusBadge status="FAILED" />
-                      ) : (
-                        <Badge variant="outline" className="shrink-0 text-[10px]">
-                          업로드 완료
-                        </Badge>
-                      )}
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        {item.analysisStatus === "queued" ? (
+                          <AnalysisStatusBadge status="PENDING" />
+                        ) : item.analysisStatus === "failed" ? (
+                          <AnalysisStatusBadge status="FAILED" />
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">
+                            업로드 완료
+                          </Badge>
+                        )}
+                        {isCancellableUpload(item) && !isBusy && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-[11px] text-destructive hover:text-destructive"
+                            onClick={() => void cancelUploadedFile(fileIndex)}
+                          >
+                            업로드 취소
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )
@@ -597,7 +773,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                 <p className="text-[11px] text-muted-foreground">
                   {hasAnalyzedFiles
                     ? "AI 모델 연동 전까지는 분석 대기 상태로 등록됩니다. 모델 연결 후 순차적으로 분석이 진행됩니다."
-                    : "업로드가 완료되었습니다. 사건명을 입력한 뒤 분석 시작을 눌러 주세요."}
+                    : "업로드가 완료되었습니다. 사건명을 입력한 뒤 분석 시작을 누르거나, 취소 시 서버에서 삭제됩니다."}
                 </p>
               </div>
             </div>
@@ -612,7 +788,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         </p>
         <div className="flex gap-2">
           {status === "completed" && (
-            <Button variant="outline" onClick={reset}>
+            <Button variant="outline" onClick={() => void reset()} disabled={isBusy}>
               초기화
             </Button>
           )}
