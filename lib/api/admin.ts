@@ -1,5 +1,16 @@
 import { apiDownload, apiRequest } from "@/lib/api/client"
-import type { AdminLog, AdminProfile, AdminUser, InviteCode, LogCategory, UserStatus } from "@/app/admin/_types/admin"
+import type {
+  AdminEvidence,
+  AdminEvidenceDetail,
+  AdminLog,
+  AdminProfile,
+  AdminUser,
+  EvidenceFileType,
+  EvidenceStatus,
+  InviteCode,
+  LogCategory,
+  UserStatus,
+} from "@/app/admin/_types/admin"
 
 type AdminUserPageResponse = {
   items: AdminUser[]
@@ -190,5 +201,49 @@ export async function updateAdminPassword(
   await apiRequest<void>("/api/v1/admin/me/password", {
     method: "PATCH",
     body: { currentPassword, newPassword },
+  })
+}
+
+type AdminEvidencePageResponse = {
+  items: AdminEvidence[]
+  total: number
+  page: number
+  size: number
+}
+
+export async function fetchAdminEvidences(options?: {
+  search?: string
+  fileType?: EvidenceFileType | "ALL"
+  status?: EvidenceStatus | "ALL"
+  page?: number
+  size?: number
+}): Promise<AdminEvidencePageResponse> {
+  const params = new URLSearchParams()
+  const page = options?.page ?? 0
+  const size = options?.size ?? 10
+
+  if (options?.search?.trim()) {
+    params.set("search", options.search.trim())
+  }
+  if (options?.fileType && options.fileType !== "ALL") {
+    params.set("fileType", options.fileType)
+  }
+  if (options?.status && options.status !== "ALL") {
+    params.set("status", options.status)
+  }
+  params.set("page", String(page))
+  params.set("size", String(size))
+
+  return apiRequest<AdminEvidencePageResponse>(`/api/v1/admin/evidences?${params.toString()}`)
+}
+
+export async function fetchAdminEvidenceDetail(evidenceId: string): Promise<AdminEvidenceDetail> {
+  return apiRequest<AdminEvidenceDetail>(`/api/v1/admin/evidences/${evidenceId}`)
+}
+
+export async function deleteAdminEvidence(evidenceId: string, reason: string): Promise<void> {
+  await apiRequest<void>(`/api/v1/admin/evidences/${evidenceId}`, {
+    method: "DELETE",
+    body: { reason },
   })
 }
