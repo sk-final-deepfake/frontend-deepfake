@@ -1,8 +1,11 @@
 "use client"
 
-import { Info, FileCode, Hash, Calendar, HardDrive } from "lucide-react"
+import { Info, FileCode, Hash, Calendar, HardDrive, Clock } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import type { MediaMetadata, UploadResult } from "@/lib/evidence-api"
+import { Badge } from "@/components/ui/badge"
+import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
+import type { MetadataDisplayItem } from "@/lib/metadata-types"
+import type { MediaMetadata } from "@/lib/evidence-api"
 
 function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B"
@@ -42,81 +45,136 @@ function formatMetadata(metadata: MediaMetadata | string | null): string {
 }
 
 type MetadataInfoProps = {
-  upload: UploadResult | null
+  items: MetadataDisplayItem[]
 }
 
-export function MetadataInfo({ upload }: MetadataInfoProps) {
+function PendingMetadataCard({ item }: { item: Extract<MetadataDisplayItem, { phase: "pending" }> }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-4">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <p className="truncate text-sm font-medium text-foreground">{item.fileName}</p>
+        <Badge variant="outline" className="shrink-0 text-[10px]">
+          업로드 대기 중
+        </Badge>
+      </div>
+      <dl className="space-y-2">
+        <div className="flex flex-col gap-1">
+          <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <HardDrive className="size-3" />
+            파일 크기
+          </dt>
+          <dd className="text-sm text-foreground">{formatBytes(item.fileSize)}</dd>
+        </div>
+        <div className="flex flex-col gap-1">
+          <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Clock className="size-3" />
+            상태
+          </dt>
+          <dd className="text-sm text-muted-foreground">
+            업로드 후 해시·메타데이터가 표시됩니다.
+          </dd>
+        </div>
+      </dl>
+    </div>
+  )
+}
+
+function UploadedMetadataCard({
+  item,
+}: {
+  item: Extract<MetadataDisplayItem, { phase: "uploaded" }>
+}) {
+  const { upload, analysisStatus } = item
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-4">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <p className="truncate text-sm font-medium text-foreground">{upload.fileName}</p>
+        {analysisStatus ? (
+          <AnalysisStatusBadge status={analysisStatus} />
+        ) : (
+          <Badge variant="outline" className="shrink-0 text-[10px]">
+            업로드 완료
+          </Badge>
+        )}
+      </div>
+      <dl className="space-y-3">
+        {upload.caseName ? (
+          <div className="flex flex-col gap-1">
+            <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <FileCode className="size-3" />
+              사건명
+            </dt>
+            <dd className="text-sm text-foreground">{upload.caseName}</dd>
+          </div>
+        ) : null}
+
+        <div className="flex flex-col gap-1">
+          <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <HardDrive className="size-3" />
+            파일 크기 / 증거 ID
+          </dt>
+          <dd className="text-sm text-foreground">
+            {formatBytes(upload.fileSize)}
+            <span className="mx-1 text-muted-foreground">·</span>
+            ID {upload.evidenceId}
+          </dd>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Hash className="size-3" />
+            해시값 (무결성 검증)
+          </dt>
+          <dd className="break-all rounded bg-muted/50 p-2 font-mono text-[10px] leading-relaxed text-foreground">
+            {upload.hashAlgorithm}: {upload.hashValue}
+          </dd>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <dt className="text-xs font-medium text-muted-foreground">추출 메타데이터</dt>
+          <dd className="text-sm text-foreground">{formatMetadata(upload.metadata)}</dd>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Calendar className="size-3" />
+            업로드 일시
+          </dt>
+          <dd className="text-sm text-foreground">{formatUploadedAt(upload.uploadedAt)}</dd>
+        </div>
+      </dl>
+    </div>
+  )
+}
+
+export function MetadataInfo({ items }: MetadataInfoProps) {
   return (
     <Card className="border-border shadow-sm">
       <CardHeader className="border-b border-border px-5 py-4">
-        <div className="flex items-center gap-2">
-          <Info className="size-4 text-primary" />
-          <CardTitle className="text-base font-semibold">현재 파일 메타데이터</CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Info className="size-4 text-primary" />
+            <CardTitle className="text-base font-semibold">파일 메타데이터</CardTitle>
+          </div>
+          {items.length > 0 && (
+            <span className="text-xs text-muted-foreground">{items.length}건</span>
+          )}
         </div>
       </CardHeader>
-      <CardContent className="p-5">
-        {!upload ? (
+      <CardContent className="max-h-[520px] space-y-3 overflow-y-auto p-5">
+        {items.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            파일을 업로드하면 해시값과 메타데이터가 여기에 표시됩니다.
+            파일을 선택하거나 업로드하면 메타데이터가 여기에 표시됩니다.
           </p>
         ) : (
-          <dl className="space-y-4">
-            <div className="flex flex-col gap-1">
-              <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <FileCode className="size-3" />
-                파일명 / 사건명
-              </dt>
-              <dd className="text-sm font-medium text-foreground">
-                {upload.fileName}
-                {upload.caseName ? (
-                  <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                    {upload.caseName}
-                  </span>
-                ) : null}
-              </dd>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <HardDrive className="size-3" />
-                파일 크기 / 증거 ID
-              </dt>
-              <dd className="text-sm font-medium text-foreground">
-                {formatBytes(upload.fileSize)}
-                <span className="mx-1 text-muted-foreground">·</span>
-                ID {upload.evidenceId}
-              </dd>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Hash className="size-3" />
-                해시값 (무결성 검증)
-              </dt>
-              <dd className="break-all rounded bg-muted/50 p-2 font-mono text-[10px] leading-relaxed text-foreground">
-                {upload.hashAlgorithm}: {upload.hashValue}
-              </dd>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <dt className="text-xs font-medium text-muted-foreground">
-                추출 메타데이터
-              </dt>
-              <dd className="text-sm text-foreground">
-                {formatMetadata(upload.metadata)}
-              </dd>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Calendar className="size-3" />
-                업로드 일시
-              </dt>
-              <dd className="text-sm font-medium text-foreground">
-                {formatUploadedAt(upload.uploadedAt)}
-              </dd>
-            </div>
-          </dl>
+          items.map((item) =>
+            item.phase === "pending" ? (
+              <PendingMetadataCard key={item.id} item={item} />
+            ) : (
+              <UploadedMetadataCard key={item.id} item={item} />
+            )
+          )
         )}
       </CardContent>
     </Card>

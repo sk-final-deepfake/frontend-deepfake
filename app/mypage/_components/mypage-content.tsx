@@ -60,8 +60,13 @@ export function MyPageContent() {
             내가 요청한 포렌식 분석 사건을 확인하고 추적합니다.
           </p>
         </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link href="/mypage/edit">개인정보 수정</Link>
+        <Button
+          variant="outline"
+          size="sm"
+          render={<Link href="/mypage/edit" />}
+          nativeButton={false}
+        >
+          개인정보 수정
         </Button>
       </div>
 
@@ -86,8 +91,8 @@ export function MyPageContent() {
           <div className="space-y-4 px-5 py-16 text-center">
             <p className="text-sm text-muted-foreground">{errorMessage}</p>
             {errorMessage.includes("로그인") && (
-              <Button asChild>
-                <Link href="/login">로그인하기</Link>
+              <Button render={<Link href="/login" />} nativeButton={false}>
+                로그인하기
               </Button>
             )}
           </div>

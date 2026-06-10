@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
 import type { UploadResult } from "@/lib/evidence-api"
 
 type MediaKind = "audio" | "video" | "image" | "unknown"
@@ -54,13 +55,13 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
     <section
       id="reports"
       className="relative rounded-xl border border-border bg-card shadow-sm"
-      aria-label="최근 업로드 내역"
+      aria-label="최근 분석 내역"
     >
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div className="flex items-center gap-2">
           <FileText className="size-4 text-primary" />
           <h2 className="text-base font-semibold text-card-foreground">
-            최근 업로드 내역
+            최근 분석 내역
           </h2>
         </div>
         <Link
@@ -74,7 +75,7 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
 
       {uploads.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-          아직 업로드된 증거가 없습니다.
+          아직 분석을 시작한 증거가 없습니다.
         </div>
       ) : (
         <ul className="divide-y divide-border">
@@ -83,7 +84,7 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
             const Icon = kindIcon[kind]
             return (
               <li
-                key={item.evidenceId}
+                key={item.hashValue}
                 className="group flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-accent/40"
               >
                 <div className="flex items-center gap-4">
@@ -95,13 +96,10 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
                       <p className="truncate text-sm font-medium text-foreground">
                         {item.fileName}
                       </p>
-                      <Badge
-                        variant="outline"
-                        className="h-5 gap-1.5 border-emerald-500/40 bg-emerald-500/10 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-400"
-                      >
-                        <span className="size-1 rounded-full bg-emerald-500" aria-hidden="true" />
-                        업로드 완료
-                      </Badge>
+                      <AnalysisStatusBadge
+                        status={item.analysisStatus ?? "PENDING"}
+                        className="h-5 px-1.5"
+                      />
                     </div>
                     <p className="font-mono text-[10px] text-muted-foreground">
                       EV-{item.evidenceId}
@@ -135,7 +133,7 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
       {selectedUpload && (
         <div className="absolute inset-0 z-10 flex flex-col rounded-xl bg-card animate-in fade-in zoom-in-95 duration-200">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <h3 className="font-semibold text-foreground">업로드 상세</h3>
+            <h3 className="font-semibold text-foreground">분석 상세</h3>
             <Button variant="ghost" size="icon-sm" onClick={() => setSelectedUpload(null)}>
               <X className="size-4" />
             </Button>

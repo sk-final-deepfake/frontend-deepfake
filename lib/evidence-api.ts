@@ -1,3 +1,4 @@
+import type { AnalysisStatus } from "@/lib/analysis-status"
 import { apiFetch, apiFetchForm } from "@/lib/api-client"
 
 export type MediaMetadata = {
@@ -32,6 +33,7 @@ export type UploadResult = {
   hashValue: string
   metadata: MediaMetadata | string | null
   uploadedAt: string
+  analysisStatus?: AnalysisStatus
 }
 
 export type EvidenceStatsResponse = {
@@ -42,6 +44,24 @@ export type EvidenceStatsResponse = {
 
 export async function fetchEvidenceStats(): Promise<EvidenceStatsResponse> {
   return apiFetch<EvidenceStatsResponse>("/api/evidences/stats")
+}
+
+export type StartAnalysisResponse = {
+  success: boolean
+  message: string
+  caseName: string
+  startedCount: number
+  evidenceIds: number[]
+}
+
+export async function startEvidenceAnalysis(
+  evidenceIds: number[],
+  caseName: string
+): Promise<StartAnalysisResponse> {
+  return apiFetch<StartAnalysisResponse>("/api/evidences/analyze", {
+    method: "POST",
+    body: JSON.stringify({ evidenceIds, caseName }),
+  })
 }
 
 export async function uploadEvidence(

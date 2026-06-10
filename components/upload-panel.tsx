@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   UploadCloud,
   AudioLines,
@@ -21,17 +21,26 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { uploadEvidence, type UploadResult } from "@/lib/evidence-api"
+import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
+import { startEvidenceAnalysis, uploadEvidence, type UploadResult } from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api-client"
+import { loadRecentUploads } from "@/lib/recent-uploads-storage"
+import {
+  fileFingerprint,
+  type MetadataDisplayItem,
+} from "@/lib/metadata-types"
 
 type MediaKind = "all" | "audio" | "video" | "image"
-type UploadStatus = "idle" | "uploading" | "completed" | "error"
+type UploadStatus = "idle" | "uploading" | "completed" | "error" | "analyzing"
+
+type FileAnalysisState = "queued" | "failed"
 
 type FileUploadState = {
   file: File
   status: "pending" | "uploading" | "success" | "error"
   result?: UploadResult
   errorMessage?: string
+  analysisStatus?: FileAnalysisState
 }
 
 const acceptMap: Record<MediaKind, string> = {
@@ -71,10 +80,62 @@ const kindIcon: Record<MediaKind, React.ElementType> = {
 }
 
 type UploadPanelProps = {
-  onUploadComplete?: (results: UploadResult[]) => void
+  onMetadataChange?: (items: MetadataDisplayItem[]) => void
+  onAnalyzeComplete?: (results: UploadResult[], startedCount: number) => void
 }
 
-export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
+function buildMetadataItems(fileStates: FileUploadState[]): MetadataDisplayItem[] {
+  return fileStates.flatMap((state, index) => {
+    if (state.status === "pending" || state.status === "uploading") {
+      return [
+        {
+          id: `pending-${fileFingerprint(state.file)}-${index}`,
+          phase: "pending" as const,
+          fileName: state.file.name,
+          fileSize: state.file.size,
+        },
+      ]
+    }
+
+    if (state.result) {
+      return [
+        {
+          id: `uploaded-${state.result.evidenceId}`,
+          phase: "uploaded" as const,
+          upload: state.result,
+          analysisStatus:
+            state.analysisStatus === "queued"
+              ? "PENDING"
+              : state.analysisStatus === "failed"
+                ? "FAILED"
+                : state.result.analysisStatus,
+        },
+      ]
+    }
+
+    return []
+  })
+}
+
+function getFileStatusLabel(item: FileUploadState): string {
+  if (item.status === "pending") return "업로드 대기 중"
+  if (item.status === "uploading") return "업로드 진행 중..."
+  if (item.status === "error") return item.errorMessage ?? "업로드 실패"
+  if (item.analysisStatus === "queued") return "분석 대기중"
+  if (item.analysisStatus === "failed") return "분석 실패"
+  return "업로드 완료"
+}
+
+function dedupeResultsByHash(results: UploadResult[]): UploadResult[] {
+  const seen = new Set<string>()
+  return results.filter((item) => {
+    if (seen.has(item.hashValue)) return false
+    seen.add(item.hashValue)
+    return true
+  })
+}
+
+export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanelProps) {
   const [kind, setKind] = useState<MediaKind>("all")
   const [isDragging, setIsDragging] = useState(false)
   const [fileStates, setFileStates] = useState<FileUploadState[]>([])
@@ -84,23 +145,58 @@ export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
   const [status, setStatus] = useState<UploadStatus>("idle")
   const [progress, setProgress] = useState(0)
   const [globalError, setGlobalError] = useState("")
+  const [hasUploadedOnce, setHasUploadedOnce] = useState(false)
+  const [analyzeProgress, setAnalyzeProgress] = useState(0)
+
+  useEffect(() => {
+    if (loadRecentUploads().length > 0) {
+      setHasUploadedOnce(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    onMetadataChange?.(buildMetadataItems(fileStates))
+  }, [fileStates, onMetadataChange])
 
   const files = fileStates.map((item) => item.file)
-  const isBusy = status === "uploading"
+  const isBusy = status === "uploading" || status === "analyzing"
+  const hasPendingFiles = fileStates.some((item) => item.status === "pending")
+  const canUpload = hasPendingFiles && status !== "uploading" && status !== "analyzing"
 
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return
-    const incoming = Array.from(list).map((file) => ({
-      file,
-      status: "pending" as const,
-    }))
+
+    const existingKeys = new Set(fileStates.map((item) => fileFingerprint(item.file)))
+    const rejected: string[] = []
+    const incoming: FileUploadState[] = []
+
+    for (const file of Array.from(list)) {
+      const key = fileFingerprint(file)
+      if (existingKeys.has(key)) {
+        rejected.push(file.name)
+        continue
+      }
+      existingKeys.add(key)
+      incoming.push({ file, status: "pending" })
+    }
+
+    if (rejected.length > 0) {
+      setGlobalError(
+        `이미 목록에 있는 동일 파일은 추가할 수 없습니다: ${rejected.join(", ")}`
+      )
+    } else if (incoming.length > 0) {
+      setGlobalError("")
+    }
+
+    if (incoming.length === 0) return
+
     setFileStates((prev) => [...prev, ...incoming])
-    setGlobalError("")
+
     if (status === "completed" || status === "error") {
       setStatus("idle")
       setProgress(0)
     }
-  }, [status])
+  }, [fileStates, status])
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -121,31 +217,36 @@ export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
   }
 
   const handleUpload = async () => {
-    if (files.length === 0) return
+    const pendingIndices = fileStates
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.status === "pending")
+
+    if (pendingIndices.length === 0) return
 
     setStatus("uploading")
     setProgress(0)
     setGlobalError("")
 
-    const nextStates = fileStates.map((item) => ({
-      ...item,
-      status: "uploading" as const,
-      errorMessage: undefined,
-    }))
-    setFileStates(nextStates)
+    setFileStates((prev) =>
+      prev.map((entry) =>
+        entry.status === "pending"
+          ? { ...entry, status: "uploading" as const, errorMessage: undefined }
+          : entry
+      )
+    )
 
     const completed: UploadResult[] = []
     let hasError = false
 
-    for (let i = 0; i < nextStates.length; i++) {
-      const item = nextStates[i]
+    for (let i = 0; i < pendingIndices.length; i++) {
+      const { item, index } = pendingIndices[i]
       try {
-        const result = await uploadEvidence(item.file, caseName)
+        const result = await uploadEvidence(item.file)
         completed.push(result)
 
         setFileStates((prev) =>
           prev.map((entry, idx) =>
-            idx === i ? { ...entry, status: "success", result } : entry
+            idx === index ? { ...entry, status: "success", result } : entry
           )
         )
       } catch (error) {
@@ -157,16 +258,16 @@ export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
 
         setFileStates((prev) =>
           prev.map((entry, idx) =>
-            idx === i ? { ...entry, status: "error", errorMessage: message } : entry
+            idx === index ? { ...entry, status: "error", errorMessage: message } : entry
           )
         )
       }
 
-      setProgress(Math.round(((i + 1) / nextStates.length) * 100))
+      setProgress(Math.round(((i + 1) / pendingIndices.length) * 100))
     }
 
     if (completed.length > 0) {
-      onUploadComplete?.(completed)
+      setHasUploadedOnce(true)
     }
 
     setStatus(hasError && completed.length === 0 ? "error" : "completed")
@@ -175,17 +276,115 @@ export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
     }
   }
 
-  const successResults = fileStates
-    .filter((item) => item.status === "success" && item.result)
-    .map((item) => item.result!)
+  const analyzableResults = fileStates.filter(
+    (item) => item.status === "success" && item.result && !item.analysisStatus
+  )
+
+  const trimmedCaseName = caseName.trim()
+  const canAnalyze =
+    analyzableResults.length > 0 && trimmedCaseName.length > 0 && !isBusy
+
+  const handleAnalyze = async () => {
+    const targets = fileStates.filter(
+      (item) => item.status === "success" && item.result && !item.analysisStatus
+    )
+    if (targets.length === 0) return
+
+    if (!trimmedCaseName) {
+      setGlobalError("분석을 시작하려면 사건명을 입력해 주세요.")
+      return
+    }
+
+    const uniqueResults = dedupeResultsByHash(
+      targets.map((item) => item.result!).filter(Boolean)
+    )
+    const evidenceIds = uniqueResults.map((item) => item.evidenceId)
+
+    setStatus("analyzing")
+    setAnalyzeProgress(0)
+    setGlobalError("")
+
+    try {
+      const response = await startEvidenceAnalysis(evidenceIds, trimmedCaseName)
+
+      const steps = 20
+      for (let step = 1; step <= steps; step++) {
+        await new Promise((resolve) => setTimeout(resolve, 80))
+        setAnalyzeProgress(Math.round((step / steps) * 100))
+      }
+
+      const startedIds = new Set(response.evidenceIds)
+
+      setFileStates((prev) =>
+        prev.map((entry) => {
+          if (!entry.result || !startedIds.has(entry.result.evidenceId)) {
+            return entry
+          }
+          return {
+            ...entry,
+            analysisStatus: "queued" as const,
+            result: {
+              ...entry.result,
+              caseName: trimmedCaseName,
+              analysisStatus: "PENDING" as const,
+            },
+          }
+        })
+      )
+
+      if (response.startedCount > 0) {
+        const analyzedResults = uniqueResults.map((item) => ({
+          ...item,
+          caseName: trimmedCaseName,
+          uploadedAt: new Date().toISOString(),
+          analysisStatus: "PENDING" as const,
+        }))
+        onAnalyzeComplete?.(analyzedResults, response.startedCount)
+      }
+
+      setStatus("completed")
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "분석 요청에 실패했습니다."
+      setGlobalError(message)
+
+      setFileStates((prev) =>
+        prev.map((entry) => {
+          if (!entry.result || !evidenceIds.includes(entry.result.evidenceId)) {
+            return entry
+          }
+          return {
+            ...entry,
+            analysisStatus: "failed" as const,
+            result: {
+              ...entry.result,
+              analysisStatus: "FAILED" as const,
+            },
+          }
+        })
+      )
+
+      setStatus("completed")
+    }
+  }
 
   const reset = () => {
     setFileStates([])
     setCaseName("")
     setStatus("idle")
     setProgress(0)
+    setAnalyzeProgress(0)
     setGlobalError("")
   }
+
+  const uploadButtonLabel = hasUploadedOnce ? "추가 업로드" : "업로드 시작"
+  const pendingCount = fileStates.filter((item) => item.status === "pending").length
+  const hasAnalyzedFiles = fileStates.some((item) => item.analysisStatus)
+  const displayedSuccessStates = fileStates.filter(
+    (item) => item.status === "success" && item.result
+  )
 
   return (
     <section
@@ -216,16 +415,26 @@ export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
 
       <div className="mb-4 space-y-1.5">
         <Label htmlFor="caseName" className="text-xs text-muted-foreground">
-          사건명 (선택)
+          사건명 <span className="text-destructive">*</span>
         </Label>
         <Input
           id="caseName"
           value={caseName}
-          onChange={(e) => setCaseName(e.target.value)}
+          onChange={(e) => {
+            setCaseName(e.target.value)
+            if (globalError.includes("사건명")) {
+              setGlobalError("")
+            }
+          }}
           placeholder="예: 2026-서울-0123 딥페이크 유포 사건"
           disabled={isBusy}
+          required
+          aria-required="true"
           className="h-9 max-w-md"
         />
+        <p className="text-[11px] text-muted-foreground">
+          분석 시작 시 사건명이 필수이며, 내 분석 기록에 등록됩니다.
+        </p>
       </div>
 
       <div
@@ -295,11 +504,7 @@ export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
                       {item.file.name}
                     </p>
                     <p className="font-mono text-xs text-muted-foreground">
-                      {formatBytes(item.file.size)} ·{" "}
-                      {item.status === "pending" && "업로드 대기 중"}
-                      {item.status === "uploading" && "업로드 진행 중..."}
-                      {item.status === "success" && "업로드 완료"}
-                      {item.status === "error" && (item.errorMessage ?? "업로드 실패")}
+                      {formatBytes(item.file.size)} · {getFileStatusLabel(item)}
                     </p>
                   </div>
                   {status === "idle" && (
@@ -326,49 +531,73 @@ export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
             </div>
           )}
 
+          {status === "analyzing" && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-primary">AI 딥페이크 분석 진행 중...</span>
+                <span>{Math.round(analyzeProgress)}%</span>
+              </div>
+              <Progress value={analyzeProgress} className="h-2" />
+            </div>
+          )}
+
           {globalError && (
             <p className="text-sm text-destructive">{globalError}</p>
           )}
 
-          {status === "completed" && successResults.length > 0 && (
+          {displayedSuccessStates.length > 0 && (
             <div className="space-y-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
                 <CheckCircle2 className="size-4 text-primary" />
-                업로드 완료 ({successResults.length}건)
+                {hasAnalyzedFiles
+                  ? `분석 현황 (${displayedSuccessStates.length}건)`
+                  : `업로드 완료 (${displayedSuccessStates.length}건)`}
               </h3>
-              {successResults.map((res, idx) => (
-                <div
-                  key={res.evidenceId}
-                  className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-primary/20 bg-primary/5 p-4 duration-500"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 gap-3">
-                      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
-                        <span className="text-xs font-bold">{idx + 1}</span>
+              {displayedSuccessStates.map((item, idx) => {
+                const res = item.result!
+
+                return (
+                  <div
+                    key={res.evidenceId}
+                    className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-primary/20 bg-primary/5 p-4 duration-500"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 gap-3">
+                        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
+                          <span className="text-xs font-bold">{idx + 1}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="max-w-[200px] truncate text-sm font-semibold text-foreground sm:max-w-xs">
+                            {res.fileName}
+                          </h4>
+                          <p className="text-[10px] text-muted-foreground">
+                            증거 ID: {res.evidenceId}
+                            {res.caseName ? ` · ${res.caseName}` : ""}
+                          </p>
+                          <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
+                            {res.hashAlgorithm}: {res.hashValue.slice(0, 16)}...
+                          </p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <h4 className="max-w-[200px] truncate text-sm font-semibold text-foreground sm:max-w-xs">
-                          {res.fileName}
-                        </h4>
-                        <p className="text-[10px] text-muted-foreground">
-                          증거 ID: {res.evidenceId}
-                          {res.caseName ? ` · ${res.caseName}` : ""}
-                        </p>
-                        <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
-                          {res.hashAlgorithm}: {res.hashValue.slice(0, 16)}...
-                        </p>
-                      </div>
+                      {item.analysisStatus === "queued" ? (
+                        <AnalysisStatusBadge status="PENDING" />
+                      ) : item.analysisStatus === "failed" ? (
+                        <AnalysisStatusBadge status="FAILED" />
+                      ) : (
+                        <Badge variant="outline" className="shrink-0 text-[10px]">
+                          업로드 완료
+                        </Badge>
+                      )}
                     </div>
-                    <Badge variant="secondary" className="shrink-0 text-[10px]">
-                      저장 완료
-                    </Badge>
                   </div>
-                </div>
-              ))}
+                )
+              })}
               <div className="mt-3 flex items-center gap-2 border-t border-primary/10 pt-3">
                 <AlertTriangle className="size-3.5 text-amber-500" />
                 <p className="text-[11px] text-muted-foreground">
-                  AI 딥페이크 분석은 별도 요청 API 연동 후 제공됩니다. 현재는 업로드·해시·메타데이터 저장까지 완료됩니다.
+                  {hasAnalyzedFiles
+                    ? "AI 모델 연동 전까지는 분석 대기 상태로 등록됩니다. 모델 연결 후 순차적으로 분석이 진행됩니다."
+                    : "업로드가 완료되었습니다. 사건명을 입력한 뒤 분석 시작을 눌러 주세요."}
                 </p>
               </div>
             </div>
@@ -387,24 +616,39 @@ export function UploadPanel({ onUploadComplete }: UploadPanelProps) {
               초기화
             </Button>
           )}
-          <Button
-            size="lg"
-            disabled={files.length === 0 || isBusy}
-            onClick={handleUpload}
-            className="min-w-[120px] gap-2"
-          >
-            {isBusy ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                업로드 중...
-              </>
-            ) : (
-              <>
-                <UploadCloud className="size-4" aria-hidden="true" />
-                업로드 시작 {files.length > 0 && `(${files.length})`}
-              </>
-            )}
-          </Button>
+          {analyzableResults.length > 0 && (
+            <Button
+              size="lg"
+              disabled={!canAnalyze}
+              onClick={handleAnalyze}
+              className="min-w-[120px] gap-2"
+              title={!trimmedCaseName ? "분석을 시작하려면 사건명을 입력해 주세요." : undefined}
+            >
+              <FileSearch className="size-4" aria-hidden="true" />
+              분석 시작 ({analyzableResults.length})
+            </Button>
+          )}
+          {canUpload && (
+            <Button
+              size="lg"
+              disabled={!canUpload}
+              onClick={handleUpload}
+              className="min-w-[120px] gap-2"
+            >
+              {status === "uploading" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  업로드 중...
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="size-4" aria-hidden="true" />
+                  {uploadButtonLabel}
+                  {pendingCount > 0 && ` (${pendingCount})`}
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
     </section>
