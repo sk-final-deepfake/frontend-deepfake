@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { LogIn, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SettingsDropdown } from "@/components/settings-dropdown"
-import { clearSession, getSession } from "@/lib/mock-auth"
+import { clearSession, getSession } from "@/lib/auth"
 
 export function SiteHeaderAuth() {
   const router = useRouter()

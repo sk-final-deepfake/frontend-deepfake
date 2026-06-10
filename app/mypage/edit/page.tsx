@@ -19,7 +19,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { User, ShieldCheck, Lock, ArrowLeft, Loader2 } from "lucide-react"
 import { fetchMyProfile, updateMyProfile } from "@/lib/api/user"
 import { ApiError } from "@/lib/api/client"
-import { getSession, setSession } from "@/lib/mock-auth"
+import { getSession, setSession } from "@/lib/auth"
 
 export default function EditProfilePage() {
   const router = useRouter()
@@ -127,7 +127,12 @@ export default function EditProfilePage() {
 
       const session = getSession()
       if (session) {
-        setSession({ ...session, userId: updatedProfile.loginId })
+        setSession({
+          ...session,
+          userId: String(updatedProfile.userId),
+          loginId: updatedProfile.loginId,
+          name: updatedProfile.name,
+        })
       }
 
       toast({

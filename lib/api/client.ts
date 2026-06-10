@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/mock-auth"
+import { getToken } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api/config"
 
 export class ApiError extends Error {
@@ -30,11 +30,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (auth) {
-    const session = getSession()
-    if (!session?.userId) {
+    const token = getToken()
+    if (!token) {
       throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
     }
-    headers["X-User-Id"] = session.userId
+    headers.Authorization = `Bearer ${token}`
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -51,9 +51,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       const errorBody = (await response.json()) as {
         message?: string
         errorCode?: string
+        error?: string
       }
       message = errorBody.message ?? message
-      errorCode = errorBody.errorCode
+      errorCode = errorBody.errorCode ?? errorBody.error
     } catch {
       // ignore parse errors
     }
