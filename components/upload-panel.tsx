@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
+import { uploadEvidence, type FileUploadResponse } from "@/lib/api"
 
 type MediaKind = "all" | "audio" | "video" | "image"
 
@@ -59,6 +60,9 @@ export function UploadPanel() {
   const [isDragging, setIsDragging] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false) // 지금 업로드 중인지(버튼 비활성화, 문구 변경)
+  const [results, setResults] = useState<FileUploadResponse[]>([]) // 성공 결과 목록(해시값 표시)
+  const [error, setError] = useState<string | null>(null) // 실패나면 에러 메시지
 
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return
@@ -76,6 +80,23 @@ export function UploadPanel() {
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // 핸들러 추가 
+  const handleAnalyze = async () => {
+    setUploading(true)
+    setError(null)
+    try {
+      const uploaded: FileUploadResponse[] = []
+      for (const file of files) {
+        uploaded.push(await uploadEvidence(file))
+      }
+      setResults(uploaded)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "업로드에 실패했습니다.")
+    } finally {
+      setUploading(false)
+    }
   }
 
   return (
@@ -192,11 +213,12 @@ export function UploadPanel() {
         </p>
         <Button
           size="lg"
-          disabled={files.length === 0}
+          disabled={files.length === 0 || uploading}
+          onClick={handleAnalyze}
           className="gap-2"
         >
           <FileSearch className="size-4" aria-hidden="true" />
-          분석 시작 {files.length > 0 && `(${files.length})`}
+          {uploading ? "업로드 중..." : <>분석 시작 {files.length > 0 && `(${files.length})`}</>}
         </Button>
       </div>
     </section>
