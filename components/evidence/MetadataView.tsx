@@ -20,10 +20,10 @@ const VideoMetadata = ({ data, status }: MetadataProps) => (
 
 const AudioMetadata = ({ data, status }: MetadataProps) => (
   <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-8">
-    <div><label className="text-xs text-muted-foreground block">샘플링 레이트</label><span className="text-sm font-medium">{data.sampleRate || '44.1'} kHz</span></div>
-    <div><label className="text-xs text-muted-foreground block">채널</label><span className="text-sm font-medium">{data.channels || '2'} Ch</span></div>
-    <div><label className="text-xs text-muted-foreground block">비트레이트</label><span className="text-sm font-medium">{data.bitrate || '128'} kbps</span></div>
-    <div><label className="text-xs text-muted-foreground block">길이</label><span className="text-sm font-medium">{data.durationSec}초</span></div>
+    <div><label className="text-xs text-muted-foreground block">샘플링 레이트</label><span className="text-sm font-medium">{data.sampleRate ? `${data.sampleRate} Hz` : '정보 없음'}</span></div>
+    <div><label className="text-xs text-muted-foreground block">채널</label><span className="text-sm font-medium">{data.channels ? `${data.channels} Ch` : '정보 없음'}</span></div>
+    <div><label className="text-xs text-muted-foreground block">코덱</label><span className="text-sm font-medium uppercase">{data.codec || '정보 없음'}</span></div>
+    <div><label className="text-xs text-muted-foreground block">길이</label><span className="text-sm font-medium">{data.durationSec ? `${data.durationSec.toFixed(2)}초` : '정보 없음'}</span></div>
     <div><label className="text-xs text-muted-foreground block">추출 상태</label><Badge className="bg-blue-100 text-blue-800 text-[10px] border-none">{status}</Badge></div>
   </div>
 );
@@ -31,8 +31,8 @@ const AudioMetadata = ({ data, status }: MetadataProps) => (
 const ImageMetadata = ({ data, status }: MetadataProps) => (
   <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-8">
     <div><label className="text-xs text-muted-foreground block">해상도</label><span className="text-sm font-medium">{data.width} x {data.height}</span></div>
-    <div><label className="text-xs text-muted-foreground block">포맷</label><span className="text-sm font-medium uppercase">{data.format || 'JPEG'}</span></div>
-    <div><label className="text-xs text-muted-foreground block">색상 공간</label><span className="text-sm font-medium">sRGB</span></div>
+    <div><label className="text-xs text-muted-foreground block">기기 정보</label><span className="text-sm font-medium">{data.deviceInfo || '정보 없음'}</span></div>
+    <div><label className="text-xs text-muted-foreground block">촬영 일시</label><span className="text-sm font-medium">{data.capturedAt || '정보 없음'}</span></div>
     <div><label className="text-xs text-muted-foreground block">추출 상태</label><Badge className="bg-purple-100 text-purple-800 text-[10px] border-none">{status}</Badge></div>
   </div>
 );
