@@ -113,18 +113,18 @@ AnalysisService.startAnalysis(...)에서 사건명 정책 변경
 프론트 작업:
 
 ```text
-[x] 메인 분석 화면에 "새 사건" / "기존 사건" 탭 추가
-[x] 새 사건 탭: 사건명 입력 + 파일 업로드
-[x] 기존 사건 탭: 기존 사건 선택 UI 추가
-[x] 기존 사건 선택 시 해당 caseId/caseName으로 업로드
-[x] 기존 사건에 증거 추가 후 분석 시작 가능
+[ ] 메인 분석 화면에 "새 사건" / "기존 사건" 탭 추가
+[ ] 새 사건 탭: 사건명 입력 + 파일 업로드
+[ ] 기존 사건 탭: 기존 사건 선택 UI 추가
+[ ] 기존 사건 선택 시 해당 caseId/caseName으로 업로드
+[ ] 기존 사건에 증거 추가 후 분석 시작 가능
 ```
 
 백엔드 작업:
 
 ```text
-[x] 기존 사건 목록 API가 충분한지 확인
-[x] 현재 단계에서는 기존 마이페이지 사건 목록 API 재사용으로 충분하여 API 추가 불필요 확인
+[ ] 기존 사건 목록 API가 충분한지 확인
+[ ] 부족하면 현재 사용자 사건 목록을 가볍게 조회하는 API 추가 검토
 ```
 
 백엔드에서 하지 않을 것:
@@ -137,10 +137,10 @@ AnalysisService.startAnalysis(...)에서 사건명 정책 변경
 검증:
 
 ```text
-[x] 새 사건 탭에서 새 caseName으로 업로드 가능
-[x] 기존 사건 탭에서 선택한 사건으로 업로드 가능
-[x] 마이페이지 사건 목록에서 같은 사건으로 묶이는지 확인
-[x] npm run build 통과
+[ ] 새 사건 탭에서 새 caseName으로 업로드 가능
+[ ] 기존 사건 탭에서 선택한 사건으로 업로드 가능
+[ ] 마이페이지 사건 목록에서 같은 사건으로 묶이는지 확인
+[ ] npm run build 통과
 ```
 
 ## 4단계: 사건 상세 페이지 안정화
@@ -155,19 +155,19 @@ AnalysisService.startAnalysis(...)에서 사건명 정책 변경
 프론트 작업:
 
 ```text
-[x] 사건 상세에서 사건명, 상태, 생성일 표시
-[x] 사건 상세에서 증거 목록 표시
-[x] 증거 클릭 시 /evidences/{evidenceId} 이동
-[x] 증거별 분석 상태 표시
-[x] 증거 추가 버튼 위치 확정
+[ ] 사건 상세에서 사건명, 상태, 생성일 표시
+[ ] 사건 상세에서 증거 목록 표시
+[ ] 증거 클릭 시 /evidences/{evidenceId} 이동
+[ ] 증거별 분석 상태 표시
+[ ] 증거 추가 버튼 위치 확정
 ```
 
 백엔드 작업:
 
 ```text
-[x] /api/v1/cases?caseKey=... 응답 안정화 확인
-[x] evidences 배열이 null이 아니라 []로 내려오는지 확인
-[x] evidences[].evidenceId 포함 유지
+[ ] /api/v1/cases?caseKey=... 응답 안정화 확인
+[ ] evidences 배열이 null이 아니라 []로 내려오는지 확인
+[ ] evidences[].evidenceId 포함 유지
 ```
 
 백엔드에서 하지 않을 것:
@@ -179,10 +179,9 @@ AnalysisService.startAnalysis(...)에서 사건명 정책 변경
 검증:
 
 ```text
-[x] 마이페이지 사건 클릭 시 /cases/{caseId} 정상 표시
-[x] 숫자처럼 생긴 caseId도 증거 상세로 오인하지 않음
-[x] 사건 안의 증거 클릭 시 /evidences/{evidenceId} 정상 표시
-[x] npm run build 통과
+[ ] 마이페이지 사건 클릭 시 /cases/{caseId} 정상 표시
+[ ] 숫자처럼 생긴 caseId도 증거 상세로 오인하지 않음
+[ ] 사건 안의 증거 클릭 시 /evidences/{evidenceId} 정상 표시
 ```
 
 ## 5단계: 증거 상세 페이지 안정화

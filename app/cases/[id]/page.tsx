@@ -10,11 +10,9 @@ import {
   FileSearch,
   FileStack,
   Loader2,
-  Plus,
 } from 'lucide-react';
 
 import { AnalysisStatusBadge } from '@/components/analysis-status-badge';
-import { CaseStatusBadge } from '@/app/mypage/_components/case-status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +20,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { fetchCaseDetail, type CaseDetailData } from '@/lib/api/evidence-detail';
 import type { AnalysisStatus } from '@/lib/analysis-status';
-import type { CaseStatus } from '@/app/mypage/_types/case';
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString('ko-KR', {
@@ -35,14 +32,6 @@ function formatDate(value: string) {
 }
 
 function normalizeStatus(status: string): AnalysisStatus {
-  if (status === 'PROCESSING' || status === 'COMPLETED' || status === 'FAILED') {
-    return status;
-  }
-
-  return 'PENDING';
-}
-
-function normalizeCaseStatus(status: string): CaseStatus {
   if (status === 'PROCESSING' || status === 'COMPLETED' || status === 'FAILED') {
     return status;
   }
@@ -97,7 +86,6 @@ export default function CaseDetailPage() {
   if (!data) return null;
 
   const evidences = data.evidences ?? [];
-  const addEvidenceHref = `/main?caseId=${encodeURIComponent(data.caseId)}&caseName=${encodeURIComponent(data.caseName)}`;
 
   return (
     <div className="container mx-auto flex w-full min-h-0 flex-col gap-6 overflow-hidden py-6">
@@ -113,20 +101,13 @@ export default function CaseDetailPage() {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <CaseStatusBadge status={normalizeCaseStatus(data.status)} />
+          <Badge variant="outline" className="px-3 py-1.5">
+            {data.status}
+          </Badge>
           <Badge variant="secondary" className="gap-1.5 px-3 py-1.5">
             <CalendarDays className="size-3.5" />
             {formatDate(data.createdAt)}
           </Badge>
-          <Button
-            size="sm"
-            className="gap-1.5"
-            render={<Link href={addEvidenceHref} />}
-            nativeButton={false}
-          >
-            <Plus className="size-3.5" />
-            증거 추가
-          </Button>
         </div>
       </div>
 

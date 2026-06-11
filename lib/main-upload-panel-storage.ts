@@ -13,8 +13,6 @@ export type MainUploadPanelSession = {
   caseName: string
   entries: PersistedUploadEntry[]
   hasUploadedOnce: boolean
-  caseMode?: "new" | "existing"
-  selectedCaseId?: string
 }
 
 export function loadMainUploadPanelSession(): MainUploadPanelSession | null {
