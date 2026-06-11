@@ -98,7 +98,7 @@ function EvidenceDetailView({ evidenceId }: { evidenceId: number }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1 overflow-hidden">
             <Link 
-              href={`/cases/${encodeURIComponent(evidenceInfo.caseName || "")}`} 
+              href={`/cases/${encodeURIComponent(evidenceInfo.caseId || evidenceInfo.caseName || "")}`} 
               className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors truncate"
             >
               {evidenceInfo.caseName}
