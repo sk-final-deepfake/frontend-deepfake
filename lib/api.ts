@@ -24,7 +24,7 @@ export async function uploadEvidence(file: File): Promise<FileUploadResponse> {
   // "file"은 백엔드 @RequestParam("file")과 이름이 일치해야 함
   formData.append("file", file)
 
-  const res = await fetch(`${API_BASE}/api/evidences/upload`, {
+  const res = await fetch(`${API_BASE}/api/v1/evidences/upload`, {
     method: "POST",
     // Content-Type 수동 지정 금지 — 브라우저가 multipart boundary 포함해 자동 설정
     body: formData,
