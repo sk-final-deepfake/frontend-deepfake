@@ -6,6 +6,8 @@ import {
   ShieldCheck, 
   ShieldAlert, 
   FileVideo, 
+  FileAudio,
+  FileImage,
   Activity, 
   Clock, 
   Hash, 
@@ -21,6 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import MetadataView from '@/components/evidence/MetadataView';
+import { fetchEvidenceDetail } from '@/lib/api/evidence-detail';
 
 export default function EvidenceDetailPage() {
   const { id } = useParams();
@@ -31,17 +34,11 @@ export default function EvidenceDetailPage() {
   useEffect(() => {
     const fetchDetail = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
-        const res = await fetch(`${apiUrl}/evidences/${id}/detail`);
-        
-        if (!res.ok) {
-          throw new Error('데이터를 불러오는 데 실패했습니다. 서버 상태를 확인해 주세요.');
-        }
-        
-        const result = await res.json();
+        if (!id) return;
+        const result = await fetchEvidenceDetail(Number(id));
         setData(result);
       } catch (err: any) {
-        setError(err.message);
+        setError(err.message || '데이터를 불러오는 데 실패했습니다.');
       } finally {
         setLoading(false);
       }
@@ -71,6 +68,15 @@ export default function EvidenceDetailPage() {
 
   const { evidenceInfo, integrityInfo, analysisInfo, cocLogs } = data;
 
+  const getFileIcon = (type: string) => {
+    switch (type?.toUpperCase()) {
+      case 'VIDEO': return <FileVideo className="w-6 h-6 shrink-0" />;
+      case 'AUDIO': return <FileAudio className="w-6 h-6 shrink-0" />;
+      case 'IMAGE': return <FileImage className="w-6 h-6 shrink-0" />;
+      default: return <FileVideo className="w-6 h-6 shrink-0" />;
+    }
+  };
+
   return (
     <div className="container mx-auto py-6 space-y-6 flex flex-col w-full min-h-0 overflow-hidden">
       {/* 1. Header Section */}
@@ -82,7 +88,7 @@ export default function EvidenceDetailPage() {
             <span className="text-sm font-medium text-primary shrink-0">분석 결과</span>
           </div>
           <h1 className="text-2xl font-bold flex items-center gap-2 truncate">
-            <FileVideo className="w-6 h-6 shrink-0" />
+            {getFileIcon(evidenceInfo.mediaType || evidenceInfo.fileType)}
             <span className="truncate">{evidenceInfo.fileName}</span>
           </h1>
         </div>
@@ -194,7 +200,7 @@ export default function EvidenceDetailPage() {
             
             <TabsContent value="metadata" className="pt-4 border rounded-md bg-card mt-2 p-6 shadow-sm">
               <MetadataView 
-                fileType={evidenceInfo.fileType || 'VIDEO'} 
+                fileType={evidenceInfo.mediaType || evidenceInfo.fileType || 'VIDEO'} 
                 metadata={evidenceInfo.technicalMetadata} 
                 status={evidenceInfo.technicalMetadata.extractionStatus} 
               />
@@ -240,7 +246,9 @@ export default function EvidenceDetailPage() {
                    <time className="text-[10px] font-mono text-muted-foreground block mb-1">
                      {new Date(log.createdAt).toLocaleString()}
                    </time>
-                   <p className="text-xs font-bold text-foreground">{log.eventType}</p>
+                   <p className="text-xs font-bold text-foreground">
+                     {log.eventType} <span className="text-muted-foreground font-normal ml-1">by {log.userId}</span>
+                   </p>
                    <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{log.description}</p>
                    <div className="mt-2 flex items-center gap-1 text-[9px] text-muted-foreground font-mono bg-muted/50 p-1 rounded w-fit">
                       <Hash className="w-2.5 h-2.5" /> {log.currentLogHash.substring(0, 16)}...
