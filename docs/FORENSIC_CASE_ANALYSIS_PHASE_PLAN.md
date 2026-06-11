@@ -196,21 +196,21 @@ AnalysisService.startAnalysis(...)에서 사건명 정책 변경
 프론트 작업:
 
 ```text
-[ ] 증거 정보 영역 정리
-[ ] 무결성/해시 영역 정리
-[ ] 분석 상태 영역 정리
-[ ] moduleResults가 []일 때 빈 상태 표시
-[ ] cocLogs가 []일 때 빈 상태 표시
-[ ] PDF 보고서 영역 placeholder 추가
+[x] 증거 정보 영역 정리
+[x] 무결성/해시 영역 정리
+[x] 분석 상태 영역 정리
+[x] moduleResults가 []일 때 빈 상태 표시
+[x] cocLogs가 []일 때 빈 상태 표시
+[x] PDF 보고서 영역 placeholder 추가
 ```
 
 백엔드 작업:
 
 ```text
-[ ] /api/v1/evidences/{evidenceId}/detail 응답에서 moduleResults: [] 보장
-[ ] cocLogs: [] 보장
-[ ] integrityInfo.chainValid, isChainValid 호환 유지
-[ ] evidenceInfo.mediaType, fileType 호환 유지
+[x] /api/v1/evidences/{evidenceId}/detail 응답에서 moduleResults: [] 보장
+[x] cocLogs: [] 보장
+[x] integrityInfo.chainValid, isChainValid 호환 유지
+[x] evidenceInfo.mediaType, fileType 호환 유지
 ```
 
 백엔드에서 하지 않을 것:
@@ -223,9 +223,9 @@ PDF 생성 API를 이 단계에서 구현하지 않음
 검증:
 
 ```text
-[ ] 분석 미완료 증거 상세도 화면이 깨지지 않음
-[ ] 분석 완료 증거 상세에서 분석 결과가 표시됨
-[ ] npm run build 통과
+[x] 분석 미완료 증거 상세도 화면이 깨지지 않음
+[x] 분석 완료 증거 상세에서 분석 결과가 표시됨
+[x] npm run build 통과
 ```
 
 ## 6단계: 원본 증거 삭제 요청 UX
