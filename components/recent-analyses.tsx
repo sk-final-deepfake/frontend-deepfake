@@ -113,7 +113,7 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
                     variant="outline"
                     size="xs"
                     className="h-7 gap-1.5 text-xs"
-                    render={<Link href={`/cases/${item.evidenceId}`} />}
+                    render={<Link href={`/evidences/${item.evidenceId}`} />}
                     nativeButton={false}
                   >
                     <Search className="size-3" />

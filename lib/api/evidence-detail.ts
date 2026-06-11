@@ -28,6 +28,7 @@ export type EvidenceInfo = {
   fileSize: number
   uploadedAt: string
   mediaType: string // Added mediaType
+  fileType?: string
   technicalMetadata: TechnicalMetadata
 }
 
@@ -35,6 +36,7 @@ export type IntegrityInfo = {
   hashAlgorithm: string
   originalHash: string
   chainValid: boolean
+  isChainValid: boolean
   verificationStatus: string
 }
 
