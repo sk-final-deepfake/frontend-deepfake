@@ -28,10 +28,6 @@ import type { AnalysisStatus } from "@/lib/analysis-status"
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
 import type { CaseSummary } from "@/app/mypage/_types/case"
 import {
-  fetchCaseDetail,
-  type CaseEvidenceSummary,
-} from "@/lib/api/evidence-detail"
-import {
   cancelAnalysis,
   fetchAnalysisStatus,
   startEvidenceAnalysis,
@@ -166,19 +162,6 @@ function getStoppableAnalysisEvidenceIds(fileStates: FileUploadState[]): number[
     .map((item) => item.result!.evidenceId)
 }
 
-function normalizeEvidenceAnalysisStatus(status: string): AnalysisStatus {
-  if (status === "PROCESSING" || status === "COMPLETED" || status === "FAILED") {
-    return status
-  }
-
-  return "PENDING"
-}
-
-function isExistingEvidenceSelectable(evidence: CaseEvidenceSummary): boolean {
-  const status = normalizeEvidenceAnalysisStatus(evidence.analysisStatus)
-  return status !== "PROCESSING" && status !== "COMPLETED"
-}
-
 export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanelProps) {
   const [kind, setKind] = useState<MediaKind>("all")
   const [isDragging, setIsDragging] = useState(false)
@@ -187,13 +170,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const [caseMode, setCaseMode] = useState<CaseMode>("new")
   const [existingCases, setExistingCases] = useState<CaseSummary[]>([])
   const [selectedCaseId, setSelectedCaseId] = useState("")
-  const [selectedCaseEvidences, setSelectedCaseEvidences] = useState<CaseEvidenceSummary[]>([])
-  const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<number[]>([])
   const [isLoadingCases, setIsLoadingCases] = useState(false)
-  const [isLoadingCaseEvidences, setIsLoadingCaseEvidences] = useState(false)
   const [caseListError, setCaseListError] = useState("")
-  const [caseEvidenceError, setCaseEvidenceError] = useState("")
-  const [caseActionMessage, setCaseActionMessage] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [status, setStatus] = useState<UploadStatus>("idle")
@@ -317,49 +295,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   useEffect(() => {
     onMetadataChange?.(buildMetadataItems(fileStates))
   }, [fileStates, onMetadataChange])
-
-  useEffect(() => {
-    const activeCaseKey = selectedCaseId || caseName.trim()
-
-    if (caseMode !== "existing" || !activeCaseKey) {
-      setSelectedCaseEvidences([])
-      setSelectedEvidenceIds([])
-      setCaseEvidenceError("")
-      return
-    }
-
-    let cancelled = false
-
-    const loadCaseEvidences = async () => {
-      setIsLoadingCaseEvidences(true)
-      setCaseEvidenceError("")
-      setCaseActionMessage("")
-
-      try {
-        const response = await fetchCaseDetail(activeCaseKey)
-        if (!cancelled) {
-          setSelectedCaseEvidences(response.evidences ?? [])
-          setSelectedEvidenceIds([])
-        }
-      } catch {
-        if (!cancelled) {
-          setSelectedCaseEvidences([])
-          setSelectedEvidenceIds([])
-          setCaseEvidenceError("선택한 사건의 증거 목록을 불러오지 못했습니다.")
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingCaseEvidences(false)
-        }
-      }
-    }
-
-    void loadCaseEvidences()
-
-    return () => {
-      cancelled = true
-    }
-  }, [caseMode, selectedCaseId, caseName])
 
   const stoppableEvidenceIds = getStoppableAnalysisEvidenceIds(fileStates)
   const pollingKey = stoppableEvidenceIds.join(",")
@@ -689,61 +624,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     }
   }
 
-  const toggleExistingEvidence = (evidenceId: number) => {
-    setSelectedEvidenceIds((prev) =>
-      prev.includes(evidenceId)
-        ? prev.filter((id) => id !== evidenceId)
-        : [...prev, evidenceId]
-    )
-    setCaseActionMessage("")
-    setGlobalError("")
-  }
-
-  const handleAnalyzeSelectedEvidences = async () => {
-    if (caseMode !== "existing") return
-    if (!selectedCaseId) {
-      setGlobalError("기존 사건을 선택해 주세요.")
-      return
-    }
-    if (!trimmedCaseName) {
-      setGlobalError("분석을 시작하려면 사건명을 입력해 주세요.")
-      return
-    }
-    if (selectedEvidenceIds.length === 0) {
-      setGlobalError("분석할 증거를 선택해 주세요.")
-      return
-    }
-
-    setGlobalError("")
-    setCaseActionMessage("")
-
-    try {
-      const response = await startEvidenceAnalysis(selectedEvidenceIds, trimmedCaseName)
-      const startedIds = new Set(response.evidenceIds)
-
-      setSelectedCaseEvidences((prev) =>
-        prev.map((evidence) =>
-          startedIds.has(evidence.evidenceId)
-            ? { ...evidence, analysisStatus: "PENDING" }
-            : evidence
-        )
-      )
-      setSelectedEvidenceIds((prev) => prev.filter((id) => !startedIds.has(id)))
-
-      if (response.startedCount > 0) {
-        setCaseActionMessage(`선택한 증거 ${response.startedCount}건의 분석 요청이 등록되었습니다.`)
-      } else {
-        setCaseActionMessage("새로 등록된 분석 요청이 없습니다. 이미 요청된 증거일 수 있습니다.")
-      }
-    } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "분석 요청에 실패했습니다."
-      setGlobalError(message)
-    }
-  }
-
   const startNewCase = () => {
     if (fileStates.length > 0) {
       const confirmed = window.confirm(
@@ -769,7 +649,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const displayedSuccessStates = fileStates.filter(
     (item) => item.status === "success" && item.result
   )
-  const selectableExistingEvidenceCount = selectedCaseEvidences.filter(isExistingEvidenceSelectable).length
   const uploadDisabledTitle =
     caseMode === "existing" && !selectedCaseId
       ? "기존 사건을 선택해 주세요."
@@ -898,94 +777,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
             </p>
             {caseListError && (
               <p className="text-[11px] text-destructive">{caseListError}</p>
-            )}
-
-            {selectedCaseId && (
-              <div className="mt-4 max-w-3xl rounded-lg border border-border bg-background/60 p-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">기존 증거 선택</h3>
-                    <p className="text-[11px] text-muted-foreground">
-                      선택한 사건에 등록된 증거를 바로 분석 요청할 수 있습니다. 아래 드롭존으로 새 증거도 추가할 수 있습니다.
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={selectedEvidenceIds.length === 0 || isBusy}
-                    onClick={() => void handleAnalyzeSelectedEvidences()}
-                    className="gap-1.5"
-                  >
-                    <FileSearch className="size-3.5" />
-                    선택 증거 분석 ({selectedEvidenceIds.length})
-                  </Button>
-                </div>
-
-                <div className="mt-3 space-y-2">
-                  {isLoadingCaseEvidences ? (
-                    <div className="flex items-center gap-2 rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                      <Loader2 className="size-4 animate-spin" />
-                      증거 목록을 불러오는 중입니다.
-                    </div>
-                  ) : caseEvidenceError ? (
-                    <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive">
-                      {caseEvidenceError}
-                    </p>
-                  ) : selectedCaseEvidences.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                      이 사건에 등록된 증거가 없습니다. 아래에서 새 증거를 업로드하세요.
-                    </div>
-                  ) : (
-                    <ul className="max-h-52 space-y-2 overflow-y-auto pr-1" aria-label="기존 사건 증거 목록">
-                      {selectedCaseEvidences.map((evidence) => {
-                        const status = normalizeEvidenceAnalysisStatus(evidence.analysisStatus)
-                        const selectable = isExistingEvidenceSelectable(evidence)
-                        const checked = selectedEvidenceIds.includes(evidence.evidenceId)
-                        return (
-                          <li
-                            key={evidence.evidenceId}
-                            className={cn(
-                              "flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5",
-                              checked && "border-primary/50 bg-primary/5",
-                              !selectable && "opacity-70"
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={!selectable || isBusy}
-                              onChange={() => toggleExistingEvidence(evidence.evidenceId)}
-                              className="size-4 rounded border-border"
-                              aria-label={`${evidence.fileName} 선택`}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-foreground">
-                                {evidence.fileName}
-                              </p>
-                              <p className="font-mono text-[10px] text-muted-foreground">
-                                EV-{evidence.evidenceId}
-                                {evidence.mediaType ? ` · ${evidence.mediaType}` : ""}
-                              </p>
-                            </div>
-                            <AnalysisStatusBadge status={status} className="h-5 px-1.5" />
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </div>
-
-                {caseActionMessage && (
-                  <p className="mt-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
-                    {caseActionMessage}
-                  </p>
-                )}
-                {selectableExistingEvidenceCount === 0 && selectedCaseEvidences.length > 0 && (
-                  <p className="mt-3 text-[11px] text-muted-foreground">
-                    현재 선택 가능한 증거가 없습니다. 분석 진행 중이거나 완료된 증거는 다시 선택하지 않습니다.
-                  </p>
-                )}
-              </div>
             )}
           </TabsContent>
         </Tabs>
