@@ -223,7 +223,7 @@ function EvidenceDetailView({ evidenceId }: { evidenceId: number }) {
               <MetadataView 
                 fileType={evidenceInfo.mediaType || 'VIDEO'} 
                 metadata={evidenceInfo.technicalMetadata} 
-                status={evidenceInfo.technicalMetadata.extractionStatus} 
+                status={evidenceInfo.technicalMetadata?.extractionStatus || 'PENDING'} 
               />
             </TabsContent>
             
