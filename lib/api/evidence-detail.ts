@@ -92,5 +92,5 @@ export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceD
 }
 
 export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {
-  return apiRequest<CaseDetailData>(`/api/v1/cases/${encodeURIComponent(caseId)}`)
+  return apiRequest<CaseDetailData>(`/api/v1/cases?caseKey=${encodeURIComponent(caseId)}`)
 }
