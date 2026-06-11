@@ -22,9 +22,22 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
-import { startEvidenceAnalysis, uploadEvidence, type UploadResult } from "@/lib/evidence-api"
+import type { AnalysisStatus } from "@/lib/analysis-status"
+import {
+  cancelAnalysis,
+  fetchAnalysisStatus,
+  resetEvidence,
+  startEvidenceAnalysis,
+  uploadEvidence,
+  type UploadResult,
+} from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api-client"
-import { loadRecentUploads } from "@/lib/recent-uploads-storage"
+import {
+  clearMainUploadPanelSession,
+  createPlaceholderFile,
+  loadMainUploadPanelSession,
+  saveMainUploadPanelSession,
+} from "@/lib/main-upload-panel-storage"
 import {
   fileFingerprint,
   type MetadataDisplayItem,
@@ -33,14 +46,13 @@ import {
 type MediaKind = "all" | "audio" | "video" | "image"
 type UploadStatus = "idle" | "uploading" | "completed" | "error" | "analyzing"
 
-type FileAnalysisState = "queued" | "failed"
-
 type FileUploadState = {
   file: File
   status: "pending" | "uploading" | "success" | "error"
   result?: UploadResult
   errorMessage?: string
-  analysisStatus?: FileAnalysisState
+  analysisStatus?: AnalysisStatus
+  analysisProgress?: number
 }
 
 const acceptMap: Record<MediaKind, string> = {
@@ -103,12 +115,7 @@ function buildMetadataItems(fileStates: FileUploadState[]): MetadataDisplayItem[
           id: `uploaded-${state.result.evidenceId}`,
           phase: "uploaded" as const,
           upload: state.result,
-          analysisStatus:
-            state.analysisStatus === "queued"
-              ? "PENDING"
-              : state.analysisStatus === "failed"
-                ? "FAILED"
-                : state.result.analysisStatus,
+          analysisStatus: state.analysisStatus ?? state.result.analysisStatus,
         },
       ]
     }
@@ -121,8 +128,10 @@ function getFileStatusLabel(item: FileUploadState): string {
   if (item.status === "pending") return "업로드 대기 중"
   if (item.status === "uploading") return "업로드 진행 중..."
   if (item.status === "error") return item.errorMessage ?? "업로드 실패"
-  if (item.analysisStatus === "queued") return "분석 대기중"
-  if (item.analysisStatus === "failed") return "분석 실패"
+  if (item.analysisStatus === "PENDING") return "분석 대기중"
+  if (item.analysisStatus === "PROCESSING") return `분석 진행중 (${item.analysisProgress ?? 0}%)`
+  if (item.analysisStatus === "COMPLETED") return "분석 완료"
+  if (item.analysisStatus === "FAILED") return "분석 실패"
   return "업로드 완료"
 }
 
@@ -133,6 +142,20 @@ function dedupeResultsByHash(results: UploadResult[]): UploadResult[] {
     seen.add(item.hashValue)
     return true
   })
+}
+
+function isStoppableAnalysis(item: FileUploadState): boolean {
+  return (
+    item.status === "success" &&
+    !!item.result &&
+    (item.analysisStatus === "PENDING" || item.analysisStatus === "PROCESSING")
+  )
+}
+
+function getStoppableAnalysisEvidenceIds(fileStates: FileUploadState[]): number[] {
+  return fileStates
+    .filter(isStoppableAnalysis)
+    .map((item) => item.result!.evidenceId)
 }
 
 export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanelProps) {
@@ -146,20 +169,133 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const [progress, setProgress] = useState(0)
   const [globalError, setGlobalError] = useState("")
   const [hasUploadedOnce, setHasUploadedOnce] = useState(false)
-  const [analyzeProgress, setAnalyzeProgress] = useState(0)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
-    if (loadRecentUploads().length > 0) {
-      setHasUploadedOnce(true)
+    const session = loadMainUploadPanelSession()
+    if (session) {
+      setCaseName(session.caseName)
+      setHasUploadedOnce(session.hasUploadedOnce)
+      if (session.entries.length > 0) {
+        setFileStates(
+          session.entries.map((entry) => ({
+            file: createPlaceholderFile(entry.result),
+            status: "success" as const,
+            result: entry.result,
+            analysisStatus: entry.analysisStatus,
+            analysisProgress: entry.analysisProgress,
+          }))
+        )
+        setStatus("completed")
+
+        const evidenceIds = session.entries
+          .filter(
+            (entry) =>
+              entry.analysisStatus === "PENDING" ||
+              entry.analysisStatus === "PROCESSING"
+          )
+          .map((entry) => entry.result.evidenceId)
+
+        if (evidenceIds.length > 0) {
+          void (async () => {
+            const statuses = await Promise.all(
+              evidenceIds.map((id) => fetchAnalysisStatus(id).catch(() => null))
+            )
+
+            setFileStates((prev) =>
+              prev.map((entry) => {
+                if (!entry.result) return entry
+                const statusUpdate = statuses.find(
+                  (item) => item?.evidenceId === entry.result!.evidenceId
+                )
+                if (!statusUpdate) return entry
+
+                return {
+                  ...entry,
+                  analysisStatus: statusUpdate.status,
+                  analysisProgress: statusUpdate.progressPercent,
+                  result: {
+                    ...entry.result,
+                    analysisStatus: statusUpdate.status,
+                  },
+                }
+              })
+            )
+          })()
+        }
+      }
     }
+    setHydrated(true)
   }, [])
 
   useEffect(() => {
     onMetadataChange?.(buildMetadataItems(fileStates))
   }, [fileStates, onMetadataChange])
 
+  const stoppableEvidenceIds = getStoppableAnalysisEvidenceIds(fileStates)
+  const pollingKey = stoppableEvidenceIds.join(",")
+
+  useEffect(() => {
+    if (!hydrated) return
+
+    const entries = fileStates
+      .filter((item) => item.status === "success" && item.result)
+      .map((item) => ({
+        result: item.result!,
+        analysisStatus: item.analysisStatus,
+        analysisProgress: item.analysisProgress,
+      }))
+
+    saveMainUploadPanelSession({
+      caseName,
+      entries,
+      hasUploadedOnce,
+    })
+  }, [fileStates, caseName, hasUploadedOnce, hydrated])
+
+  useEffect(() => {
+    if (!pollingKey) return
+
+    const pollStatuses = async () => {
+      const evidenceIds = pollingKey.split(",").map(Number)
+      const statuses = await Promise.all(
+        evidenceIds.map((id) =>
+          fetchAnalysisStatus(id).catch(() => null)
+        )
+      )
+
+      setFileStates((prev) =>
+        prev.map((entry) => {
+          if (!entry.result) return entry
+          const statusUpdate = statuses.find(
+            (item) => item?.evidenceId === entry.result!.evidenceId
+          )
+          if (!statusUpdate) return entry
+
+          return {
+            ...entry,
+            analysisStatus: statusUpdate.status,
+            analysisProgress: statusUpdate.progressPercent,
+            result: {
+              ...entry.result,
+              analysisStatus: statusUpdate.status,
+            },
+          }
+        })
+      )
+    }
+
+    void pollStatuses()
+    const interval = setInterval(() => {
+      void pollStatuses()
+    }, 1500)
+
+    return () => clearInterval(interval)
+  }, [pollingKey])
+
   const files = fileStates.map((item) => item.file)
-  const isBusy = status === "uploading" || status === "analyzing"
+  const isBusy = status === "uploading" || isCancelling
   const hasPendingFiles = fileStates.some((item) => item.status === "pending")
   const canUpload = hasPendingFiles && status !== "uploading" && status !== "analyzing"
 
@@ -213,6 +349,45 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
       setStatus("idle")
       setProgress(0)
       setGlobalError("")
+    }
+  }
+
+  const cancelAnalysisFile = async (index: number) => {
+    const target = fileStates[index]
+    if (!isStoppableAnalysis(target) || !target.result) return
+
+    const confirmed = window.confirm(
+      `"${target.file.name}" 분석을 중단하시겠습니까?\n원본 파일은 유지됩니다.`
+    )
+    if (!confirmed) return
+
+    setIsCancelling(true)
+    setGlobalError("")
+
+    try {
+      await cancelAnalysis(target.result.evidenceId)
+      setFileStates((prev) =>
+        prev.map((entry, idx) => {
+          if (idx !== index || !entry.result) return entry
+          return {
+            ...entry,
+            analysisStatus: undefined,
+            analysisProgress: undefined,
+            result: {
+              ...entry.result,
+              analysisStatus: undefined,
+            },
+          }
+        })
+      )
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "분석 중단에 실패했습니다."
+      setGlobalError(message)
+    } finally {
+      setIsCancelling(false)
     }
   }
 
@@ -300,19 +475,10 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     )
     const evidenceIds = uniqueResults.map((item) => item.evidenceId)
 
-    setStatus("analyzing")
-    setAnalyzeProgress(0)
     setGlobalError("")
 
     try {
       const response = await startEvidenceAnalysis(evidenceIds, trimmedCaseName)
-
-      const steps = 20
-      for (let step = 1; step <= steps; step++) {
-        await new Promise((resolve) => setTimeout(resolve, 80))
-        setAnalyzeProgress(Math.round((step / steps) * 100))
-      }
-
       const startedIds = new Set(response.evidenceIds)
 
       setFileStates((prev) =>
@@ -322,7 +488,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
           }
           return {
             ...entry,
-            analysisStatus: "queued" as const,
+            analysisStatus: "PENDING" as const,
+            analysisProgress: 0,
             result: {
               ...entry.result,
               caseName: trimmedCaseName,
@@ -357,7 +524,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
           }
           return {
             ...entry,
-            analysisStatus: "failed" as const,
+            analysisStatus: "FAILED" as const,
             result: {
               ...entry.result,
               analysisStatus: "FAILED" as const,
@@ -370,13 +537,41 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     }
   }
 
-  const reset = () => {
+  const reset = async () => {
+    const ids = fileStates
+      .filter((item) => item.status === "success" && item.result)
+      .map((item) => item.result!.evidenceId)
+
+    if (ids.length > 0) {
+      const confirmed = window.confirm(
+        `업로드된 증거 ${ids.length}건을 서버에서 삭제하고 초기화하시겠습니까?`
+      )
+      if (!confirmed) return
+
+      setIsCancelling(true)
+      setGlobalError("")
+
+      try {
+        await Promise.all(ids.map((id) => resetEvidence(id)))
+      } catch (error) {
+        const message =
+          error instanceof ApiError
+            ? error.message
+            : "초기화에 실패했습니다."
+        setGlobalError(message)
+        return
+      } finally {
+        setIsCancelling(false)
+      }
+    }
+
+    clearMainUploadPanelSession()
     setFileStates([])
     setCaseName("")
     setStatus("idle")
     setProgress(0)
-    setAnalyzeProgress(0)
     setGlobalError("")
+    setHasUploadedOnce(false)
   }
 
   const uploadButtonLabel = hasUploadedOnce ? "추가 업로드" : "업로드 시작"
@@ -507,11 +702,12 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                       {formatBytes(item.file.size)} · {getFileStatusLabel(item)}
                     </p>
                   </div>
-                  {status === "idle" && (
+                  {!isBusy && item.status !== "success" && (
                     <button
                       type="button"
                       onClick={() => removeFile(i)}
                       className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      title="목록에서 제거"
                     >
                       <X className="size-4" aria-hidden="true" />
                     </button>
@@ -531,16 +727,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
             </div>
           )}
 
-          {status === "analyzing" && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-medium">
-                <span className="text-primary">AI 딥페이크 분석 진행 중...</span>
-                <span>{Math.round(analyzeProgress)}%</span>
-              </div>
-              <Progress value={analyzeProgress} className="h-2" />
-            </div>
-          )}
-
           {globalError && (
             <p className="text-sm text-destructive">{globalError}</p>
           )}
@@ -553,8 +739,13 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                   ? `분석 현황 (${displayedSuccessStates.length}건)`
                   : `업로드 완료 (${displayedSuccessStates.length}건)`}
               </h3>
-              {displayedSuccessStates.map((item, idx) => {
-                const res = item.result!
+              {fileStates.map((item, fileIndex) => {
+                if (item.status !== "success" || !item.result) return null
+
+                const res = item.result
+                const successIndex = displayedSuccessStates.findIndex(
+                  (entry) => entry.result?.evidenceId === res.evidenceId
+                )
 
                 return (
                   <div
@@ -562,9 +753,9 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                     className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-primary/20 bg-primary/5 p-4 duration-500"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 gap-3">
+                      <div className="flex min-w-0 flex-1 gap-3">
                         <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
-                          <span className="text-xs font-bold">{idx + 1}</span>
+                          <span className="text-xs font-bold">{successIndex + 1}</span>
                         </div>
                         <div className="min-w-0">
                           <h4 className="max-w-[200px] truncate text-sm font-semibold text-foreground sm:max-w-xs">
@@ -579,16 +770,41 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                           </p>
                         </div>
                       </div>
-                      {item.analysisStatus === "queued" ? (
-                        <AnalysisStatusBadge status="PENDING" />
-                      ) : item.analysisStatus === "failed" ? (
-                        <AnalysisStatusBadge status="FAILED" />
-                      ) : (
-                        <Badge variant="outline" className="shrink-0 text-[10px]">
-                          업로드 완료
-                        </Badge>
-                      )}
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        {item.analysisStatus === "PENDING" ? (
+                          <AnalysisStatusBadge status="PENDING" />
+                        ) : item.analysisStatus === "PROCESSING" ? (
+                          <AnalysisStatusBadge status="PROCESSING" />
+                        ) : item.analysisStatus === "COMPLETED" ? (
+                          <AnalysisStatusBadge status="COMPLETED" />
+                        ) : item.analysisStatus === "FAILED" ? (
+                          <AnalysisStatusBadge status="FAILED" />
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">
+                            업로드 완료
+                          </Badge>
+                        )}
+                        {isStoppableAnalysis(item) && !isBusy && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-[11px] text-destructive hover:text-destructive"
+                            onClick={() => void cancelAnalysisFile(fileIndex)}
+                          >
+                            중단
+                          </Button>
+                        )}
+                      </div>
                     </div>
+                    {item.analysisStatus === "PROCESSING" && (
+                      <div className="mt-3 space-y-1.5">
+                        <div className="flex justify-between text-[10px] font-medium text-primary">
+                          <span>분석 진행중 ({item.analysisProgress ?? 0}%)</span>
+                        </div>
+                        <Progress value={item.analysisProgress ?? 0} className="h-2" />
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -596,8 +812,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                 <AlertTriangle className="size-3.5 text-amber-500" />
                 <p className="text-[11px] text-muted-foreground">
                   {hasAnalyzedFiles
-                    ? "AI 모델 연동 전까지는 분석 대기 상태로 등록됩니다. 모델 연결 후 순차적으로 분석이 진행됩니다."
-                    : "업로드가 완료되었습니다. 사건명을 입력한 뒤 분석 시작을 눌러 주세요."}
+                    ? "분석은 큐에서 순차적으로 진행됩니다. 중단 시 분석만 취소되고 원본은 유지됩니다. 초기화 시에만 서버에서 삭제됩니다."
+                    : "업로드가 완료되었습니다. 사건명을 입력한 뒤 분석 시작을 누르세요. 서버 삭제는 초기화에서만 가능합니다."}
                 </p>
               </div>
             </div>
@@ -611,8 +827,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
           보안: 모든 데이터는 암호화되어 처리됩니다.
         </p>
         <div className="flex gap-2">
-          {status === "completed" && (
-            <Button variant="outline" onClick={reset}>
+          {(status === "completed" || fileStates.length > 0) && (
+            <Button variant="outline" onClick={() => void reset()} disabled={isBusy}>
               초기화
             </Button>
           )}
