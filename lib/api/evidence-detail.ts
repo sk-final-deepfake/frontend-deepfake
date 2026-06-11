@@ -24,6 +24,7 @@ export type EvidenceInfo = {
   evidenceId: number
   fileName: string
   caseName: string
+  caseId?: string
   fileSize: number
   uploadedAt: string
   mediaType: string // Added mediaType
