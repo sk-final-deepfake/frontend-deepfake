@@ -13,16 +13,20 @@ import {
   Loader2,
   CheckCircle2,
   AlertTriangle,
+  FolderOpen,
+  Plus,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
 import type { AnalysisStatus } from "@/lib/analysis-status"
+import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
+import type { CaseSummary } from "@/app/mypage/_types/case"
 import {
   cancelAnalysis,
   fetchAnalysisStatus,
@@ -43,6 +47,7 @@ import {
 } from "@/lib/metadata-types"
 
 type MediaKind = "all" | "audio" | "video" | "image"
+type CaseMode = "new" | "existing"
 type UploadStatus = "idle" | "uploading" | "completed" | "error" | "analyzing"
 
 type FileUploadState = {
@@ -162,6 +167,11 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const [isDragging, setIsDragging] = useState(false)
   const [fileStates, setFileStates] = useState<FileUploadState[]>([])
   const [caseName, setCaseName] = useState("")
+  const [caseMode, setCaseMode] = useState<CaseMode>("new")
+  const [existingCases, setExistingCases] = useState<CaseSummary[]>([])
+  const [selectedCaseId, setSelectedCaseId] = useState("")
+  const [isLoadingCases, setIsLoadingCases] = useState(false)
+  const [caseListError, setCaseListError] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [status, setStatus] = useState<UploadStatus>("idle")
@@ -175,6 +185,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     const session = loadMainUploadPanelSession()
     if (session) {
       setCaseName(session.caseName)
+      setCaseMode(session.caseMode ?? "new")
+      setSelectedCaseId(session.selectedCaseId ?? "")
       setHasUploadedOnce(session.hasUploadedOnce)
       if (session.entries.length > 0) {
         setFileStates(
@@ -229,6 +241,58 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+
+    const loadCases = async () => {
+      setIsLoadingCases(true)
+      setCaseListError("")
+
+      try {
+        const response = await fetchMyAnalysisHistory({
+          sort: "newest",
+          page: 0,
+          size: 50,
+        })
+        const cases = response.content ?? []
+
+        if (!cancelled) {
+          setExistingCases(cases)
+
+          const params = new URLSearchParams(window.location.search)
+          const caseIdFromUrl = params.get("caseId")
+          const caseNameFromUrl = params.get("caseName")
+
+          if (caseIdFromUrl || caseNameFromUrl) {
+            const selected = cases.find(
+              (item) =>
+                item.caseId === caseIdFromUrl ||
+                item.caseName === caseNameFromUrl
+            )
+
+            setCaseMode("existing")
+            setSelectedCaseId(selected?.caseId ?? caseIdFromUrl ?? "")
+            setCaseName(selected?.caseName ?? caseNameFromUrl ?? "")
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setCaseListError("기존 사건 목록을 불러오지 못했습니다.")
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingCases(false)
+        }
+      }
+    }
+
+    void loadCases()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     onMetadataChange?.(buildMetadataItems(fileStates))
   }, [fileStates, onMetadataChange])
 
@@ -250,8 +314,10 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
       caseName,
       entries,
       hasUploadedOnce,
+      caseMode,
+      selectedCaseId,
     })
-  }, [fileStates, caseName, hasUploadedOnce, hydrated])
+  }, [fileStates, caseName, caseMode, selectedCaseId, hasUploadedOnce, hydrated])
 
   useEffect(() => {
     if (!pollingKey) return
@@ -297,9 +363,11 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const isBusy = status === "uploading" || isCancelling
   const hasPendingFiles = fileStates.some((item) => item.status === "pending")
   const trimmedCaseName = caseName.trim()
+  const hasSelectedExistingCase = caseMode === "new" || selectedCaseId.length > 0
   const canUpload =
     hasPendingFiles &&
     trimmedCaseName.length > 0 &&
+    hasSelectedExistingCase &&
     status !== "uploading" &&
     status !== "analyzing"
 
@@ -401,6 +469,10 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
       .filter(({ item }) => item.status === "pending")
 
     if (pendingIndices.length === 0) return
+    if (caseMode === "existing" && !selectedCaseId) {
+      setGlobalError("기존 사건을 선택해 주세요.")
+      return
+    }
     if (!trimmedCaseName) {
       setGlobalError("사건명을 입력해 주세요.")
       return
@@ -464,13 +536,21 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   )
 
   const canAnalyze =
-    analyzableResults.length > 0 && trimmedCaseName.length > 0 && !isBusy
+    analyzableResults.length > 0 &&
+    trimmedCaseName.length > 0 &&
+    hasSelectedExistingCase &&
+    !isBusy
 
   const handleAnalyze = async () => {
     const targets = fileStates.filter(
       (item) => item.status === "success" && item.result && !item.analysisStatus
     )
     if (targets.length === 0) return
+
+    if (caseMode === "existing" && !selectedCaseId) {
+      setGlobalError("기존 사건을 선택해 주세요.")
+      return
+    }
 
     if (!trimmedCaseName) {
       setGlobalError("분석을 시작하려면 사건명을 입력해 주세요.")
@@ -555,6 +635,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     clearMainUploadPanelSession()
     setFileStates([])
     setCaseName("")
+    setCaseMode("new")
+    setSelectedCaseId("")
     setStatus("idle")
     setProgress(0)
     setGlobalError("")
@@ -567,6 +649,38 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const displayedSuccessStates = fileStates.filter(
     (item) => item.status === "success" && item.result
   )
+  const uploadDisabledTitle =
+    caseMode === "existing" && !selectedCaseId
+      ? "기존 사건을 선택해 주세요."
+      : !trimmedCaseName
+        ? "사건명을 입력해 주세요."
+        : undefined
+
+  const changeCaseMode = (value: CaseMode) => {
+    setCaseMode(value)
+    setGlobalError("")
+
+    if (value === "new") {
+      setSelectedCaseId("")
+      return
+    }
+
+    if (selectedCaseId) {
+      const selected = existingCases.find((item) => item.caseId === selectedCaseId)
+      if (selected) {
+        setCaseName(selected.caseName)
+      }
+    } else {
+      setCaseName("")
+    }
+  }
+
+  const selectExistingCase = (value: string) => {
+    setSelectedCaseId(value)
+    const selected = existingCases.find((item) => item.caseId === value)
+    setCaseName(selected?.caseName ?? "")
+    setGlobalError("")
+  }
 
   return (
     <section
@@ -595,28 +709,77 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         </Tabs>
       </div>
 
-      <div className="mb-4 space-y-1.5">
-        <Label htmlFor="caseName" className="text-xs text-muted-foreground">
-          사건명 <span className="text-destructive">*</span>
-        </Label>
-        <Input
-          id="caseName"
-          value={caseName}
-          onChange={(e) => {
-            setCaseName(e.target.value)
-            if (globalError.includes("사건명")) {
-              setGlobalError("")
-            }
-          }}
-          placeholder="예: 2026-서울-0123 딥페이크 유포 사건"
-          disabled={isBusy}
-          required
-          aria-required="true"
-          className="h-9 max-w-md"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          업로드와 분석 시작에 사건명이 필수이며, 내 분석 기록에 등록됩니다.
-        </p>
+      <div className="mb-4 space-y-3">
+        <Tabs value={caseMode} onValueChange={(v) => changeCaseMode(v as CaseMode)}>
+          <TabsList className="bg-secondary">
+            <TabsTrigger value="new" className="gap-1.5 text-xs">
+              <Plus className="size-3.5" aria-hidden="true" />
+              새 사건
+            </TabsTrigger>
+            <TabsTrigger value="existing" className="gap-1.5 text-xs">
+              <FolderOpen className="size-3.5" aria-hidden="true" />
+              기존 사건
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="new" className="mt-3 space-y-1.5">
+            <Label htmlFor="caseName" className="text-xs text-muted-foreground">
+              사건명 <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="caseName"
+              value={caseName}
+              onChange={(e) => {
+                setCaseName(e.target.value)
+                setSelectedCaseId("")
+                if (globalError.includes("사건명")) {
+                  setGlobalError("")
+                }
+              }}
+              placeholder="예: 2026-서울-0123 딥페이크 유포 사건"
+              disabled={isBusy}
+              required
+              aria-required="true"
+              className="h-9 max-w-md"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              새 사건으로 증거를 등록합니다. 업로드와 분석 시작에 사건명이 필수입니다.
+            </p>
+          </TabsContent>
+
+          <TabsContent value="existing" className="mt-3 space-y-1.5">
+            <Label htmlFor="existingCase" className="text-xs text-muted-foreground">
+              기존 사건 <span className="text-destructive">*</span>
+            </Label>
+            <select
+              id="existingCase"
+              value={selectedCaseId}
+              onChange={(e) => selectExistingCase(e.target.value)}
+              disabled={isBusy || isLoadingCases || existingCases.length === 0}
+              className="h-9 w-full max-w-md rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none transition-colors focus:border-ring focus:ring-[3px] focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-required="true"
+            >
+              <option value="">
+                {isLoadingCases
+                  ? "사건 목록을 불러오는 중..."
+                  : existingCases.length === 0
+                    ? "선택 가능한 기존 사건이 없습니다"
+                    : "기존 사건을 선택하세요"}
+              </option>
+              {existingCases.map((item) => (
+                <option key={item.caseId} value={item.caseId}>
+                  {item.caseName} ({item.evidenceCount}건)
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-muted-foreground">
+              선택한 사건에 증거를 추가합니다. 사건 상세와 내 분석 기록에 같은 사건으로 묶입니다.
+            </p>
+            {caseListError && (
+              <p className="text-[11px] text-destructive">{caseListError}</p>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
 
       <div
@@ -825,7 +988,13 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
               disabled={!canAnalyze}
               onClick={handleAnalyze}
               className="min-w-[120px] gap-2"
-              title={!trimmedCaseName ? "분석을 시작하려면 사건명을 입력해 주세요." : undefined}
+              title={
+                caseMode === "existing" && !selectedCaseId
+                  ? "기존 사건을 선택해 주세요."
+                  : !trimmedCaseName
+                    ? "분석을 시작하려면 사건명을 입력해 주세요."
+                    : undefined
+              }
             >
               <FileSearch className="size-4" aria-hidden="true" />
               분석 시작 ({analyzableResults.length})
@@ -837,7 +1006,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
               disabled={!canUpload}
               onClick={handleUpload}
               className="min-w-[120px] gap-2"
-              title={!trimmedCaseName ? "사건명을 입력해 주세요." : undefined}
+              title={uploadDisabledTitle}
             >
               {status === "uploading" ? (
                 <>
