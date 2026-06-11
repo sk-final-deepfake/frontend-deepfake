@@ -87,7 +87,7 @@ export type CaseDetailData = {
 }
 
 export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceDetailData> {
-  return apiRequest<EvidenceDetailData>(`/api/evidences/${evidenceId}/detail`)
+  return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`)
 }
 
 export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {
