@@ -1,4 +1,6 @@
 import type { AnalysisStatus } from "@/lib/analysis-status"
+
+export type { AnalysisStatus }
 import { apiFetch, apiFetchForm } from "@/lib/api-client"
 
 export type MediaMetadata = {
@@ -64,8 +66,29 @@ export async function startEvidenceAnalysis(
   })
 }
 
+export type AnalysisStatusResponse = {
+  evidenceId: number
+  analysisRequestId: number
+  status: AnalysisStatus
+  progressPercent: number
+}
+
+export async function fetchAnalysisStatus(
+  evidenceId: number
+): Promise<AnalysisStatusResponse> {
+  return apiFetch<AnalysisStatusResponse>(
+    `/api/evidences/${evidenceId}/analysis-status`
+  )
+}
+
 export async function cancelEvidence(evidenceId: number): Promise<void> {
   await apiFetch<void>(`/api/evidences/${evidenceId}`, {
+    method: "DELETE",
+  })
+}
+
+export async function cancelAnalysis(evidenceId: number): Promise<void> {
+  await apiFetch<void>(`/api/evidences/${evidenceId}/analysis`, {
     method: "DELETE",
   })
 }

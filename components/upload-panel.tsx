@@ -22,8 +22,12 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
+import { AnalysisToggleBadge } from "@/components/analysis-toggle-badge"
+import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
+  cancelAnalysis,
   cancelEvidence,
+  fetchAnalysisStatus,
   startEvidenceAnalysis,
   uploadEvidence,
   type UploadResult,
@@ -38,14 +42,13 @@ import {
 type MediaKind = "all" | "audio" | "video" | "image"
 type UploadStatus = "idle" | "uploading" | "completed" | "error" | "analyzing"
 
-type FileAnalysisState = "queued" | "failed"
-
 type FileUploadState = {
   file: File
   status: "pending" | "uploading" | "success" | "error"
   result?: UploadResult
   errorMessage?: string
-  analysisStatus?: FileAnalysisState
+  analysisStatus?: AnalysisStatus
+  analysisProgress?: number
 }
 
 const acceptMap: Record<MediaKind, string> = {
@@ -108,12 +111,7 @@ function buildMetadataItems(fileStates: FileUploadState[]): MetadataDisplayItem[
           id: `uploaded-${state.result.evidenceId}`,
           phase: "uploaded" as const,
           upload: state.result,
-          analysisStatus:
-            state.analysisStatus === "queued"
-              ? "PENDING"
-              : state.analysisStatus === "failed"
-                ? "FAILED"
-                : state.result.analysisStatus,
+          analysisStatus: state.analysisStatus ?? state.result.analysisStatus,
         },
       ]
     }
@@ -126,8 +124,10 @@ function getFileStatusLabel(item: FileUploadState): string {
   if (item.status === "pending") return "업로드 대기 중"
   if (item.status === "uploading") return "업로드 진행 중..."
   if (item.status === "error") return item.errorMessage ?? "업로드 실패"
-  if (item.analysisStatus === "queued") return "분석 대기중"
-  if (item.analysisStatus === "failed") return "분석 실패"
+  if (item.analysisStatus === "PENDING") return "분석 대기중"
+  if (item.analysisStatus === "PROCESSING") return `분석 진행중 (${item.analysisProgress ?? 0}%)`
+  if (item.analysisStatus === "COMPLETED") return "분석 완료"
+  if (item.analysisStatus === "FAILED") return "분석 실패"
   return "업로드 완료"
 }
 
@@ -152,6 +152,20 @@ function isCancellableUpload(item: FileUploadState): boolean {
   return item.status === "success" && !!item.result && !item.analysisStatus
 }
 
+function isStoppableAnalysis(item: FileUploadState): boolean {
+  return (
+    item.status === "success" &&
+    !!item.result &&
+    (item.analysisStatus === "PENDING" || item.analysisStatus === "PROCESSING")
+  )
+}
+
+function getStoppableAnalysisEvidenceIds(fileStates: FileUploadState[]): number[] {
+  return fileStates
+    .filter(isStoppableAnalysis)
+    .map((item) => item.result!.evidenceId)
+}
+
 export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanelProps) {
   const [kind, setKind] = useState<MediaKind>("all")
   const [isDragging, setIsDragging] = useState(false)
@@ -163,9 +177,9 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const [progress, setProgress] = useState(0)
   const [globalError, setGlobalError] = useState("")
   const [hasUploadedOnce, setHasUploadedOnce] = useState(false)
-  const [analyzeProgress, setAnalyzeProgress] = useState(0)
   const [isCancelling, setIsCancelling] = useState(false)
   const cancellableIdsRef = useRef<number[]>([])
+  const stoppableIdsRef = useRef<number[]>([])
 
   useEffect(() => {
     if (loadRecentUploads().length > 0) {
@@ -178,14 +192,62 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   }, [fileStates, onMetadataChange])
 
   const cancellableEvidenceIds = getCancellableEvidenceIds(fileStates)
+  const stoppableEvidenceIds = getStoppableAnalysisEvidenceIds(fileStates)
+  const pollingKey = stoppableEvidenceIds.join(",")
 
   useEffect(() => {
     cancellableIdsRef.current = cancellableEvidenceIds
-  }, [cancellableEvidenceIds])
+    stoppableIdsRef.current = stoppableEvidenceIds
+  }, [cancellableEvidenceIds, stoppableEvidenceIds])
+
+  useEffect(() => {
+    if (!pollingKey) return
+
+    const pollStatuses = async () => {
+      const evidenceIds = pollingKey.split(",").map(Number)
+      const statuses = await Promise.all(
+        evidenceIds.map((id) =>
+          fetchAnalysisStatus(id).catch(() => null)
+        )
+      )
+
+      setFileStates((prev) =>
+        prev.map((entry) => {
+          if (!entry.result) return entry
+          const statusUpdate = statuses.find(
+            (item) => item?.evidenceId === entry.result!.evidenceId
+          )
+          if (!statusUpdate) return entry
+
+          return {
+            ...entry,
+            analysisStatus: statusUpdate.status,
+            analysisProgress: statusUpdate.progressPercent,
+            result: {
+              ...entry.result,
+              analysisStatus: statusUpdate.status,
+            },
+          }
+        })
+      )
+    }
+
+    void pollStatuses()
+    const interval = setInterval(() => {
+      void pollStatuses()
+    }, 1500)
+
+    return () => clearInterval(interval)
+  }, [pollingKey])
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (cancellableIdsRef.current.length === 0) return
+      if (
+        cancellableIdsRef.current.length === 0 &&
+        stoppableIdsRef.current.length === 0
+      ) {
+        return
+      }
       event.preventDefault()
       event.returnValue = ""
     }
@@ -196,7 +258,10 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
 
   useEffect(() => {
     const onDocumentClick = (event: MouseEvent) => {
-      const ids = cancellableIdsRef.current
+      const ids = [
+        ...cancellableIdsRef.current,
+        ...stoppableIdsRef.current,
+      ]
       if (ids.length === 0) return
 
       const anchor = (event.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null
@@ -211,8 +276,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
       if (destination.pathname === window.location.pathname) return
 
       const shouldCancelAndLeave = window.confirm(
-        `분석을 시작하지 않은 업로드 ${ids.length}건이 있습니다.\n\n` +
-          "확인: 업로드를 취소하고 이동\n" +
+        `취소되지 않은 업로드·분석 ${ids.length}건이 있습니다.\n\n` +
+          "확인: 모두 중단·삭제 후 이동\n" +
           "취소: 이 페이지에 머무르기"
       )
 
@@ -228,7 +293,14 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
       void (async () => {
         setIsCancelling(true)
         try {
-          await Promise.all(ids.map((id) => cancelEvidence(id)))
+          await Promise.all(
+            ids.map((id) => {
+              if (stoppableIdsRef.current.includes(id)) {
+                return cancelAnalysis(id)
+              }
+              return cancelEvidence(id)
+            })
+          )
           window.location.href = href
         } catch (error) {
           const message =
@@ -247,7 +319,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   }, [])
 
   const files = fileStates.map((item) => item.file)
-  const isBusy = status === "uploading" || status === "analyzing" || isCancelling
+  const isBusy = status === "uploading" || isCancelling
   const hasPendingFiles = fileStates.some((item) => item.status === "pending")
   const canUpload = hasPendingFiles && status !== "uploading" && status !== "analyzing"
 
@@ -319,6 +391,39 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
           : "업로드 취소에 실패했습니다."
       setGlobalError(message)
       throw error
+    } finally {
+      setIsCancelling(false)
+    }
+  }
+
+  const cancelAnalysisFile = async (index: number) => {
+    const target = fileStates[index]
+    if (!isStoppableAnalysis(target) || !target.result) return
+
+    const confirmed = window.confirm(
+      `"${target.file.name}" 분석을 중단하고 서버에서 삭제하시겠습니까?`
+    )
+    if (!confirmed) return
+
+    setIsCancelling(true)
+    setGlobalError("")
+
+    try {
+      await cancelAnalysis(target.result.evidenceId)
+      setFileStates((prev) => {
+        const next = prev.filter((_, i) => i !== index)
+        if (next.length === 0) {
+          setStatus("idle")
+          setProgress(0)
+        }
+        return next
+      })
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "분석 중단에 실패했습니다."
+      setGlobalError(message)
     } finally {
       setIsCancelling(false)
     }
@@ -435,19 +540,10 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     )
     const evidenceIds = uniqueResults.map((item) => item.evidenceId)
 
-    setStatus("analyzing")
-    setAnalyzeProgress(0)
     setGlobalError("")
 
     try {
       const response = await startEvidenceAnalysis(evidenceIds, trimmedCaseName)
-
-      const steps = 20
-      for (let step = 1; step <= steps; step++) {
-        await new Promise((resolve) => setTimeout(resolve, 80))
-        setAnalyzeProgress(Math.round((step / steps) * 100))
-      }
-
       const startedIds = new Set(response.evidenceIds)
 
       setFileStates((prev) =>
@@ -457,7 +553,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
           }
           return {
             ...entry,
-            analysisStatus: "queued" as const,
+            analysisStatus: "PENDING" as const,
+            analysisProgress: 0,
             result: {
               ...entry.result,
               caseName: trimmedCaseName,
@@ -492,7 +589,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
           }
           return {
             ...entry,
-            analysisStatus: "failed" as const,
+            analysisStatus: "FAILED" as const,
             result: {
               ...entry.result,
               analysisStatus: "FAILED" as const,
@@ -524,7 +621,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     setCaseName("")
     setStatus("idle")
     setProgress(0)
-    setAnalyzeProgress(0)
     setGlobalError("")
   }
 
@@ -689,16 +785,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
             </div>
           )}
 
-          {status === "analyzing" && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-medium">
-                <span className="text-primary">AI 딥페이크 분석 진행 중...</span>
-                <span>{Math.round(analyzeProgress)}%</span>
-              </div>
-              <Progress value={analyzeProgress} className="h-2" />
-            </div>
-          )}
-
           {globalError && (
             <p className="text-sm text-destructive">{globalError}</p>
           )}
@@ -743,9 +829,19 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                         </div>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-2">
-                        {item.analysisStatus === "queued" ? (
-                          <AnalysisStatusBadge status="PENDING" />
-                        ) : item.analysisStatus === "failed" ? (
+                        {isStoppableAnalysis(item) ? (
+                          <AnalysisToggleBadge
+                            status={
+                              item.analysisStatus === "PROCESSING"
+                                ? "PROCESSING"
+                                : "PENDING"
+                            }
+                            disabled={isBusy}
+                            onCancel={() => void cancelAnalysisFile(fileIndex)}
+                          />
+                        ) : item.analysisStatus === "COMPLETED" ? (
+                          <AnalysisStatusBadge status="COMPLETED" />
+                        ) : item.analysisStatus === "FAILED" ? (
                           <AnalysisStatusBadge status="FAILED" />
                         ) : (
                           <Badge variant="outline" className="text-[10px]">
@@ -765,6 +861,15 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                         )}
                       </div>
                     </div>
+                    {item.analysisStatus === "PROCESSING" && (
+                      <div className="mt-3 space-y-1.5">
+                        <div className="flex justify-between text-[10px] font-medium text-primary">
+                          <span>AI 분석 진행 중</span>
+                          <span>{item.analysisProgress ?? 0}%</span>
+                        </div>
+                        <Progress value={item.analysisProgress ?? 0} className="h-2" />
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -772,7 +877,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                 <AlertTriangle className="size-3.5 text-amber-500" />
                 <p className="text-[11px] text-muted-foreground">
                   {hasAnalyzedFiles
-                    ? "AI 모델 연동 전까지는 분석 대기 상태로 등록됩니다. 모델 연결 후 순차적으로 분석이 진행됩니다."
+                    ? "분석은 RabbitMQ 큐에서 순차적으로 진행됩니다. 대기·진행 중 토글에 마우스를 올리면 중단할 수 있습니다."
                     : "업로드가 완료되었습니다. 사건명을 입력한 뒤 분석 시작을 누르거나, 취소 시 서버에서 삭제됩니다."}
                 </p>
               </div>
