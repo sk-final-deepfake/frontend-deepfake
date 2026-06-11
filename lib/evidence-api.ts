@@ -87,6 +87,12 @@ export async function cancelEvidence(evidenceId: number): Promise<void> {
   })
 }
 
+export async function resetEvidence(evidenceId: number): Promise<void> {
+  await apiFetch<void>(`/api/evidences/${evidenceId}/reset`, {
+    method: "DELETE",
+  })
+}
+
 export async function cancelAnalysis(evidenceId: number): Promise<void> {
   await apiFetch<void>(`/api/evidences/${evidenceId}/analysis`, {
     method: "DELETE",
