@@ -1,264 +1,169 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { 
-  ShieldCheck, 
-  ShieldAlert, 
-  FileVideo, 
-  FileAudio,
-  FileImage,
-  Activity, 
-  Clock, 
-  Hash, 
-  Info, 
-  ChevronRight, 
-  Loader2, 
-  AlertCircle 
+import {
+  AlertCircle,
+  CalendarDays,
+  ChevronRight,
+  FileSearch,
+  FileStack,
+  Loader2,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import MetadataView from '@/components/evidence/MetadataView';
-import { fetchEvidenceDetail } from '@/lib/api/evidence-detail';
 
-export default function EvidenceDetailPage() {
+import { AnalysisStatusBadge } from '@/components/analysis-status-badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { fetchCaseDetail, type CaseDetailData } from '@/lib/api/evidence-detail';
+import type { AnalysisStatus } from '@/lib/analysis-status';
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function normalizeStatus(status: string): AnalysisStatus {
+  if (status === 'PROCESSING' || status === 'COMPLETED' || status === 'FAILED') {
+    return status;
+  }
+
+  return 'PENDING';
+}
+
+export default function CaseDetailPage() {
   const { id } = useParams();
-  const [data, setData] = useState<any | null>(null);
+  const caseId = Array.isArray(id) ? id[0] : id;
+  const [data, setData] = useState<CaseDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchDetail = async () => {
       try {
-        if (!id) return;
-        const result = await fetchEvidenceDetail(Number(id));
+        if (!caseId) return;
+        const result = await fetchCaseDetail(caseId);
         setData(result);
       } catch (err: any) {
-        setError(err.message || '데이터를 불러오는 데 실패했습니다.');
+        setError(err.message || '사건 정보를 불러오는 데 실패했습니다.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchDetail();
-  }, [id]);
+  }, [caseId]);
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 w-full">
-      <Loader2 className="w-10 h-10 animate-spin text-primary" />
-      <p className="text-muted-foreground animate-pulse">분석 데이터를 수신 중입니다...</p>
-    </div>
-  );
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] w-full flex-col items-center justify-center gap-4">
+        <Loader2 className="size-10 animate-spin text-primary" />
+        <p className="text-muted-foreground animate-pulse">사건 정보를 불러오는 중입니다...</p>
+      </div>
+    );
+  }
 
-  if (error) return (
-    <div className="container mx-auto py-10">
-      <Alert variant="destructive" className="max-w-2xl mx-auto">
-        <AlertCircle className="h-4 w-4" />
-        <AlertTitle>데이터 로드 오류</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    </div>
-  );
+  if (error) {
+    return (
+      <div className="container mx-auto py-10">
+        <Alert variant="destructive" className="mx-auto max-w-2xl">
+          <AlertCircle className="size-4" />
+          <AlertTitle>데이터 로드 오류</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   if (!data) return null;
 
-  const { evidenceInfo, integrityInfo, analysisInfo, cocLogs } = data;
-
-  const getFileIcon = (type: string) => {
-    switch (type?.toUpperCase()) {
-      case 'VIDEO': return <FileVideo className="w-6 h-6 shrink-0" />;
-      case 'AUDIO': return <FileAudio className="w-6 h-6 shrink-0" />;
-      case 'IMAGE': return <FileImage className="w-6 h-6 shrink-0" />;
-      default: return <FileVideo className="w-6 h-6 shrink-0" />;
-    }
-  };
+  const evidences = data.evidences ?? [];
 
   return (
-    <div className="container mx-auto py-6 space-y-6 flex flex-col w-full min-h-0 overflow-hidden">
-      {/* 1. Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
+    <div className="container mx-auto flex w-full min-h-0 flex-col gap-6 overflow-hidden py-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1 overflow-hidden">
-            <span className="text-sm font-medium text-muted-foreground truncate">{evidenceInfo.caseName}</span>
-            <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-            <span className="text-sm font-medium text-primary shrink-0">분석 결과</span>
+          <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
+            <FileStack className="size-4 shrink-0" />
+            <span>사건 상세</span>
           </div>
-          <h1 className="text-2xl font-bold flex items-center gap-2 truncate">
-            {getFileIcon(evidenceInfo.mediaType || evidenceInfo.fileType)}
-            <span className="truncate">{evidenceInfo.fileName}</span>
-          </h1>
+          <h1 className="truncate text-2xl font-bold text-foreground">{data.caseName}</h1>
+          <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
+            {data.caseId}
+          </p>
         </div>
-        
-        <div className="flex items-center gap-3 shrink-0">
-          <Badge variant={integrityInfo.isChainValid ? "outline" : "destructive"} 
-                 className={integrityInfo.isChainValid ? "bg-green-50 text-green-700 border-green-200 px-3 py-1.5 flex items-center gap-1.5" : "px-3 py-1.5 flex items-center gap-1.5"}>
-            {integrityInfo.isChainValid ? <ShieldCheck className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
-            {integrityInfo.isChainValid ? "무결성 검증 완료" : "무결성 훼손 주의"}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Badge variant="outline" className="px-3 py-1.5">
+            {data.status}
           </Badge>
-          <Badge variant="secondary" className="px-3 py-1.5">
-            ID: {evidenceInfo.evidenceId}
+          <Badge variant="secondary" className="gap-1.5 px-3 py-1.5">
+            <CalendarDays className="size-3.5" />
+            {formatDate(data.createdAt)}
           </Badge>
         </div>
       </div>
 
       <Separator />
 
-      {/* 2. Main Analysis Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
-        {/* Risk Score Card */}
-        <Card className="lg:col-span-2 border-t-4 border-t-red-500 shadow-sm overflow-hidden">
-          <CardHeader>
-            <div className="flex justify-between items-start">
-              <div>
-                <CardTitle className="text-xl">종합 위험도 판독</CardTitle>
-                <CardDescription>AI 모델들의 분석 결과를 종합한 최종 수치입니다.</CardDescription>
-              </div>
-              <Badge 
-                className={
-                  analysisInfo.riskLevel === 'HIGH' ? 'bg-red-600' : 
-                  analysisInfo.riskLevel === 'MEDIUM' ? 'bg-yellow-600' : 'bg-green-600'
-                }
-              >
-                {analysisInfo.riskLevel} RISK
-              </Badge>
+      <Card className="shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <FileSearch className="size-5" />
+            증거 목록
+          </CardTitle>
+          <Badge variant="secondary">총 {evidences.length}건</Badge>
+        </CardHeader>
+        <CardContent>
+          {evidences.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-5 py-10 text-center text-sm text-muted-foreground">
+              이 사건에 연결된 증거가 없습니다.
             </div>
-          </CardHeader>
-          <CardContent className="py-6">
-            <div className="flex flex-col md:flex-row items-center gap-10">
-              <div className="relative w-48 h-48 shrink-0 flex items-center justify-center bg-muted/20 rounded-full border-8 border-muted/30">
-                 <div className="text-center">
-                   <p className="text-5xl font-black text-red-500">{analysisInfo.riskScore}%</p>
-                   <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mt-1">Risk Score</p>
-                 </div>
-              </div>
-              <div className="flex-1 space-y-4 min-w-0">
-                <div className="bg-muted/30 p-4 rounded-lg border border-muted italic">
-                  <p className="text-sm leading-relaxed text-foreground">
-                    &quot;{analysisInfo.summary}&quot;
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-6 pt-2">
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground font-semibold">판독 신뢰도 (Confidence)</p>
-                    <div className="flex items-center gap-3">
-                      <Progress value={analysisInfo.confidenceScore} className="h-2 flex-1" />
-                      <span className="text-xs font-bold w-8">{analysisInfo.confidenceScore}%</span>
+          ) : (
+            <ul className="divide-y divide-border rounded-md border border-border">
+              {evidences.map((evidence) => (
+                <li
+                  key={evidence.evidenceId}
+                  className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-accent/40 md:flex-row md:items-center"
+                >
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">
+                    <FileSearch className="size-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {evidence.fileName}
+                      </p>
+                      <AnalysisStatusBadge status={normalizeStatus(evidence.analysisStatus)} />
                     </div>
+                    <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                      EV-{evidence.evidenceId}
+                      {evidence.mediaType ? ` · ${evidence.mediaType}` : ''}
+                    </p>
                   </div>
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground font-semibold">분석 상태</p>
-                    <span className="text-sm font-bold text-green-600 flex items-center gap-1">
-                      <Activity className="w-4 h-4" /> {analysisInfo.status}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Engine Results */}
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-lg">엔진별 상세 스코어</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {analysisInfo.moduleResults.map((m: any, i: number) => (
-              <div key={i} className="p-3 border rounded-lg bg-card/50 space-y-2">
-                <div className="flex justify-between items-center text-xs font-bold uppercase tracking-tight">
-                  <span className="truncate mr-2">{m.moduleName.replace(/_/g, ' ')}</span>
-                  <Badge variant={m.detected ? "destructive" : "outline"} className="text-[10px] h-5 shrink-0">
-                    {m.detected ? 'Detected' : 'Clean'}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Progress value={m.score * 100} className="h-1.5 flex-1" />
-                  <span className="text-[10px] font-mono">{(m.score * 100).toFixed(0)}%</span>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 3. Detailed Tabs & Timeline */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full items-start">
-        <div className="lg:col-span-2 w-full">
-          <Tabs defaultValue="metadata" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 h-12">
-              <TabsTrigger value="metadata" className="flex items-center gap-2">
-                <Info className="w-4 h-4" /> 포렌식 메타데이터
-              </TabsTrigger>
-              <TabsTrigger value="integrity" className="flex items-center gap-2">
-                <Hash className="w-4 h-4" /> 무결성 리포트
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="metadata" className="pt-4 border rounded-md bg-card mt-2 p-6 shadow-sm">
-              <MetadataView 
-                fileType={evidenceInfo.mediaType || evidenceInfo.fileType || 'VIDEO'} 
-                metadata={evidenceInfo.technicalMetadata} 
-                status={evidenceInfo.technicalMetadata.extractionStatus} 
-              />
-            </TabsContent>
-            
-            <TabsContent value="integrity" className="pt-4 border rounded-md bg-card mt-2 p-6 shadow-sm space-y-6">
-              <div className="space-y-3">
-                <label className="text-xs text-muted-foreground flex items-center gap-1 font-bold uppercase tracking-wider">
-                  <Hash className="w-3 h-3" /> 원본 증거 해시 ({integrityInfo.hashAlgorithm})
-                </label>
-                <div className="bg-muted p-4 rounded font-mono text-xs break-all border border-muted-foreground/20 leading-relaxed shadow-inner">
-                  {integrityInfo.originalHash}
-                </div>
-              </div>
-              <Separator />
-              <div className="flex items-center gap-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <ShieldCheck className="w-10 h-10 text-green-600 shrink-0" />
-                <div>
-                  <p className="text-sm font-bold text-green-900">CoC(Chain of Custody) 해시 체인 검증됨</p>
-                  <p className="text-xs text-green-700 mt-1 leading-relaxed">
-                    디지털 증거물의 수집, 이송, 보관 전 과정에서 데이터의 위변조가 없었음을 기술적으로 증명합니다.
-                  </p>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </div>
-
-        {/* CoC Timeline */}
-        <Card className="w-full shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Clock className="w-5 h-5" /> 사법적 타임라인
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pb-8">
-             <div className="relative pl-6 border-l-2 border-primary/20 space-y-8 ml-2">
-               {cocLogs.map((log: any, i: number) => (
-                 <div key={i} className="relative">
-                   <div className="absolute -left-[33px] top-1 w-4 h-4 rounded-full bg-background border-2 border-primary z-10 flex items-center justify-center">
-                     <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                   </div>
-                   <time className="text-[10px] font-mono text-muted-foreground block mb-1">
-                     {new Date(log.createdAt).toLocaleString()}
-                   </time>
-                   <p className="text-xs font-bold text-foreground">
-                     {log.eventType} <span className="text-muted-foreground font-normal ml-1">by {log.userId}</span>
-                   </p>
-                   <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{log.description}</p>
-                   <div className="mt-2 flex items-center gap-1 text-[9px] text-muted-foreground font-mono bg-muted/50 p-1 rounded w-fit">
-                      <Hash className="w-2.5 h-2.5" /> {log.currentLogHash.substring(0, 16)}...
-                   </div>
-                 </div>
-               ))}
-             </div>
-          </CardContent>
-        </Card>
-      </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-1.5 md:w-auto"
+                    render={<Link href={`/evidences/${evidence.evidenceId}`} />}
+                    nativeButton={false}
+                  >
+                    상세 보기
+                    <ChevronRight className="size-3.5" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
