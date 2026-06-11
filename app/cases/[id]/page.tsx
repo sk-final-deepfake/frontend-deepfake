@@ -6,6 +6,8 @@ import {
   ShieldCheck, 
   ShieldAlert, 
   FileVideo, 
+  FileAudio,
+  FileImage,
   Activity, 
   Clock, 
   Hash, 
@@ -71,6 +73,15 @@ export default function EvidenceDetailPage() {
 
   const { evidenceInfo, integrityInfo, analysisInfo, cocLogs } = data;
 
+  const getFileIcon = (type: string) => {
+    switch (type?.toUpperCase()) {
+      case 'VIDEO': return <FileVideo className="w-6 h-6 shrink-0" />;
+      case 'AUDIO': return <FileAudio className="w-6 h-6 shrink-0" />;
+      case 'IMAGE': return <FileImage className="w-6 h-6 shrink-0" />;
+      default: return <FileVideo className="w-6 h-6 shrink-0" />;
+    }
+  };
+
   return (
     <div className="container mx-auto py-6 space-y-6 flex flex-col w-full min-h-0 overflow-hidden">
       {/* 1. Header Section */}
@@ -82,7 +93,7 @@ export default function EvidenceDetailPage() {
             <span className="text-sm font-medium text-primary shrink-0">분석 결과</span>
           </div>
           <h1 className="text-2xl font-bold flex items-center gap-2 truncate">
-            <FileVideo className="w-6 h-6 shrink-0" />
+            {getFileIcon(evidenceInfo.mediaType || evidenceInfo.fileType)}
             <span className="truncate">{evidenceInfo.fileName}</span>
           </h1>
         </div>
@@ -194,7 +205,7 @@ export default function EvidenceDetailPage() {
             
             <TabsContent value="metadata" className="pt-4 border rounded-md bg-card mt-2 p-6 shadow-sm">
               <MetadataView 
-                fileType={evidenceInfo.fileType || 'VIDEO'} 
+                fileType={evidenceInfo.mediaType || evidenceInfo.fileType || 'VIDEO'} 
                 metadata={evidenceInfo.technicalMetadata} 
                 status={evidenceInfo.technicalMetadata.extractionStatus} 
               />

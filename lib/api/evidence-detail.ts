@@ -1,12 +1,23 @@
 import { apiRequest } from "@/lib/api/client"
 
 export type TechnicalMetadata = {
-  width: number
-  height: number
-  durationSec: number
-  fps: number
-  codec: string
+  // Common
   extractionStatus: string
+  
+  // Video
+  width?: number
+  height?: number
+  durationSec?: number
+  fps?: number
+  codec?: string
+  
+  // Audio
+  sampleRate?: number
+  channels?: number
+  
+  // Image
+  deviceInfo?: string
+  capturedAt?: string
 }
 
 export type EvidenceInfo = {
@@ -15,6 +26,7 @@ export type EvidenceInfo = {
   caseName: string
   fileSize: number
   uploadedAt: string
+  mediaType: string // Added mediaType
   technicalMetadata: TechnicalMetadata
 }
 
