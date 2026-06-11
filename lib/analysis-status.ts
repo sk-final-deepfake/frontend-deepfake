@@ -1,8 +1,8 @@
 export type AnalysisStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
 
 export const analysisStatusLabel: Record<AnalysisStatus, string> = {
-  PENDING: "분석 대기",
-  PROCESSING: "분석 중",
+  PENDING: "분석 대기중",
+  PROCESSING: "분석 진행중",
   COMPLETED: "분석 완료",
   FAILED: "분석 실패",
 }

@@ -23,7 +23,7 @@ export function AnalysisToggleBadge({
   className,
 }: AnalysisToggleBadgeProps) {
   const [hovered, setHovered] = useState(false)
-  const label = hovered && !disabled ? "중단" : status === "PENDING" ? "분석 대기" : "분석 중"
+  const label = hovered && !disabled ? "중단" : status === "PENDING" ? "분석 대기중" : "분석 진행중"
 
   return (
     <button
