@@ -24,9 +24,11 @@ export type EvidenceInfo = {
   evidenceId: number
   fileName: string
   caseName: string
+  caseId?: string
   fileSize: number
   uploadedAt: string
   mediaType: string // Added mediaType
+  fileType?: string
   technicalMetadata: TechnicalMetadata
 }
 
@@ -34,6 +36,7 @@ export type IntegrityInfo = {
   hashAlgorithm: string
   originalHash: string
   chainValid: boolean
+  isChainValid: boolean
   verificationStatus: string
 }
 
@@ -91,5 +94,5 @@ export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceD
 }
 
 export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {
-  return apiRequest<CaseDetailData>(`/api/v1/cases/${encodeURIComponent(caseId)}`)
+  return apiRequest<CaseDetailData>(`/api/v1/cases?caseKey=${encodeURIComponent(caseId)}`)
 }

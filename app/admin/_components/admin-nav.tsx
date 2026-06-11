@@ -8,12 +8,14 @@ import {
   Ticket,
   ScrollText,
   UserCog,
+  FileStack,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const navItems = [
   { href: "/admin", label: "대시보드", icon: LayoutDashboard, exact: true },
   { href: "/admin/users", label: "계정 관리", icon: Users },
+  { href: "/admin/evidences", label: "증거 관리", icon: FileStack },
   { href: "/admin/invite-codes", label: "생성코드", icon: Ticket },
   { href: "/admin/logs", label: "로그", icon: ScrollText },
   { href: "/admin/profile", label: "내 정보", icon: UserCog },

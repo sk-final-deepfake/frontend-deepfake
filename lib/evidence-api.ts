@@ -45,7 +45,7 @@ export type EvidenceStatsResponse = {
 }
 
 export async function fetchEvidenceStats(): Promise<EvidenceStatsResponse> {
-  return apiFetch<EvidenceStatsResponse>("/api/evidences/stats")
+  return apiFetch<EvidenceStatsResponse>("/api/v1/evidences/stats")
 }
 
 export type StartAnalysisResponse = {
@@ -60,7 +60,7 @@ export async function startEvidenceAnalysis(
   evidenceIds: number[],
   caseName: string
 ): Promise<StartAnalysisResponse> {
-  return apiFetch<StartAnalysisResponse>("/api/evidences/analyze", {
+  return apiFetch<StartAnalysisResponse>("/api/v1/evidences/analyze", {
     method: "POST",
     body: JSON.stringify({ evidenceIds, caseName }),
   })
@@ -77,24 +77,24 @@ export async function fetchAnalysisStatus(
   evidenceId: number
 ): Promise<AnalysisStatusResponse> {
   return apiFetch<AnalysisStatusResponse>(
-    `/api/evidences/${evidenceId}/analysis-status`
+    `/api/v1/evidences/${evidenceId}/analysis-status`
   )
 }
 
 export async function cancelEvidence(evidenceId: number): Promise<void> {
-  await apiFetch<void>(`/api/evidences/${evidenceId}`, {
+  await apiFetch<void>(`/api/v1/evidences/${evidenceId}`, {
     method: "DELETE",
   })
 }
 
 export async function resetEvidence(evidenceId: number): Promise<void> {
-  await apiFetch<void>(`/api/evidences/${evidenceId}/reset`, {
+  await apiFetch<void>(`/api/v1/evidences/${evidenceId}/reset`, {
     method: "DELETE",
   })
 }
 
 export async function cancelAnalysis(evidenceId: number): Promise<void> {
-  await apiFetch<void>(`/api/evidences/${evidenceId}/analysis`, {
+  await apiFetch<void>(`/api/v1/evidences/${evidenceId}/analysis`, {
     method: "DELETE",
   })
 }
@@ -109,7 +109,7 @@ export async function uploadEvidence(
     formData.append("caseName", caseName.trim())
   }
 
-  const data = await apiFetchForm<FileUploadResponse>("/api/evidences/upload", formData)
+  const data = await apiFetchForm<FileUploadResponse>("/api/v1/evidences/upload", formData)
 
   return {
     evidenceId: data.evidenceId,

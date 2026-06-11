@@ -26,7 +26,6 @@ import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
   cancelAnalysis,
   fetchAnalysisStatus,
-  resetEvidence,
   startEvidenceAnalysis,
   uploadEvidence,
   type UploadResult,
@@ -128,8 +127,8 @@ function getFileStatusLabel(item: FileUploadState): string {
   if (item.status === "pending") return "업로드 대기 중"
   if (item.status === "uploading") return "업로드 진행 중..."
   if (item.status === "error") return item.errorMessage ?? "업로드 실패"
-  if (item.analysisStatus === "PENDING") return "분석 대기중"
-  if (item.analysisStatus === "PROCESSING") return `분석 진행중 (${item.analysisProgress ?? 0}%)`
+  if (item.analysisStatus === "PENDING") return "분석 대기"
+  if (item.analysisStatus === "PROCESSING") return `분석 중 (${item.analysisProgress ?? 0}%)`
   if (item.analysisStatus === "COMPLETED") return "분석 완료"
   if (item.analysisStatus === "FAILED") return "분석 실패"
   return "업로드 완료"
@@ -297,7 +296,12 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const files = fileStates.map((item) => item.file)
   const isBusy = status === "uploading" || isCancelling
   const hasPendingFiles = fileStates.some((item) => item.status === "pending")
-  const canUpload = hasPendingFiles && status !== "uploading" && status !== "analyzing"
+  const trimmedCaseName = caseName.trim()
+  const canUpload =
+    hasPendingFiles &&
+    trimmedCaseName.length > 0 &&
+    status !== "uploading" &&
+    status !== "analyzing"
 
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return
@@ -397,6 +401,10 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
       .filter(({ item }) => item.status === "pending")
 
     if (pendingIndices.length === 0) return
+    if (!trimmedCaseName) {
+      setGlobalError("사건명을 입력해 주세요.")
+      return
+    }
 
     setStatus("uploading")
     setProgress(0)
@@ -416,7 +424,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     for (let i = 0; i < pendingIndices.length; i++) {
       const { item, index } = pendingIndices[i]
       try {
-        const result = await uploadEvidence(item.file)
+        const result = await uploadEvidence(item.file, trimmedCaseName)
         completed.push(result)
 
         setFileStates((prev) =>
@@ -455,7 +463,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     (item) => item.status === "success" && item.result && !item.analysisStatus
   )
 
-  const trimmedCaseName = caseName.trim()
   const canAnalyze =
     analyzableResults.length > 0 && trimmedCaseName.length > 0 && !isBusy
 
@@ -537,32 +544,12 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     }
   }
 
-  const reset = async () => {
-    const ids = fileStates
-      .filter((item) => item.status === "success" && item.result)
-      .map((item) => item.result!.evidenceId)
-
-    if (ids.length > 0) {
+  const startNewCase = () => {
+    if (fileStates.length > 0) {
       const confirmed = window.confirm(
-        `업로드된 증거 ${ids.length}건을 서버에서 삭제하고 초기화하시겠습니까?`
+        "현재 화면의 작업 목록만 비우고 새 사건을 시작합니다.\n이미 업로드되었거나 분석 요청된 기록은 마이페이지와 상세 페이지에 보존됩니다."
       )
       if (!confirmed) return
-
-      setIsCancelling(true)
-      setGlobalError("")
-
-      try {
-        await Promise.all(ids.map((id) => resetEvidence(id)))
-      } catch (error) {
-        const message =
-          error instanceof ApiError
-            ? error.message
-            : "초기화에 실패했습니다."
-        setGlobalError(message)
-        return
-      } finally {
-        setIsCancelling(false)
-      }
     }
 
     clearMainUploadPanelSession()
@@ -628,7 +615,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
           className="h-9 max-w-md"
         />
         <p className="text-[11px] text-muted-foreground">
-          분석 시작 시 사건명이 필수이며, 내 분석 기록에 등록됩니다.
+          업로드와 분석 시작에 사건명이 필수이며, 내 분석 기록에 등록됩니다.
         </p>
       </div>
 
@@ -800,7 +787,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                     {item.analysisStatus === "PROCESSING" && (
                       <div className="mt-3 space-y-1.5">
                         <div className="flex justify-between text-[10px] font-medium text-primary">
-                          <span>분석 진행중 ({item.analysisProgress ?? 0}%)</span>
+                          <span>분석 중 ({item.analysisProgress ?? 0}%)</span>
                         </div>
                         <Progress value={item.analysisProgress ?? 0} className="h-2" />
                       </div>
@@ -812,8 +799,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
                 <AlertTriangle className="size-3.5 text-amber-500" />
                 <p className="text-[11px] text-muted-foreground">
                   {hasAnalyzedFiles
-                    ? "분석은 큐에서 순차적으로 진행됩니다. 중단 시 분석만 취소되고 원본은 유지됩니다. 초기화 시에만 서버에서 삭제됩니다."
-                    : "업로드가 완료되었습니다. 사건명을 입력한 뒤 분석 시작을 누르세요. 서버 삭제는 초기화에서만 가능합니다."}
+                    ? "분석 요청이 등록되었습니다. 분석은 큐에서 순차적으로 진행되며, 기록은 마이페이지와 상세 페이지에 보존됩니다."
+                    : "업로드가 완료되었습니다. 사건명을 입력한 뒤 분석 시작을 누르세요. 새 사건 시작은 현재 화면만 비웁니다."}
                 </p>
               </div>
             </div>
@@ -828,8 +815,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         </p>
         <div className="flex gap-2">
           {(status === "completed" || fileStates.length > 0) && (
-            <Button variant="outline" onClick={() => void reset()} disabled={isBusy}>
-              초기화
+            <Button variant="outline" onClick={startNewCase} disabled={isBusy}>
+              새 사건 시작
             </Button>
           )}
           {analyzableResults.length > 0 && (
@@ -844,12 +831,13 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
               분석 시작 ({analyzableResults.length})
             </Button>
           )}
-          {canUpload && (
+          {hasPendingFiles && (
             <Button
               size="lg"
               disabled={!canUpload}
               onClick={handleUpload}
               className="min-w-[120px] gap-2"
+              title={!trimmedCaseName ? "사건명을 입력해 주세요." : undefined}
             >
               {status === "uploading" ? (
                 <>
