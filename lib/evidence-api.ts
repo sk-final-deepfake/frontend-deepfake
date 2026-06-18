@@ -2,6 +2,15 @@ import type { AnalysisStatus } from "@/lib/analysis-status"
 
 export type { AnalysisStatus }
 import { apiFetch, apiFetchForm } from "@/lib/api-client"
+import {
+  mockCancelAnalysis,
+  mockFetchAnalysisStatus,
+  mockFetchEvidenceStats,
+  mockStartEvidenceAnalysis,
+  mockUploadEvidence,
+} from "@/lib/mock-forensic-api"
+
+const USE_MOCK_API = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false"
 
 export type MediaMetadata = {
   type?: string
@@ -45,6 +54,10 @@ export type EvidenceStatsResponse = {
 }
 
 export async function fetchEvidenceStats(): Promise<EvidenceStatsResponse> {
+  if (USE_MOCK_API) {
+    return mockFetchEvidenceStats()
+  }
+
   return apiFetch<EvidenceStatsResponse>("/api/v1/evidences/stats")
 }
 
@@ -60,6 +73,10 @@ export async function startEvidenceAnalysis(
   evidenceIds: number[],
   caseName: string
 ): Promise<StartAnalysisResponse> {
+  if (USE_MOCK_API) {
+    return mockStartEvidenceAnalysis(evidenceIds, caseName)
+  }
+
   return apiFetch<StartAnalysisResponse>("/api/v1/evidences/analyze", {
     method: "POST",
     body: JSON.stringify({ evidenceIds, caseName }),
@@ -76,6 +93,10 @@ export type AnalysisStatusResponse = {
 export async function fetchAnalysisStatus(
   evidenceId: number
 ): Promise<AnalysisStatusResponse> {
+  if (USE_MOCK_API) {
+    return mockFetchAnalysisStatus(evidenceId)
+  }
+
   return apiFetch<AnalysisStatusResponse>(
     `/api/v1/evidences/${evidenceId}/analysis-status`
   )
@@ -94,6 +115,10 @@ export async function resetEvidence(evidenceId: number): Promise<void> {
 }
 
 export async function cancelAnalysis(evidenceId: number): Promise<void> {
+  if (USE_MOCK_API) {
+    return mockCancelAnalysis(evidenceId)
+  }
+
   await apiFetch<void>(`/api/v1/evidences/${evidenceId}/analysis`, {
     method: "DELETE",
   })
@@ -103,6 +128,10 @@ export async function uploadEvidence(
   file: File,
   caseName?: string
 ): Promise<UploadResult> {
+  if (USE_MOCK_API) {
+    return mockUploadEvidence(file, caseName)
+  }
+
   const formData = new FormData()
   formData.append("file", file)
   if (caseName?.trim()) {

@@ -5,6 +5,7 @@ import { formatCreatedAt } from "@/app/mypage/_lib/format-date"
 import { CaseStatusBadge } from "@/app/mypage/_components/case-status-badge"
 import { CaseHistoryEmpty } from "@/app/mypage/_components/case-history-empty"
 import type { DateFormat } from "@/lib/user-settings"
+import { cn } from "@/lib/utils"
 
 export function CaseHistoryList({
   cases,
@@ -35,7 +36,10 @@ export function CaseHistoryList({
                   {item.caseName}
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {formatCreatedAt(item.createdAt, dateFormat)} · 증거 {item.evidenceCount}건
+                  {item.representativeFileName ?? "대표 파일 없음"} · 증거 {item.evidenceCount}건
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {formatCreatedAt(item.createdAt, dateFormat)}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -53,9 +57,11 @@ export function CaseHistoryList({
           <thead>
             <tr className="border-b border-border text-xs text-muted-foreground">
               <th className="px-5 py-3 font-medium">사건명</th>
-              <th className="px-5 py-3 font-medium">상태</th>
-              <th className="px-5 py-3 font-medium">요청일</th>
+              <th className="px-5 py-3 font-medium">대표 파일</th>
               <th className="px-5 py-3 font-medium">증거 수</th>
+              <th className="px-5 py-3 font-medium">최고 위험도</th>
+              <th className="px-5 py-3 font-medium">상태</th>
+              <th className="px-5 py-3 font-medium">분석 일시</th>
               <th className="px-5 py-3 font-medium">
                 <span className="sr-only">상세 보기</span>
               </th>
@@ -67,22 +73,28 @@ export function CaseHistoryList({
                 <td className="px-5 py-3.5">
                   <Link
                     href={`/cases/${encodeURIComponent(item.caseId)}`}
-                    className="block max-w-md truncate font-medium text-foreground hover:underline"
+                    className="block max-w-[260px] truncate font-medium text-foreground hover:underline"
                   >
                     {item.caseName}
                   </Link>
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                    {item.caseId.slice(0, 8)}…
-                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">사건 상세에서 증거 목록 확인</p>
+                </td>
+                <td className="max-w-[220px] px-5 py-3.5">
+                  <span className="block truncate text-muted-foreground">
+                    {item.representativeFileName ?? "-"}
+                  </span>
+                </td>
+                <td className="px-5 py-3.5 whitespace-nowrap text-muted-foreground">
+                  {item.evidenceCount}건
+                </td>
+                <td className="px-5 py-3.5 whitespace-nowrap">
+                  <RiskScoreText score={item.riskScore} status={item.status} />
                 </td>
                 <td className="px-5 py-3.5">
                   <CaseStatusBadge status={item.status} />
                 </td>
                 <td className="px-5 py-3.5 whitespace-nowrap text-muted-foreground">
                   {formatCreatedAt(item.createdAt, dateFormat)}
-                </td>
-                <td className="px-5 py-3.5 text-muted-foreground">
-                  {item.evidenceCount}건
                 </td>
                 <td className="px-5 py-3.5">
                   <Link
@@ -99,5 +111,35 @@ export function CaseHistoryList({
         </table>
       </div>
     </>
+  )
+}
+
+function RiskScoreText({
+  score,
+  status,
+}: {
+  score?: number | null
+  status: CaseSummary["status"]
+}) {
+  if (typeof score !== "number") {
+    const label =
+      status === "FAILED"
+        ? "분석 실패"
+        : status === "PROCESSING" || status === "PENDING"
+          ? "처리 중"
+          : "-"
+
+    return <span className="text-muted-foreground">{label}</span>
+  }
+
+  return (
+    <span
+      className={cn(
+        "font-semibold",
+        score >= 70 ? "text-red-500" : score >= 45 ? "text-orange-500" : "text-emerald-600"
+      )}
+    >
+      {score}%
+    </span>
   )
 }

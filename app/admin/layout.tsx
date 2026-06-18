@@ -1,5 +1,5 @@
 import { SiteHeader } from "@/components/site-header"
-import { AdminNav } from "@/app/admin/_components/admin-nav"
+import { SiteFooter } from "@/components/site-footer"
 import { AdminToastProvider } from "@/app/admin/_components/admin-toast-provider"
 import { AdminAuthGuard } from "@/app/admin/_components/admin-auth-guard"
 
@@ -11,10 +11,10 @@ export default function AdminLayout({
   return (
     <AdminAuthGuard>
       <AdminToastProvider>
-        <div className="min-h-screen bg-background">
+        <div className="flex min-h-screen flex-col bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
           <SiteHeader variant="admin" />
-          <AdminNav />
-          {children}
+          <div className="flex-1">{children}</div>
+          <SiteFooter />
         </div>
       </AdminToastProvider>
     </AdminAuthGuard>

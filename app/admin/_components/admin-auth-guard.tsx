@@ -1,24 +1,47 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { getSession } from "@/lib/auth"
+import { getSession, setSession, type AuthSession } from "@/lib/auth"
+
+const MOCK_ADMIN_SESSION: AuthSession = {
+  role: "admin",
+  userId: "1",
+  loginId: "admin_kim",
+  name: "김관리",
+  token: "mock-admin-token",
+}
+
+const ENABLE_MOCK_ADMIN = process.env.NODE_ENV !== "production"
 
 export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const [session, setAuthSession] = useState<AuthSession | null>(null)
 
   useEffect(() => {
-    const session = getSession()
-    if (!session) {
+    const current = getSession()
+
+    if (current?.role === "admin") {
+      setAuthSession(current)
+      return
+    }
+
+    if (ENABLE_MOCK_ADMIN) {
+      setSession(MOCK_ADMIN_SESSION)
+      setAuthSession(MOCK_ADMIN_SESSION)
+      return
+    }
+
+    if (!current) {
       router.replace("/login")
       return
     }
-    if (session.role !== "admin") {
+
+    if (current.role !== "admin") {
       router.replace("/main")
     }
   }, [router])
 
-  const session = typeof window !== "undefined" ? getSession() : null
   if (!session || session.role !== "admin") {
     return null
   }

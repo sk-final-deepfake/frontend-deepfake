@@ -1,0 +1,545 @@
+"use client"
+
+import { useEffect, useRef, useState } from "react"
+import Link from "next/link"
+import {
+  CheckCircle2,
+  Clock3,
+  FileVideo,
+  FileCheck2,
+  GitCompare,
+  History,
+  Layers,
+  UploadCloud,
+} from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
+import { AnalysisRequestFlow } from "@/app/main/_components/analysis-request-flow"
+import type { CaseSummary } from "@/app/mypage/_types/case"
+import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
+import type { AnalysisStatus } from "@/lib/analysis-status"
+import { fetchEvidenceStats, type EvidenceStatsResponse } from "@/lib/evidence-api"
+import { cn } from "@/lib/utils"
+
+const trustItems = [
+  {
+    icon: History,
+    label: "CoC 감사 추적",
+    className:
+      "border-cyan-100 bg-cyan-50 text-cyan-700 dark:border-cyan-500/20 dark:bg-cyan-500/10 dark:text-cyan-300",
+  },
+  {
+    icon: CheckCircle2,
+    label: "SHA-256 해시 검증",
+    className:
+      "border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300",
+  },
+  {
+    icon: Layers,
+    label: "영상 딥페이크 분석",
+    className:
+      "border-amber-100 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300",
+  },
+]
+
+const chartPoints = [
+  { date: "06/07", value: 4 },
+  { date: "06/08", value: 7 },
+  { date: "06/09", value: 3 },
+  { date: "06/10", value: 9 },
+  { date: "06/11", value: 6 },
+  { date: "06/12", value: 11 },
+  { date: "06/13", value: 8 },
+]
+
+const toneClassName = {
+  teal: {
+    value: "text-teal-600 dark:text-teal-300",
+    icon: "bg-teal-50 text-teal-600 ring-teal-100 dark:bg-teal-500/10 dark:text-teal-300 dark:ring-teal-500/20",
+    dot: "bg-teal-500",
+  },
+  red: {
+    value: "text-red-500 dark:text-red-400",
+    icon: "bg-red-50 text-red-500 ring-red-100 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/20",
+    dot: "bg-red-500",
+  },
+  green: {
+    value: "text-emerald-600 dark:text-emerald-300",
+    icon: "bg-emerald-50 text-emerald-600 ring-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20",
+    dot: "bg-emerald-500",
+  },
+  orange: {
+    value: "text-orange-500 dark:text-orange-300",
+    icon: "bg-orange-50 text-orange-500 ring-orange-100 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-500/20",
+    dot: "bg-orange-500",
+  },
+}
+
+type Tone = keyof typeof toneClassName
+type MainViewChangeEvent = CustomEvent<{ view: "dashboard" | "analysis" }>
+type LoadStatus = "loading" | "success" | "error"
+
+type DashboardDataState = {
+  statsStatus: LoadStatus
+  historyStatus: LoadStatus
+  stats: EvidenceStatsResponse | null
+  history: CaseSummary[]
+}
+
+export function DashboardOverview() {
+  const [view, setView] = useState<"dashboard" | "analysis">("dashboard")
+  const [dataState, setDataState] = useState<DashboardDataState>({
+    statsStatus: "loading",
+    historyStatus: "loading",
+    stats: null,
+    history: [],
+  })
+  const locationRef = useRef("")
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadDashboardData() {
+      const [statsResult, historyResult] = await Promise.allSettled([
+        fetchEvidenceStats(),
+        fetchMyAnalysisHistory({ sort: "newest", page: 0, size: 10 }),
+      ])
+
+      if (cancelled) return
+
+      setDataState({
+        statsStatus: statsResult.status === "fulfilled" ? "success" : "error",
+        historyStatus: historyResult.status === "fulfilled" ? "success" : "error",
+        stats: statsResult.status === "fulfilled" ? statsResult.value : null,
+        history: historyResult.status === "fulfilled" ? historyResult.value.content : [],
+      })
+    }
+
+    loadDashboardData()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    function syncViewWithHash() {
+      locationRef.current = window.location.href
+      const nextView = window.location.hash === "#new-analysis" ? "analysis" : "dashboard"
+      setView(nextView)
+
+      if (nextView === "analysis") {
+        window.requestAnimationFrame(() => window.scrollTo({ top: 0 }))
+      }
+    }
+
+    function syncViewWithHeader(event: Event) {
+      const nextView = (event as MainViewChangeEvent).detail?.view ?? "dashboard"
+      setView(nextView)
+
+      if (nextView === "analysis") {
+        window.requestAnimationFrame(() => window.scrollTo({ top: 0 }))
+        return
+      }
+
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0 }))
+    }
+
+    syncViewWithHash()
+    window.addEventListener("hashchange", syncViewWithHash)
+    window.addEventListener("popstate", syncViewWithHash)
+    window.addEventListener("main-view-change", syncViewWithHeader)
+    const interval = window.setInterval(() => {
+      if (locationRef.current === window.location.href) return
+      syncViewWithHash()
+    }, 150)
+
+    return () => {
+      window.removeEventListener("hashchange", syncViewWithHash)
+      window.removeEventListener("popstate", syncViewWithHash)
+      window.removeEventListener("main-view-change", syncViewWithHeader)
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  function openAnalysis() {
+    setView("analysis")
+    window.history.replaceState(null, "", `${window.location.pathname}#new-analysis`)
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0 }))
+  }
+
+  return (
+    <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-5 py-8 sm:px-8 lg:px-10">
+      {view === "dashboard" ? (
+        <>
+          <HeroPanel onStartAnalysis={openAnalysis} />
+          <StatsGrid
+            status={dataState.statsStatus}
+            stats={dataState.stats}
+            history={dataState.history}
+          />
+          <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+            <WeeklyChart />
+            <RecentPanel
+              status={dataState.historyStatus}
+              analyses={dataState.history}
+              onStartAnalysis={openAnalysis}
+            />
+          </div>
+        </>
+      ) : (
+        <AnalysisWorkspace />
+      )}
+    </main>
+  )
+}
+
+function HeroPanel({ onStartAnalysis }: { onStartAnalysis: () => void }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-8 lg:px-9 dark:border-border dark:bg-card">
+      <div className="grid items-center gap-8 md:grid-cols-[1fr_220px]">
+        <div>
+          <div className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-3 py-1 text-[11px] font-semibold text-teal-700 dark:bg-teal-500/10 dark:text-teal-300">
+            <span className="size-1.5 rounded-full bg-teal-500" />
+            디지털 포렌식 증거 검증 플랫폼
+          </div>
+          <h1 className="text-2xl font-black leading-tight tracking-tight text-slate-950 sm:text-3xl dark:text-foreground">
+            디지털 미디어 파일
+            <br />
+            분석 대시보드
+          </h1>
+          <p className="mt-4 max-w-xl text-sm leading-6 text-slate-500 dark:text-muted-foreground">
+            업로드된 영상 파일의 딥페이크 여부를 AI로 분석하고,
+            디지털 서명과 체인 오브 커스터디로 증거 무결성을 보장합니다.
+          </p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <Button
+              onClick={onStartAnalysis}
+              className="h-9 rounded-md bg-teal-600 px-4 text-xs font-bold hover:bg-teal-700"
+            >
+              <UploadCloud className="size-4" aria-hidden="true" />
+              분석 시작하기
+            </Button>
+            <Button
+              variant="outline"
+              render={<Link href="/compare" />}
+              nativeButton={false}
+              className="h-9 rounded-md border-slate-200 px-4 text-xs font-bold text-slate-600 dark:border-border dark:text-muted-foreground"
+            >
+              <GitCompare className="size-4" aria-hidden="true" />
+              비교 검증
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {trustItems.map((item) => (
+            <div
+              key={item.label}
+              className={cn(
+                "flex items-center gap-3 rounded-lg border px-4 py-3 text-xs font-bold shadow-sm",
+                item.className
+              )}
+            >
+              <span className="flex size-7 items-center justify-center rounded-md bg-white/80 dark:bg-white/10">
+                <item.icon className="size-4" aria-hidden="true" />
+              </span>
+              {item.label}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+type DashboardStatItem = {
+  label: string
+  value: string
+  unit: string
+  icon: typeof FileCheck2
+  tone: Tone
+}
+
+function buildDashboardStats(
+  stats: EvidenceStatsResponse | null,
+  history: CaseSummary[]
+): DashboardStatItem[] {
+  const totalEvidenceCount =
+    stats ? stats.imageCount + stats.videoCount + stats.audioCount : 0
+  const completedCount = history
+    .filter((item) => item.status === "COMPLETED")
+    .reduce((sum, item) => sum + item.evidenceCount, 0)
+  const processingCount = history
+    .filter((item) => item.status === "PROCESSING" || item.status === "PENDING")
+    .reduce((sum, item) => sum + item.evidenceCount, 0)
+
+  return [
+    {
+      label: "총 분석 건수",
+      value: String(totalEvidenceCount),
+      unit: "건",
+      icon: FileCheck2,
+      tone: "teal",
+    },
+    {
+      label: "영상 분석",
+      value: String(stats?.videoCount ?? 0),
+      unit: "건",
+      icon: FileVideo,
+      tone: "red",
+    },
+    {
+      label: "검증 완료",
+      value: String(completedCount),
+      unit: "건",
+      icon: CheckCircle2,
+      tone: "green",
+    },
+    {
+      label: "처리 중",
+      value: String(processingCount),
+      unit: "건",
+      icon: Clock3,
+      tone: "orange",
+    },
+  ]
+}
+
+function StatsGrid({
+  status,
+  stats,
+  history,
+}: {
+  status: LoadStatus
+  stats: EvidenceStatsResponse | null
+  history: CaseSummary[]
+}) {
+  if (status === "loading") {
+    return (
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="분석 통계 로딩">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <article
+            key={index}
+            className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card"
+          >
+            <div className="h-4 w-24 animate-pulse rounded bg-slate-100 dark:bg-muted" />
+            <div className="mt-6 h-8 w-14 animate-pulse rounded bg-slate-100 dark:bg-muted" />
+            <div className="mt-3 h-3 w-8 animate-pulse rounded bg-slate-100 dark:bg-muted" />
+          </article>
+        ))}
+      </section>
+    )
+  }
+
+  if (status === "error") {
+    return (
+      <section
+        className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10 px-5 py-4 text-sm font-semibold text-amber-800 dark:text-amber-200"
+        aria-label="분석 통계 오류"
+      >
+        통계 데이터를 불러오지 못했습니다. 최근 분석 이력은 계속 확인할 수 있습니다.
+      </section>
+    )
+  }
+
+  const dashboardStats = buildDashboardStats(stats, history)
+
+  return (
+    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="분석 통계">
+      {dashboardStats.map((stat) => {
+        const tone = toneClassName[stat.tone]
+
+        return (
+          <article
+            key={stat.label}
+            className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium text-slate-500 dark:text-muted-foreground">{stat.label}</p>
+                <p className={cn("mt-4 text-3xl font-black leading-none", tone.value)}>
+                  {stat.value}
+                </p>
+                <p className="mt-2 text-xs font-medium text-slate-500 dark:text-muted-foreground">{stat.unit}</p>
+              </div>
+              <span className={cn("flex size-8 items-center justify-center rounded-md ring-1", tone.icon)}>
+                <stat.icon className="size-4" aria-hidden="true" />
+              </span>
+            </div>
+          </article>
+        )
+      })}
+    </section>
+  )
+}
+
+function WeeklyChart() {
+  const maxValue = 12
+  const width = 680
+  const height = 210
+  const padding = { top: 18, right: 18, bottom: 36, left: 34 }
+  const graphWidth = width - padding.left - padding.right
+  const graphHeight = height - padding.top - padding.bottom
+  const points = chartPoints.map((point, index) => {
+    const x = padding.left + (index / (chartPoints.length - 1)) * graphWidth
+    const y = padding.top + graphHeight - (point.value / maxValue) * graphHeight
+    return { ...point, x, y }
+  })
+  const line = points.map((point) => `${point.x},${point.y}`).join(" ")
+  const area = `${padding.left},${padding.top + graphHeight} ${line} ${
+    padding.left + graphWidth
+  },${padding.top + graphHeight}`
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card" aria-label="최근 7일 분석 현황">
+      <div className="mb-4">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-foreground">최근 7일 분석 현황</h2>
+        <p className="text-xs text-slate-500 dark:text-muted-foreground">일별 처리 건수</p>
+      </div>
+      <div className="overflow-hidden rounded-lg">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[220px] w-full" role="img" aria-label="최근 7일 분석 건수 선 그래프">
+          <defs>
+            <linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#14b8a6" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="#14b8a6" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {[0, 3, 6, 9, 12].map((tick) => {
+            const y = padding.top + graphHeight - (tick / maxValue) * graphHeight
+            return (
+              <g key={tick}>
+                <text x={padding.left - 12} y={y + 4} textAnchor="end" className="fill-slate-400 text-[10px]">
+                  {tick}
+                </text>
+              </g>
+            )
+          })}
+          <polygon points={area} fill="url(#chartFill)" />
+          <polyline points={line} fill="none" stroke="#0f9f94" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          {points.map((point) => (
+            <g key={point.date}>
+              <circle cx={point.x} cy={point.y} r="4" fill="#0f9f94" stroke="#ffffff" strokeWidth="2" />
+              <text x={point.x} y={height - 10} textAnchor="middle" className="fill-slate-400 text-[10px]">
+                {point.date}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </section>
+  )
+}
+
+function RecentPanel({
+  status,
+  analyses,
+  onStartAnalysis,
+}: {
+  status: LoadStatus
+  analyses: CaseSummary[]
+  onStartAnalysis: () => void
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card" aria-label="최근 분석">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-foreground">최근 분석 이력</h2>
+        <Link href="/mypage" className="text-xs font-bold text-teal-600 hover:text-teal-700">
+          전체 보기 →
+        </Link>
+      </div>
+      <RecentAnalysisList status={status} analyses={analyses} />
+      <Button
+        onClick={onStartAnalysis}
+        className="mt-4 h-9 w-full rounded-md bg-teal-50 text-xs font-bold text-teal-700 hover:bg-teal-100 dark:bg-teal-500/10 dark:text-teal-300 dark:hover:bg-teal-500/20"
+      >
+        새 분석 요청 →
+      </Button>
+    </section>
+  )
+}
+
+function RecentAnalysisList({
+  status,
+  analyses,
+}: {
+  status: LoadStatus
+  analyses: CaseSummary[]
+}) {
+  if (status === "loading") {
+    return (
+      <div className="space-y-3" aria-label="최근 분석 이력 로딩">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={index}
+            className="rounded-lg border border-slate-200 px-4 py-3 dark:border-border"
+          >
+            <div className="h-4 w-36 animate-pulse rounded bg-slate-100 dark:bg-muted" />
+            <div className="mt-2 h-3 w-24 animate-pulse rounded bg-slate-100 dark:bg-muted" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (status === "error") {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10 px-4 py-6 text-center text-xs font-semibold text-amber-800 dark:text-amber-200">
+        최근 분석 이력을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+      </div>
+    )
+  }
+
+  if (analyses.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-xs font-medium text-slate-500 dark:border-border dark:text-muted-foreground">
+        아직 분석 이력이 없습니다.
+      </div>
+    )
+  }
+
+  return (
+    <ul className="space-y-3">
+      {analyses.slice(0, 4).map((analysis) => (
+        <li key={analysis.caseId}>
+          <Link
+            href={`/cases/${encodeURIComponent(analysis.caseId)}`}
+            className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:border-border dark:hover:border-teal-500/30 dark:hover:bg-teal-500/10"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-xs font-bold text-slate-700 dark:text-foreground">{analysis.caseName}</p>
+              <p className="mt-1 text-[11px] text-slate-400 dark:text-muted-foreground">
+                {formatDashboardDate(analysis.createdAt)} · 증거 {analysis.evidenceCount}건
+              </p>
+            </div>
+            <AnalysisStatusBadge
+              status={normalizeDashboardStatus(analysis.status)}
+              className="hidden sm:inline-flex"
+            />
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function normalizeDashboardStatus(status: CaseSummary["status"]): AnalysisStatus {
+  if (status === "PROCESSING" || status === "COMPLETED" || status === "FAILED") {
+    return status
+  }
+
+  return "PENDING"
+}
+
+function formatDashboardDate(value: string) {
+  return new Date(value).toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+}
+
+function AnalysisWorkspace() {
+  return <AnalysisRequestFlow />
+}

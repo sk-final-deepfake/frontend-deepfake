@@ -5,13 +5,14 @@ const statusConfig: Record<
   CaseStatus,
   { label: string; className: string; dot: string }
 > = {
+  // 사건 목록은 처리중 / 실패 / 완료 3개만 노출한다. 대기(PENDING)는 처리중과 동일하게 표시.
   PENDING: {
-    label: "대기",
-    className: "border-muted-foreground/30 bg-muted text-muted-foreground",
-    dot: "bg-muted-foreground",
+    label: "처리 중",
+    className: "border-primary/40 bg-primary/10 text-primary",
+    dot: "bg-primary",
   },
   PROCESSING: {
-    label: "진행",
+    label: "처리 중",
     className: "border-primary/40 bg-primary/10 text-primary",
     dot: "bg-primary",
   },

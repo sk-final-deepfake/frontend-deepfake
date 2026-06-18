@@ -6,4 +6,6 @@ export interface CaseSummary {
   status: CaseStatus
   createdAt: string
   evidenceCount: number
+  representativeFileName?: string
+  riskScore?: number | null
 }
