@@ -91,8 +91,8 @@ export default function AdminInviteCodesPage() {
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-8 pt-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             유효 생성코드 관리
@@ -107,7 +107,7 @@ export default function AdminInviteCodesPage() {
         </Button>
       </div>
 
-      <div className="mb-4 flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm">
+      <div className="mb-4 flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm mx-8">
         <Ticket className="size-4 text-primary" />
         <span className="text-muted-foreground">미사용 코드</span>
         <span className="font-semibold text-foreground">
@@ -115,7 +115,7 @@ export default function AdminInviteCodesPage() {
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="overflow-hidden rounded-xl border border-border bg-card mx-8 mb-8">
         <Table>
           <TableHeader className="bg-muted/50">
             <TableRow>
@@ -160,6 +160,6 @@ export default function AdminInviteCodesPage() {
           </TableBody>
         </Table>
       </div>
-    </main>
+    </>
   )
 }

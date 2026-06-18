@@ -26,9 +26,9 @@ const capabilities = [
 ]
 
 const mediaStatConfig = [
-  { key: "imageCount" as const, icon: ImageIcon, label: "이미지 분석" },
-  { key: "videoCount" as const, icon: Video, label: "영상 분석" },
-  { key: "audioCount" as const, icon: AudioLines, label: "음성 분석" },
+  { key: "totalAnalysisCount" as const, icon: ImageIcon, label: "총 분석" },
+  { key: "deepfakeDetectedCount" as const, icon: Video, label: "딥페이크 의심" },
+  { key: "completedCount" as const, icon: AudioLines, label: "분석 완료" },
 ]
 
 function formatCount(value: number) {
@@ -40,7 +40,12 @@ type CapabilitiesSectionProps = {
 }
 
 export function CapabilitiesSection({ refreshKey = 0 }: CapabilitiesSectionProps) {
-  const [stats, setStats] = useState({ imageCount: 0, videoCount: 0, audioCount: 0 })
+  const [stats, setStats] = useState({
+    totalAnalysisCount: 0,
+    deepfakeDetectedCount: 0,
+    completedCount: 0,
+    inProgressCount: 0,
+  })
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
 

@@ -39,6 +39,126 @@ export type AdminDashboardStats = {
   cocLogs: number
 }
 
+export type AdminUsageTrendPoint = {
+  date: string
+  label: string
+  analysis: number
+  signups: number
+}
+
+export type AdminDashboardOverview = {
+  stats: AdminDashboardStats
+  approvedUsers: number
+  departmentCount: number
+  todayAnalysis: number
+  recentLogs: AdminLog[]
+  trend: AdminUsageTrendPoint[]
+  menuBadges: {
+    users: number
+    approvals: number
+    logs: number
+    inviteCodes: number
+  }
+}
+
+export type AdminWeeklyAnalysisPoint = {
+  label: string
+  date: string
+  requestedCount: number
+  completedCount: number
+}
+
+export type AdminRiskDistribution = {
+  safeCount: number
+  cautionCount: number
+  dangerCount: number
+}
+
+export type AdminAnalysisStats = {
+  weeklyTotalCount: number
+  deepfakeDetectionRate: number
+  averageAnalysisMinutes: number
+  weeklyPoints: AdminWeeklyAnalysisPoint[]
+  riskDistribution: AdminRiskDistribution
+}
+
+function mockAdminAnalysisStats(): AdminAnalysisStats {
+  return {
+    weeklyTotalCount: 147,
+    deepfakeDetectionRate: 15.6,
+    averageAnalysisMinutes: 3.2,
+    weeklyPoints: [
+      { label: "월", date: "2026-06-09", requestedCount: 14, completedCount: 12 },
+      { label: "화", date: "2026-06-10", requestedCount: 18, completedCount: 15 },
+      { label: "수", date: "2026-06-11", requestedCount: 16, completedCount: 14 },
+      { label: "목", date: "2026-06-12", requestedCount: 22, completedCount: 18 },
+      { label: "금", date: "2026-06-13", requestedCount: 20, completedCount: 17 },
+      { label: "토", date: "2026-06-14", requestedCount: 12, completedCount: 10 },
+      { label: "일", date: "2026-06-15", requestedCount: 10, completedCount: 8 },
+    ],
+    riskDistribution: {
+      safeCount: 98,
+      cautionCount: 32,
+      dangerCount: 17,
+    },
+  }
+}
+
+function buildLastNDays(days: number) {
+  const result: { date: string; label: string }[] = []
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const date = new Date(today)
+    date.setDate(today.getDate() - offset)
+    const iso = date.toISOString().slice(0, 10)
+    const label = `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`
+    result.push({ date: iso, label })
+  }
+
+  return result
+}
+
+function aggregateUsageTrend(
+  analysisLogs: AdminLog[],
+  signupLogs: AdminLog[],
+  days: number
+): AdminUsageTrendPoint[] {
+  const buckets = buildLastNDays(days)
+  const analysisByDate = new Map(buckets.map((bucket) => [bucket.date, 0]))
+  const signupsByDate = new Map(buckets.map((bucket) => [bucket.date, 0]))
+
+  for (const log of analysisLogs) {
+    const date = log.timestamp.slice(0, 10)
+    if (analysisByDate.has(date)) {
+      analysisByDate.set(date, (analysisByDate.get(date) ?? 0) + 1)
+    }
+  }
+
+  for (const log of signupLogs) {
+    if (!log.action.includes("가입")) continue
+    const date = log.timestamp.slice(0, 10)
+    if (signupsByDate.has(date)) {
+      signupsByDate.set(date, (signupsByDate.get(date) ?? 0) + 1)
+    }
+  }
+
+  return buckets.map((bucket) => ({
+    date: bucket.date,
+    label: bucket.label,
+    analysis: analysisByDate.get(bucket.date) ?? 0,
+    signups: signupsByDate.get(bucket.date) ?? 0,
+  }))
+}
+
+function countTodayAnalysis(logs: AdminLog[]) {
+  const today = new Date().toISOString().slice(0, 10)
+  return logs.filter(
+    (log) => log.timestamp.startsWith(today) && log.category === "ANALYSIS"
+  ).length
+}
+
 type AdminLogPageResponse = {
   items: AdminLog[]
   total: number
@@ -68,7 +188,39 @@ export type UpdateAdminProfilePayload = {
   phone?: string
 }
 
-const ENABLE_MOCK_ADMIN = process.env.NODE_ENV !== "production"
+const USE_MOCK_ADMIN = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false"
+
+type BackendPageResponse<T> = {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+}
+
+function mapPage<T>(response: BackendPageResponse<T>) {
+  return {
+    items: response.content ?? [],
+    total: response.totalElements ?? 0,
+    page: response.page ?? 0,
+    size: response.size ?? 10,
+  }
+}
+
+function mapAdminProfile(profile: AdminProfile): AdminProfile {
+  return {
+    ...profile,
+    phone: profile.phone ?? "",
+  }
+}
+
+function mapInviteCode(code: InviteCode): InviteCode {
+  return {
+    ...code,
+    expiresAt: code.expiresAt ?? "",
+    usedBy: code.usedBy ?? undefined,
+  }
+}
 
 const MOCK_ADMIN_EVIDENCES: AdminEvidenceDetail[] = [
   {
@@ -211,7 +363,7 @@ async function withMockFallback<T>(request: () => Promise<T>, fallback: () => T)
   try {
     return await request()
   } catch (error) {
-    if (ENABLE_MOCK_ADMIN) return fallback()
+    if (USE_MOCK_ADMIN) return fallback()
     throw error
   }
 }
@@ -226,6 +378,82 @@ export async function fetchAdminDashboardStats(): Promise<AdminDashboardStats> {
       unusedInviteCodes: MOCK_INVITE_CODES.filter((code) => code.status === "UNUSED").length,
       cocLogs: MOCK_ADMIN_LOGS.filter((log) => log.category === "COC").length,
     })
+  )
+}
+
+/** RQ-ADMIN-150 · GET /api/v1/admin/dashboard/analysis-stats */
+export async function fetchAdminAnalysisStats(): Promise<AdminAnalysisStats> {
+  return withMockFallback(
+    () => apiRequest<AdminAnalysisStats>("/api/v1/admin/dashboard/analysis-stats"),
+    () => mockAdminAnalysisStats()
+  )
+}
+
+export async function fetchAdminUsageTrend(days = 7): Promise<AdminUsageTrendPoint[]> {
+  return withMockFallback(
+    async () => {
+      const [analysisLogs, authLogs] = await Promise.all([
+        fetchAdminLogs({ category: "ANALYSIS", page: 0, size: 200 }),
+        fetchAdminLogs({ category: "AUTH", page: 0, size: 200 }),
+      ])
+      return aggregateUsageTrend(analysisLogs.items, authLogs.items, days)
+    },
+    () => aggregateUsageTrend(MOCK_ADMIN_LOGS, MOCK_ADMIN_LOGS, days)
+  )
+}
+
+export async function fetchAdminDashboardOverview(): Promise<AdminDashboardOverview> {
+  return withMockFallback(
+    async () => {
+      const [stats, approvedPage, allUsersPage, recentLogs, trend, analysisLogs] =
+        await Promise.all([
+          fetchAdminDashboardStats(),
+          fetchAdminUsers({ status: "APPROVED", page: 0, size: 1 }),
+          fetchAdminUsers({ page: 0, size: 1 }),
+          fetchAdminLogs({ page: 0, size: 5 }),
+          fetchAdminUsageTrend(7),
+          fetchAdminLogs({ category: "ANALYSIS", page: 0, size: 200 }),
+        ])
+
+      return {
+        stats,
+        approvedUsers: approvedPage.total,
+        departmentCount: recentLogs.departments.length,
+        todayAnalysis: countTodayAnalysis(analysisLogs.items),
+        recentLogs: recentLogs.items,
+        trend,
+        menuBadges: {
+          users: allUsersPage.total,
+          approvals: stats.pendingUsers,
+          logs: stats.todayLogs,
+          inviteCodes: stats.unusedInviteCodes,
+        },
+      }
+    },
+    () => {
+      const stats = {
+        pendingUsers: MOCK_ADMIN_USERS.filter((user) => user.status === "PENDING").length,
+        totalUsers: MOCK_ADMIN_USERS.length,
+        todayLogs: MOCK_ADMIN_LOGS.length,
+        unusedInviteCodes: MOCK_INVITE_CODES.filter((code) => code.status === "UNUSED").length,
+        cocLogs: MOCK_ADMIN_LOGS.filter((log) => log.category === "COC").length,
+      }
+
+      return {
+        stats,
+        approvedUsers: MOCK_ADMIN_USERS.filter((user) => user.status === "APPROVED").length,
+        departmentCount: getLogDepartments(MOCK_ADMIN_LOGS).length,
+        todayAnalysis: countTodayAnalysis(MOCK_ADMIN_LOGS),
+        recentLogs: MOCK_ADMIN_LOGS.slice(0, 5),
+        trend: aggregateUsageTrend(MOCK_ADMIN_LOGS, MOCK_ADMIN_LOGS, 7),
+        menuBadges: {
+          users: MOCK_ADMIN_USERS.length,
+          approvals: stats.pendingUsers,
+          logs: stats.todayLogs,
+          inviteCodes: stats.unusedInviteCodes,
+        },
+      }
+    }
   )
 }
 
@@ -251,7 +479,12 @@ export async function fetchAdminUsers(options?: {
 
   const query = params.toString()
   return withMockFallback(
-    () => apiRequest<AdminUserPageResponse>(`/api/v1/admin/users?${query}`),
+    async () => {
+      const data = await apiRequest<BackendPageResponse<AdminUser>>(
+        `/api/v1/admin/users?${query}`
+      )
+      return mapPage(data)
+    },
     () => {
       const filtered = MOCK_ADMIN_USERS.filter((user) => {
         const statusMatched =
@@ -335,18 +568,23 @@ export async function deleteAdminUser(userId: string): Promise<void> {
 
 export async function fetchAdminInviteCodes(): Promise<InviteCode[]> {
   return withMockFallback(
-    () => apiRequest<InviteCode[]>("/api/v1/admin/invite-codes"),
+    async () => {
+      const data = await apiRequest<InviteCode[]>("/api/v1/admin/invite-codes")
+      return data.map(mapInviteCode)
+    },
     () => MOCK_INVITE_CODES
   )
 }
 
 export async function createAdminInviteCode(expiresInDays = 30): Promise<InviteCode> {
   return withMockFallback(
-    () =>
-      apiRequest<InviteCode>("/api/v1/admin/invite-codes", {
+    async () => {
+      const data = await apiRequest<InviteCode>("/api/v1/admin/invite-codes", {
         method: "POST",
         body: { expiresInDays },
-      }),
+      })
+      return mapInviteCode(data)
+    },
     () => ({
       id: `mock-${Date.now()}`,
       code: "VF-MOCK-0001",
@@ -383,7 +621,15 @@ export async function fetchAdminLogs(options?: {
   params.set("size", String(size))
 
   return withMockFallback(
-    () => apiRequest<AdminLogPageResponse>(`/api/v1/admin/logs?${params.toString()}`),
+    async () => {
+      const data = await apiRequest<BackendPageResponse<AdminLog> & { departments?: string[] }>(
+        `/api/v1/admin/logs?${params.toString()}`
+      )
+      return {
+        ...mapPage(data),
+        departments: data.departments ?? [],
+      }
+    },
     () => {
       const search = options?.search?.trim() ?? ""
       const filtered = MOCK_ADMIN_LOGS.filter((log) => {
@@ -457,18 +703,20 @@ export async function exportAdminLogsCsv(options?: {
 
 export async function fetchAdminProfile(): Promise<AdminProfile> {
   return withMockFallback(
-    () => apiRequest<AdminProfile>("/api/v1/admin/me"),
+    async () => mapAdminProfile(await apiRequest<AdminProfile>("/api/v1/admin/me")),
     () => MOCK_ADMIN_PROFILE
   )
 }
 
 export async function updateAdminProfile(payload: UpdateAdminProfilePayload): Promise<AdminProfile> {
   return withMockFallback(
-    () =>
-      apiRequest<AdminProfile>("/api/v1/admin/me", {
-        method: "PATCH",
-        body: payload,
-      }),
+    async () =>
+      mapAdminProfile(
+        await apiRequest<AdminProfile>("/api/v1/admin/me", {
+          method: "PATCH",
+          body: payload,
+        })
+      ),
     () => ({ ...MOCK_ADMIN_PROFILE, ...payload })
   )
 }
@@ -511,7 +759,12 @@ export async function fetchAdminEvidences(options?: {
   params.set("size", String(size))
 
   return withMockFallback(
-    () => apiRequest<AdminEvidencePageResponse>(`/api/v1/admin/evidences?${params.toString()}`),
+    async () => {
+      const data = await apiRequest<BackendPageResponse<AdminEvidence>>(
+        `/api/v1/admin/evidences?${params.toString()}`
+      )
+      return mapPage(data)
+    },
     () => {
       const search = options?.search?.trim() ?? ""
       const filtered = MOCK_ADMIN_EVIDENCES.filter((evidence) => {

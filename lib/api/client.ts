@@ -1,4 +1,4 @@
-import { getToken } from "@/lib/auth"
+import { getToken, handleUnauthorizedResponse } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api/config"
 
 export class ApiError extends Error {
@@ -59,6 +59,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       // ignore parse errors
     }
 
+    if (response.status === 401 && auth) {
+      handleUnauthorizedResponse()
+    }
+
     throw new ApiError(message, response.status, errorCode)
   }
 
@@ -95,6 +99,10 @@ export async function apiDownload(path: string): Promise<Blob> {
       errorCode = errorBody.errorCode ?? errorBody.error
     } catch {
       // ignore parse errors
+    }
+
+    if (response.status === 401) {
+      handleUnauthorizedResponse()
     }
 
     throw new ApiError(message, response.status, errorCode)

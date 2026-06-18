@@ -2,44 +2,32 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { getSession, setSession, type AuthSession } from "@/lib/auth"
-
-const MOCK_ADMIN_SESSION: AuthSession = {
-  role: "admin",
-  userId: "1",
-  loginId: "admin_kim",
-  name: "김관리",
-  token: "mock-admin-token",
-}
-
-const ENABLE_MOCK_ADMIN = process.env.NODE_ENV !== "production"
+import { getSession, type AuthSession } from "@/lib/auth"
 
 export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [session, setAuthSession] = useState<AuthSession | null>(null)
 
   useEffect(() => {
-    const current = getSession()
+    function syncSession() {
+      const current = getSession()
 
-    if (current?.role === "admin") {
+      if (!current) {
+        router.replace("/login")
+        return
+      }
+
+      if (current.role !== "admin") {
+        router.replace("/main")
+        return
+      }
+
       setAuthSession(current)
-      return
     }
 
-    if (ENABLE_MOCK_ADMIN) {
-      setSession(MOCK_ADMIN_SESSION)
-      setAuthSession(MOCK_ADMIN_SESSION)
-      return
-    }
-
-    if (!current) {
-      router.replace("/login")
-      return
-    }
-
-    if (current.role !== "admin") {
-      router.replace("/main")
-    }
+    syncSession()
+    window.addEventListener("auth-change", syncSession)
+    return () => window.removeEventListener("auth-change", syncSession)
   }, [router])
 
   if (!session || session.role !== "admin") {

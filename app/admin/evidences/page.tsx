@@ -46,6 +46,7 @@ function getAnalysisBadge(status: AdminEvidence["analysisStatus"]) {
         </Badge>
       )
     case "ANALYZING":
+    case "PROCESSING":
       return (
         <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary">
           분석 중
@@ -58,6 +59,7 @@ function getAnalysisBadge(status: AdminEvidence["analysisStatus"]) {
         </Badge>
       )
     case "QUEUED":
+    case "PENDING":
       return (
         <Badge variant="outline" className="border-amber-200 bg-amber-100 text-amber-700">
           대기
@@ -93,7 +95,7 @@ export default function AdminEvidencesPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [fileTypeFilter, setFileTypeFilter] = useState<"ALL" | EvidenceFileType>("ALL")
-  const [statusFilter, setStatusFilter] = useState<"ALL" | EvidenceStatus>("UPLOADED")
+  const [statusFilter, setStatusFilter] = useState<"ALL" | EvidenceStatus>("ALL")
   const [page, setPage] = useState(0)
   const { toast } = useAdminToast()
 

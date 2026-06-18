@@ -5,6 +5,7 @@ import { apiFetch, apiFetchForm } from "@/lib/api-client"
 import {
   mockCancelAnalysis,
   mockFetchAnalysisStatus,
+  mockFetchAnalysisTrend,
   mockFetchEvidenceStats,
   mockStartEvidenceAnalysis,
   mockUploadEvidence,
@@ -47,10 +48,12 @@ export type UploadResult = {
   analysisStatus?: AnalysisStatus
 }
 
+/** 백엔드 EvidenceStatsResponse (GET /api/v1/evidences/stats) */
 export type EvidenceStatsResponse = {
-  imageCount: number
-  videoCount: number
-  audioCount: number
+  totalAnalysisCount: number
+  deepfakeDetectedCount: number
+  completedCount: number
+  inProgressCount: number
 }
 
 export async function fetchEvidenceStats(): Promise<EvidenceStatsResponse> {
@@ -59,6 +62,26 @@ export async function fetchEvidenceStats(): Promise<EvidenceStatsResponse> {
   }
 
   return apiFetch<EvidenceStatsResponse>("/api/v1/evidences/stats")
+}
+
+export type AnalysisTrendPoint = {
+  date: string
+  completedCount: number
+}
+
+export type AnalysisTrendResponse = {
+  days: number
+  points: AnalysisTrendPoint[]
+}
+
+export async function fetchAnalysisTrend(days = 7): Promise<AnalysisTrendResponse> {
+  if (USE_MOCK_API) {
+    return mockFetchAnalysisTrend(days)
+  }
+
+  return apiFetch<AnalysisTrendResponse>(
+    `/api/v1/evidences/stats/trend?days=${days}`
+  )
 }
 
 export type StartAnalysisResponse = {
