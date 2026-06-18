@@ -19,7 +19,12 @@ import { AnalysisRequestFlow } from "@/app/main/_components/analysis-request-flo
 import type { CaseSummary } from "@/app/mypage/_types/case"
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
 import type { AnalysisStatus } from "@/lib/analysis-status"
-import { fetchEvidenceStats, type EvidenceStatsResponse } from "@/lib/evidence-api"
+import {
+  fetchAnalysisTrend,
+  fetchEvidenceStats,
+  type AnalysisTrendPoint,
+  type EvidenceStatsResponse,
+} from "@/lib/evidence-api"
 import { cn } from "@/lib/utils"
 
 const trustItems = [
@@ -41,16 +46,6 @@ const trustItems = [
     className:
       "border-amber-100 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300",
   },
-]
-
-const chartPoints = [
-  { date: "06/07", value: 4 },
-  { date: "06/08", value: 7 },
-  { date: "06/09", value: 3 },
-  { date: "06/10", value: 9 },
-  { date: "06/11", value: 6 },
-  { date: "06/12", value: 11 },
-  { date: "06/13", value: 8 },
 ]
 
 const toneClassName = {
@@ -83,8 +78,10 @@ type LoadStatus = "loading" | "success" | "error"
 type DashboardDataState = {
   statsStatus: LoadStatus
   historyStatus: LoadStatus
+  trendStatus: LoadStatus
   stats: EvidenceStatsResponse | null
   history: CaseSummary[]
+  trendPoints: AnalysisTrendPoint[]
 }
 
 export function DashboardOverview() {
@@ -92,8 +89,10 @@ export function DashboardOverview() {
   const [dataState, setDataState] = useState<DashboardDataState>({
     statsStatus: "loading",
     historyStatus: "loading",
+    trendStatus: "loading",
     stats: null,
     history: [],
+    trendPoints: [],
   })
   const locationRef = useRef("")
 
@@ -101,9 +100,10 @@ export function DashboardOverview() {
     let cancelled = false
 
     async function loadDashboardData() {
-      const [statsResult, historyResult] = await Promise.allSettled([
+      const [statsResult, historyResult, trendResult] = await Promise.allSettled([
         fetchEvidenceStats(),
         fetchMyAnalysisHistory({ sort: "newest", page: 0, size: 10 }),
+        fetchAnalysisTrend(7),
       ])
 
       if (cancelled) return
@@ -111,8 +111,10 @@ export function DashboardOverview() {
       setDataState({
         statsStatus: statsResult.status === "fulfilled" ? "success" : "error",
         historyStatus: historyResult.status === "fulfilled" ? "success" : "error",
+        trendStatus: trendResult.status === "fulfilled" ? "success" : "error",
         stats: statsResult.status === "fulfilled" ? statsResult.value : null,
         history: historyResult.status === "fulfilled" ? historyResult.value.content : [],
+        trendPoints: trendResult.status === "fulfilled" ? trendResult.value.points : [],
       })
     }
 
@@ -177,10 +179,12 @@ export function DashboardOverview() {
           <StatsGrid
             status={dataState.statsStatus}
             stats={dataState.stats}
-            history={dataState.history}
           />
           <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-            <WeeklyChart />
+            <WeeklyChart
+              status={dataState.trendStatus}
+              points={dataState.trendPoints}
+            />
             <RecentPanel
               status={dataState.historyStatus}
               analyses={dataState.history}
@@ -262,44 +266,32 @@ type DashboardStatItem = {
   tone: Tone
 }
 
-function buildDashboardStats(
-  stats: EvidenceStatsResponse | null,
-  history: CaseSummary[]
-): DashboardStatItem[] {
-  const totalEvidenceCount =
-    stats ? stats.imageCount + stats.videoCount + stats.audioCount : 0
-  const completedCount = history
-    .filter((item) => item.status === "COMPLETED")
-    .reduce((sum, item) => sum + item.evidenceCount, 0)
-  const processingCount = history
-    .filter((item) => item.status === "PROCESSING" || item.status === "PENDING")
-    .reduce((sum, item) => sum + item.evidenceCount, 0)
-
+function buildDashboardStats(stats: EvidenceStatsResponse | null): DashboardStatItem[] {
   return [
     {
       label: "총 분석 건수",
-      value: String(totalEvidenceCount),
+      value: String(stats?.totalAnalysisCount ?? 0),
       unit: "건",
       icon: FileCheck2,
       tone: "teal",
     },
     {
-      label: "영상 분석",
-      value: String(stats?.videoCount ?? 0),
+      label: "딥페이크 의심",
+      value: String(stats?.deepfakeDetectedCount ?? 0),
       unit: "건",
       icon: FileVideo,
       tone: "red",
     },
     {
       label: "검증 완료",
-      value: String(completedCount),
+      value: String(stats?.completedCount ?? 0),
       unit: "건",
       icon: CheckCircle2,
       tone: "green",
     },
     {
       label: "처리 중",
-      value: String(processingCount),
+      value: String(stats?.inProgressCount ?? 0),
       unit: "건",
       icon: Clock3,
       tone: "orange",
@@ -310,11 +302,9 @@ function buildDashboardStats(
 function StatsGrid({
   status,
   stats,
-  history,
 }: {
   status: LoadStatus
   stats: EvidenceStatsResponse | null
-  history: CaseSummary[]
 }) {
   if (status === "loading") {
     return (
@@ -344,7 +334,7 @@ function StatsGrid({
     )
   }
 
-  const dashboardStats = buildDashboardStats(stats, history)
+  const dashboardStats = buildDashboardStats(stats)
 
   return (
     <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="분석 통계">
@@ -375,22 +365,77 @@ function StatsGrid({
   )
 }
 
-function WeeklyChart() {
-  const maxValue = 12
+function formatTrendDateLabel(isoDate: string) {
+  const [, month, day] = isoDate.split("-")
+  return `${month}/${day}`
+}
+
+function WeeklyChart({
+  status,
+  points,
+}: {
+  status: LoadStatus
+  points: AnalysisTrendPoint[]
+}) {
+  const chartPoints = points.map((point) => ({
+    date: formatTrendDateLabel(point.date),
+    value: point.completedCount,
+  }))
+
+  if (status === "loading") {
+    return (
+      <section
+        className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card"
+        aria-label="최근 7일 분석 현황 로딩"
+      >
+        <div className="mb-4 h-4 w-40 animate-pulse rounded bg-slate-100 dark:bg-muted" />
+        <div className="h-[220px] animate-pulse rounded-lg bg-slate-100 dark:bg-muted" />
+      </section>
+    )
+  }
+
+  if (status === "error" || chartPoints.length === 0) {
+    return (
+      <section
+        className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card"
+        aria-label="최근 7일 분석 현황"
+      >
+        <div className="mb-4">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-foreground">최근 7일 분석 현황</h2>
+          <p className="text-xs text-slate-500 dark:text-muted-foreground">일별 처리 건수</p>
+        </div>
+        <div className="flex h-[220px] items-center justify-center rounded-lg border border-dashed border-slate-200 text-xs font-semibold text-slate-400 dark:border-border dark:text-muted-foreground">
+          {status === "error"
+            ? "차트 데이터를 불러오지 못했습니다."
+            : "최근 7일간 완료된 분석이 없습니다."}
+        </div>
+      </section>
+    )
+  }
+
+  const maxValue = Math.max(1, ...chartPoints.map((point) => point.value))
   const width = 680
   const height = 210
   const padding = { top: 18, right: 18, bottom: 36, left: 34 }
   const graphWidth = width - padding.left - padding.right
   const graphHeight = height - padding.top - padding.bottom
-  const points = chartPoints.map((point, index) => {
-    const x = padding.left + (index / (chartPoints.length - 1)) * graphWidth
+  const pointsOnChart = chartPoints.map((point, index) => {
+    const x =
+      padding.left +
+      (chartPoints.length === 1
+        ? graphWidth / 2
+        : (index / (chartPoints.length - 1)) * graphWidth)
     const y = padding.top + graphHeight - (point.value / maxValue) * graphHeight
     return { ...point, x, y }
   })
-  const line = points.map((point) => `${point.x},${point.y}`).join(" ")
+  const line = pointsOnChart.map((point) => `${point.x},${point.y}`).join(" ")
   const area = `${padding.left},${padding.top + graphHeight} ${line} ${
     padding.left + graphWidth
   },${padding.top + graphHeight}`
+
+  const yTicks = Array.from(new Set([0, Math.ceil(maxValue / 2), maxValue])).sort(
+    (a, b) => a - b
+  )
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card" aria-label="최근 7일 분석 현황">
@@ -406,7 +451,7 @@ function WeeklyChart() {
               <stop offset="100%" stopColor="#14b8a6" stopOpacity="0" />
             </linearGradient>
           </defs>
-          {[0, 3, 6, 9, 12].map((tick) => {
+          {yTicks.map((tick) => {
             const y = padding.top + graphHeight - (tick / maxValue) * graphHeight
             return (
               <g key={tick}>
@@ -418,7 +463,7 @@ function WeeklyChart() {
           })}
           <polygon points={area} fill="url(#chartFill)" />
           <polyline points={line} fill="none" stroke="#0f9f94" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          {points.map((point) => (
+          {pointsOnChart.map((point) => (
             <g key={point.date}>
               <circle cx={point.x} cy={point.y} r="4" fill="#0f9f94" stroke="#ffffff" strokeWidth="2" />
               <text x={point.x} y={height - 10} textAnchor="middle" className="fill-slate-400 text-[10px]">

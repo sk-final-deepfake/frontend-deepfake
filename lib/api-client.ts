@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "@/lib/api-config"
-import { getToken } from "@/lib/auth"
+import { getToken, handleUnauthorizedResponse } from "@/lib/auth"
 
 export class ApiError extends Error {
   status: number
@@ -57,6 +57,12 @@ async function parseApiError(response: Response): Promise<ApiError> {
   )
 }
 
+function handleResponseAuthFailure(response: Response) {
+  if (response.status === 401) {
+    handleUnauthorizedResponse()
+  }
+}
+
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit
@@ -78,6 +84,7 @@ export async function apiFetch<T>(
     return (await response.json()) as T
   }
 
+  handleResponseAuthFailure(response)
   throw await parseApiError(response)
 }
 
@@ -97,5 +104,6 @@ export async function apiFetchForm<T>(
     return (await response.json()) as T
   }
 
+  handleResponseAuthFailure(response)
   throw await parseApiError(response)
 }

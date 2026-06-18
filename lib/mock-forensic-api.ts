@@ -454,15 +454,54 @@ export async function mockFetchEvidenceStats(): Promise<EvidenceStatsResponse> {
   await delay(180)
 
   const store = saveAfterProgressUpdate()
-  return store.evidences.reduce(
-    (stats, item) => {
-      if (item.mediaType === "IMAGE") stats.imageCount += 1
-      if (item.mediaType === "VIDEO") stats.videoCount += 1
-      if (item.mediaType === "AUDIO") stats.audioCount += 1
-      return stats
-    },
-    { imageCount: 0, videoCount: 0, audioCount: 0 }
-  )
+  let completedCount = 0
+  let inProgressCount = 0
+  let deepfakeDetectedCount = 0
+
+  for (const item of store.evidences) {
+    const status = item.analysisStatus
+    if (status === "COMPLETED") {
+      completedCount += 1
+      if ((item.riskLevel ?? "LOW") !== "LOW") {
+        deepfakeDetectedCount += 1
+      }
+    } else if (status === "PROCESSING" || status === "PENDING") {
+      inProgressCount += 1
+    }
+  }
+
+  return {
+    totalAnalysisCount: store.evidences.length,
+    deepfakeDetectedCount,
+    completedCount,
+    inProgressCount,
+  }
+}
+
+export async function mockFetchAnalysisTrend(
+  days = 7
+): Promise<import("@/lib/evidence-api").AnalysisTrendResponse> {
+  await delay(160)
+
+  const store = saveAfterProgressUpdate()
+  const today = new Date()
+  const points: import("@/lib/evidence-api").AnalysisTrendPoint[] = []
+
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const date = new Date(today)
+    date.setDate(today.getDate() - offset)
+    const key = date.toISOString().slice(0, 10)
+    const completedCount = store.evidences.filter((item) => {
+      if (item.analysisStatus !== "COMPLETED" || !item.analysisCompletedAt) {
+        return false
+      }
+      return item.analysisCompletedAt.slice(0, 10) === key
+    }).length
+
+    points.push({ date: key, completedCount })
+  }
+
+  return { days, points }
 }
 
 export async function mockStartEvidenceAnalysis(

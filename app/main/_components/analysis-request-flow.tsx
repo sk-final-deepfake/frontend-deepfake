@@ -26,6 +26,12 @@ import {
   type AnalysisResultTone,
   type FrameRiskBar,
 } from "@/components/analysis-result"
+import { ApiError } from "@/lib/api-client"
+import {
+  fetchAnalysisStatus,
+  startEvidenceAnalysis,
+  uploadEvidence,
+} from "@/lib/evidence-api"
 import { cn } from "@/lib/utils"
 
 type AnalysisStep = "upload" | "analyzing" | "cancelled" | "result"
@@ -39,6 +45,14 @@ export type SelectedEvidence = {
   uploadAtLabel: string
   resolutionLabel: string
   comment: string
+  evidenceId?: number
+  hashValue?: string
+}
+
+type UploadItem = {
+  file: File
+  display: SelectedEvidence
+  evidenceId?: number
 }
 
 const MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024
@@ -143,7 +157,7 @@ const resultPresets = [
 
 export function AnalysisRequestFlow() {
   const [step, setStep] = useState<AnalysisStep>("upload")
-  const [evidences, setEvidences] = useState<SelectedEvidence[]>([])
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [activeEvidenceIndex, setActiveEvidenceIndex] = useState(0)
   const [caseName, setCaseName] = useState("")
   const [uploadMessage, setUploadMessage] = useState<{
@@ -151,31 +165,64 @@ export function AnalysisRequestFlow() {
     text: string
   } | null>(null)
   const [progress, setProgress] = useState(0)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const evidences = uploadItems.map((item) => item.display)
 
   useEffect(() => {
     if (step !== "analyzing") return
 
-    setProgress(8)
+    const evidenceIds = uploadItems
+      .map((item) => item.evidenceId)
+      .filter((id): id is number => typeof id === "number")
+
+    if (evidenceIds.length === 0) return
+
+    let cancelled = false
+
+    const pollStatuses = async () => {
+      const statuses = await Promise.all(
+        evidenceIds.map((id) => fetchAnalysisStatus(id).catch(() => null))
+      )
+
+      if (cancelled) return
+
+      const valid = statuses.filter(
+        (status): status is NonNullable<typeof status> => status !== null
+      )
+
+      if (valid.length === 0) {
+        setAnalysisError("분석 상태를 확인하지 못했습니다.")
+        return
+      }
+
+      const avgProgress =
+        valid.reduce((sum, status) => sum + status.progressPercent, 0) / valid.length
+      setProgress(45 + Math.round(avgProgress * 0.55))
+
+      if (valid.some((status) => status.status === "FAILED")) {
+        setAnalysisError("분석 중 오류가 발생했습니다. 다시 시도해 주세요.")
+        setStep("upload")
+        return
+      }
+
+      if (valid.every((status) => status.status === "COMPLETED")) {
+        setProgress(100)
+        setStep("result")
+      }
+    }
+
+    void pollStatuses()
     const interval = window.setInterval(() => {
-      setProgress((current) => {
-        const next = Math.min(100, current + 4)
-        return next
-      })
-    }, 420)
+      void pollStatuses()
+    }, 1500)
 
-    return () => window.clearInterval(interval)
-  }, [step])
-
-  useEffect(() => {
-    if (step !== "analyzing" || progress < 100) return
-
-    const timeout = window.setTimeout(() => {
-      setStep("result")
-    }, 350)
-
-    return () => window.clearTimeout(timeout)
-  }, [progress, step])
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [step, uploadItems])
 
   useEffect(() => {
     if (activeEvidenceIndex < evidences.length) return
@@ -187,22 +234,25 @@ export function AnalysisRequestFlow() {
     if (selectedFiles.length === 0) return
 
     try {
-      const nextEvidences = selectedFiles.map(buildEvidenceFromFile)
-      setEvidences(nextEvidences)
+      const nextItems = selectedFiles.map((file) => ({
+        file,
+        display: buildEvidenceFromFile(file),
+      }))
+      setUploadItems(nextItems)
       setActiveEvidenceIndex(0)
       setUploadMessage({
         type: "success",
-        text: `${nextEvidences.length}개 파일 업로드가 완료되었습니다. 사건명을 입력하면 분석 요청을 시작할 수 있습니다.`,
+        text: `${nextItems.length}개 파일이 선택되었습니다. 사건명을 입력한 뒤 분석을 시작하세요.`,
       })
     } catch (error) {
-      setEvidences([])
+      setUploadItems([])
       setActiveEvidenceIndex(0)
       setUploadMessage({
         type: "error",
         text:
           error instanceof Error
             ? error.message
-            : "파일 업로드에 실패했습니다. 다시 시도해 주세요.",
+            : "파일 선택에 실패했습니다. 다시 시도해 주세요.",
       })
     }
   }
@@ -212,48 +262,106 @@ export function AnalysisRequestFlow() {
     handleFileChange(event.dataTransfer.files)
   }
 
-  function startAnalysis() {
-    if (evidences.length === 0) return
-    setProgress(0)
+  async function startAnalysis() {
+    if (uploadItems.length === 0 || !caseName.trim()) return
+
+    setAnalysisError(null)
+    setUploadMessage(null)
     setStep("analyzing")
+    setProgress(8)
+
+    try {
+      const uploadedItems: UploadItem[] = []
+
+      for (let index = 0; index < uploadItems.length; index += 1) {
+        const item = uploadItems[index]
+        const result = await uploadEvidence(item.file, caseName.trim())
+        uploadedItems.push({
+          file: item.file,
+          evidenceId: result.evidenceId,
+          display: {
+            ...item.display,
+            evidenceId: result.evidenceId,
+            hashValue: result.hashValue,
+            uploadAtLabel: formatDateTimeLabel(Date.now()),
+            resolutionLabel: formatMetadataResolution(result.metadata),
+          },
+        })
+        setProgress(10 + Math.round(((index + 1) / uploadItems.length) * 30))
+      }
+
+      const evidenceIds = uploadedItems
+        .map((item) => item.evidenceId)
+        .filter((id): id is number => typeof id === "number")
+
+      await startEvidenceAnalysis(evidenceIds, caseName.trim())
+      setUploadItems(uploadedItems)
+      setProgress(42)
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "분석 요청에 실패했습니다."
+
+      setStep("upload")
+      setUploadMessage({ type: "error", text: message })
+    }
   }
 
   function startSampleAnalysis() {
-    setEvidences(SAMPLE_EVIDENCES)
+    setUploadItems(
+      SAMPLE_EVIDENCES.map((display, index) => ({
+        file: new File(["sample"], display.name, { type: display.mimeType }),
+        display,
+        evidenceId: 1000 + index,
+      }))
+    )
     setActiveEvidenceIndex(0)
     setCaseName("샘플 영상 분석 테스트")
     setUploadMessage(null)
-    setProgress(0)
-    setStep("analyzing")
+    setAnalysisError(null)
+    setProgress(100)
+    setStep("result")
   }
 
   function fillSampleMetadata() {
-    setEvidences(SAMPLE_EVIDENCES)
+    setUploadItems(
+      SAMPLE_EVIDENCES.map((display) => ({
+        file: new File(["sample"], display.name, { type: display.mimeType }),
+        display,
+      }))
+    )
     setActiveEvidenceIndex(0)
     setCaseName((current) => current || "샘플 영상 분석 테스트")
     setUploadMessage({
       type: "success",
-      text: "샘플 영상 3개 업로드가 완료되었습니다. 분석 요청을 시작할 수 있습니다.",
+      text: "샘플 영상 3개가 선택되었습니다. 분석 요청을 시작할 수 있습니다.",
     })
   }
 
   function removeEvidence(index: number) {
-    setEvidences((current) => current.filter((_, currentIndex) => currentIndex !== index))
-    setUploadMessage((current) => {
-      const nextCount = evidences.length - 1
-      if (nextCount <= 0) return null
-
-      return {
-        type: current?.type ?? "success",
-        text: `${nextCount}개 파일 업로드가 완료되었습니다. 사건명을 입력하면 분석 요청을 시작할 수 있습니다.`,
+    setUploadItems((current) => {
+      const next = current.filter((_, currentIndex) => currentIndex !== index)
+      if (next.length === 0) {
+        setUploadMessage(null)
+      } else {
+        setUploadMessage({
+          type: "success",
+          text: `${next.length}개 파일이 선택되었습니다. 사건명을 입력한 뒤 분석을 시작하세요.`,
+        })
       }
+      return next
     })
   }
 
   function updateEvidenceComment(index: number, comment: string) {
-    setEvidences((current) =>
+    setUploadItems((current) =>
       current.map((item, currentIndex) =>
-        currentIndex === index ? { ...item, comment } : item
+        currentIndex === index
+          ? { ...item, display: { ...item.display, comment } }
+          : item
       )
     )
   }
@@ -261,10 +369,11 @@ export function AnalysisRequestFlow() {
   function resetAnalysis() {
     setStep("upload")
     setProgress(0)
-    setEvidences([])
+    setUploadItems([])
     setActiveEvidenceIndex(0)
     setCaseName("")
     setUploadMessage(null)
+    setAnalysisError(null)
   }
 
   function cancelAnalysis() {
@@ -303,6 +412,7 @@ export function AnalysisRequestFlow() {
           <AnalyzingStep
             evidence={analysisEvidence}
             progress={progress}
+            errorMessage={analysisError}
             onCancel={cancelAnalysis}
           />
         </div>
@@ -686,7 +796,7 @@ function VideoMetadataPreview({
                 <MetadataRow label="파일 크기" value={evidence.sizeLabel} />
                 <MetadataRow label="해상도" value={evidence.resolutionLabel} />
                 <MetadataRow label="업로드 시간" value={evidence.uploadAtLabel} />
-                <MetadataRow label="SHA-256" value="분석 시작 시 생성" accent />
+                <MetadataRow label="SHA-256" value={evidence.hashValue ?? "분석 시작 시 생성"} accent />
                 <MetadataRow label="분석 모델" value="DeepScan v2.4.1" />
               </dl>
             ) : (
@@ -792,15 +902,23 @@ function MetadataRow({
 function AnalyzingStep({
   evidence,
   progress,
+  errorMessage,
   onCancel,
 }: {
   evidence: SelectedEvidence
   progress: number
+  errorMessage: string | null
   onCancel: () => void
 }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-8 py-10 shadow-sm dark:border-border dark:bg-card">
       <AnalysisProgress fileName={evidence.name} progress={progress} />
+
+      {errorMessage ? (
+        <p className="mx-auto mt-4 max-w-xl text-center text-sm font-semibold text-red-500">
+          {errorMessage}
+        </p>
+      ) : null}
 
       <div className="mx-auto mt-4 grid max-w-xl gap-2 sm:grid-cols-2">
         <Button
@@ -1149,4 +1267,14 @@ function formatDateTimeLabel(value: number) {
   const minutes = String(date.getMinutes()).padStart(2, "0")
 
   return `${year}.${month}.${day} ${hours}:${minutes}`
+}
+
+function formatMetadataResolution(
+  metadata: import("@/lib/evidence-api").MediaMetadata | string | null
+) {
+  if (!metadata || typeof metadata === "string") return "분석 전"
+  if (metadata.width && metadata.height) {
+    return `${metadata.width.toLocaleString("ko-KR")} x ${metadata.height.toLocaleString("ko-KR")}`
+  }
+  return "분석 전"
 }

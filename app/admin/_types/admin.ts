@@ -1,4 +1,4 @@
-export type UserStatus = "PENDING" | "APPROVED" | "REJECTED"
+export type UserStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED"
 
 export interface AdminUser {
   id: string
@@ -45,7 +45,14 @@ export interface AdminProfile {
 
 export type EvidenceStatus = "UPLOADED" | "DELETED"
 export type EvidenceFileType = "IMAGE" | "VIDEO" | "AUDIO"
-export type EvidenceAnalysisStatus = "NONE" | "QUEUED" | "ANALYZING" | "COMPLETED" | "FAILED"
+export type EvidenceAnalysisStatus =
+  | "NONE"
+  | "PENDING"
+  | "PROCESSING"
+  | "QUEUED"
+  | "ANALYZING"
+  | "COMPLETED"
+  | "FAILED"
 
 export interface AdminEvidence {
   id: string

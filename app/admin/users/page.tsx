@@ -2,34 +2,73 @@
 
 import { useCallback, useEffect, useState } from "react"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+  Loader2,
+  Search,
+  User,
+  Ban,
+  MoreVertical,
+  Pencil,
+  Trash2,
+} from "lucide-react"
+import { AdminPageHeader } from "@/app/admin/_components/admin-page-header"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
-import { Loader2, CheckCircle, XCircle, Trash2, Search, Pencil } from "lucide-react"
-import type { AdminUser, UserStatus } from "@/app/admin/_types/admin"
 import { DeleteUserDialog } from "@/app/admin/_components/delete-user-dialog"
 import {
   EditUserDialog,
   type UserEditPayload,
 } from "@/app/admin/_components/edit-user-dialog"
+import type { AdminUser, UserStatus } from "@/app/admin/_types/admin"
 import {
-  approveAdminUser,
   deleteAdminUser,
   fetchAdminUsers,
-  rejectAdminUser,
   resetAdminUserPassword,
   updateAdminUser,
 } from "@/lib/api/admin"
 import { ApiError } from "@/lib/api/client"
+import { Button } from "@/components/ui/button"
 
 const PAGE_SIZE = 10
+
+function formatUserId(username: string) {
+  const digits = username.replace(/\D/g, "")
+  if (digits.length >= 4) {
+    return `EMP-${digits.slice(-6).padStart(6, "0")}`
+  }
+  return username.toUpperCase()
+}
+
+function StatusPill({ status }: { status: UserStatus }) {
+  if (status === "APPROVED") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700">
+        <span className="size-2 rounded-full bg-emerald-500" />
+        활성
+      </span>
+    )
+  }
+  if (status === "SUSPENDED") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm text-red-600">
+        <span className="size-2 rounded-full bg-red-500" />
+        정지
+      </span>
+    )
+  }
+  if (status === "PENDING") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm text-amber-700">
+        <span className="size-2 rounded-full bg-amber-500" />
+        대기
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+      <span className="size-2 rounded-full bg-slate-400" />
+      반려
+    </span>
+  )
+}
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -37,10 +76,11 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true)
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState<"ALL" | UserStatus>("ALL")
+  const [statusFilter, setStatusFilter] = useState<"ALL" | UserStatus>("APPROVED")
   const [page, setPage] = useState(0)
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
   const [editTarget, setEditTarget] = useState<AdminUser | null>(null)
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const { toast } = useAdminToast()
 
   const loadUsers = useCallback(async () => {
@@ -69,28 +109,6 @@ export default function AdminUsersPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
-  async function handleAction(userId: string, action: "APPROVE" | "REJECT") {
-    setProcessingId(`${userId}-${action}`)
-    try {
-      if (action === "APPROVE") {
-        await approveAdminUser(userId)
-      } else {
-        await rejectAdminUser(userId)
-      }
-      toast({
-        title: action === "APPROVE" ? "가입 승인 완료" : "가입 반려 완료",
-        description: `사용자 계정이 ${action === "APPROVE" ? "승인" : "반려"}되었습니다.`,
-      })
-      await loadUsers()
-    } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "요청 처리 중 오류가 발생했습니다."
-      toast({ title: "처리 실패", description: message })
-    } finally {
-      setProcessingId(null)
-    }
-  }
-
   async function handleEdit(payload: UserEditPayload) {
     if (!editTarget) return
     setProcessingId(`${editTarget.id}-EDIT`)
@@ -105,9 +123,7 @@ export default function AdminUsersPage() {
       }
       toast({
         title: "계정 정보 수정 완료",
-        description: payload.newPassword
-          ? `${editTarget.username} 정보 및 비밀번호가 수정되었습니다.`
-          : `${editTarget.username} 계정 정보가 수정되었습니다.`,
+        description: `${editTarget.displayName} 계정이 수정되었습니다.`,
       })
       setEditTarget(null)
       await loadUsers()
@@ -127,7 +143,7 @@ export default function AdminUsersPage() {
       await deleteAdminUser(deleteTarget.id)
       toast({
         title: "계정 삭제 완료",
-        description: `${deleteTarget.username} 계정이 삭제되었습니다.`,
+        description: `${deleteTarget.displayName} 계정이 삭제되었습니다.`,
       })
       setDeleteTarget(null)
       await loadUsers()
@@ -140,186 +156,171 @@ export default function AdminUsersPage() {
     }
   }
 
-  function getStatusBadge(status: UserStatus) {
-    switch (status) {
-      case "PENDING":
-        return (
-          <Badge variant="outline" className="border-amber-200 bg-amber-100 text-amber-700">
-            대기 중
-          </Badge>
-        )
-      case "APPROVED":
-        return (
-          <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-emerald-700">
-            승인됨
-          </Badge>
-        )
-      case "REJECTED":
-        return (
-          <Badge variant="outline" className="border-rose-200 bg-rose-100 text-rose-700">
-            반려됨
-          </Badge>
-        )
-    }
-  }
-
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          전체 계정 관리
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          사용자 계정을 검색·필터링하고 정보 수정, 승인, 반려, 삭제할 수 있습니다.
-        </p>
-      </div>
+    <>
+      <AdminPageHeader
+        title="계정 관리"
+        description="시스템에 등록된 사용자 계정을 관리합니다."
+      />
 
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative max-w-sm flex-1">
-          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value)
-              setPage(0)
-            }}
-            placeholder="아이디, 이름, 이메일 검색"
-            className="h-9 w-full rounded-lg border border-border bg-background pr-3 pl-9 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          />
+      <div className="px-8 py-6">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative max-w-md flex-1">
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setPage(0)
+              }}
+              placeholder="이름, ID, 이메일 검색..."
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pr-3 pl-10 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as "ALL" | UserStatus)
+                setPage(0)
+              }}
+              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
+            >
+              <option value="APPROVED">활성</option>
+              <option value="SUSPENDED">정지</option>
+              <option value="ALL">전체</option>
+            </select>
+            <span className="text-sm text-slate-500">
+              총 <strong className="text-slate-900">{total}</strong>명
+            </span>
+          </div>
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value as "ALL" | UserStatus)
-            setPage(0)
-          }}
-          className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          <option value="ALL">전체 상태</option>
-          <option value="PENDING">대기 중</option>
-          <option value="APPROVED">승인됨</option>
-          <option value="REJECTED">반려됨</option>
-        </select>
-      </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead>아이디</TableHead>
-              <TableHead>이름 / 이메일</TableHead>
-              <TableHead>소속</TableHead>
-              <TableHead>가입일</TableHead>
-              <TableHead>상태</TableHead>
-              <TableHead className="text-right">관리</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
-                  <Loader2 className="mx-auto size-5 animate-spin" />
-                </TableCell>
-              </TableRow>
-            ) : users.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
-                  조건에 맞는 계정이 없습니다.
-                </TableCell>
-              </TableRow>
-            ) : (
-              users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-mono font-medium">{user.username}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{user.displayName}</span>
-                      <span className="text-xs text-muted-foreground">{user.email}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>{user.department}</TableCell>
-                  <TableCell className="text-muted-foreground">{user.joinedAt}</TableCell>
-                  <TableCell>{getStatusBadge(user.status)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setEditTarget(user)}
-                        disabled={processingId !== null}
-                      >
-                        <Pencil className="size-3" />
-                        수정
-                      </Button>
-                      {user.status === "PENDING" && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleAction(user.id, "APPROVE")}
-                            disabled={processingId !== null}
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs text-slate-500">
+                <th className="px-5 py-3 font-medium">사용자</th>
+                <th className="px-5 py-3 font-medium">소속</th>
+                <th className="px-5 py-3 font-medium">역할</th>
+                <th className="px-5 py-3 font-medium">상태</th>
+                <th className="px-5 py-3 font-medium">가입일</th>
+                <th className="px-5 py-3 font-medium text-right">관리</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-16 text-center">
+                    <Loader2 className="mx-auto size-5 animate-spin text-slate-400" />
+                  </td>
+                </tr>
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-16 text-center text-slate-400">
+                    조건에 맞는 계정이 없습니다.
+                  </td>
+                </tr>
+              ) : (
+                users.map((user) => (
+                  <tr key={user.id} className="border-b border-slate-50 last:border-0">
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex size-9 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                          <User className="size-4" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900">{user.displayName}</p>
+                          <p className="text-xs text-slate-500">
+                            {formatUserId(user.username)} · {user.email}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-slate-700">{user.department || "-"}</td>
+                    <td className="px-5 py-4 text-slate-700">수사관</td>
+                    <td className="px-5 py-4">
+                      <StatusPill status={user.status} />
+                    </td>
+                    <td className="px-5 py-4 text-slate-500">{user.joinedAt}</td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+                          title="정지 기능은 준비 중입니다"
+                          disabled
+                        >
+                          <Ban className="size-4" />
+                        </button>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+                            onClick={() =>
+                              setMenuOpenId((current) => (current === user.id ? null : user.id))
+                            }
                           >
-                            {processingId === `${user.id}-APPROVE` ? (
-                              <Loader2 className="size-3 animate-spin" />
-                            ) : (
-                              <CheckCircle className="size-3" />
-                            )}
-                            승인
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleAction(user.id, "REJECT")}
-                            disabled={processingId !== null}
-                          >
-                            {processingId === `${user.id}-REJECT` ? (
-                              <Loader2 className="size-3 animate-spin" />
-                            ) : (
-                              <XCircle className="size-3" />
-                            )}
-                            반려
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => setDeleteTarget(user)}
-                        disabled={processingId !== null}
-                      >
-                        <Trash2 className="size-3" />
-                        삭제
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                            <MoreVertical className="size-4" />
+                          </button>
+                          {menuOpenId === user.id ? (
+                            <div className="absolute right-0 z-10 mt-1 w-36 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                                onClick={() => {
+                                  setEditTarget(user)
+                                  setMenuOpenId(null)
+                                }}
+                              >
+                                <Pencil className="size-3.5" />
+                                수정
+                              </button>
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                onClick={() => {
+                                  setDeleteTarget(user)
+                                  setMenuOpenId(null)
+                                }}
+                              >
+                                <Trash2 className="size-3.5" />
+                                삭제
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
-      <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-        <span>
-          총 {total}명 · {page + 1}/{totalPages} 페이지
-        </span>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={page <= 0 || loading}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            이전
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={page + 1 >= totalPages || loading}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            다음
-          </Button>
+        <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
+          <span>
+            {page + 1}/{totalPages} 페이지
+          </span>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page <= 0 || loading}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              이전
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page + 1 >= totalPages || loading}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              다음
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -338,6 +339,6 @@ export default function AdminUsersPage() {
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
-    </main>
+    </>
   )
 }
