@@ -247,8 +247,13 @@ export default function AdminEvidencesPage() {
                   <TableCell>{getAnalysisBadge(item.analysisStatus)}</TableCell>
                   <TableCell>{getStatusBadge(item.status)}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="outline" asChild>
-                      <Link href={`/admin/evidences/${item.id}`}>상세</Link>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      render={<Link href={`/admin/evidences/${item.id}`} />}
+                      nativeButton={false}
+                    >
+                      상세
                     </Button>
                   </TableCell>
                 </TableRow>
