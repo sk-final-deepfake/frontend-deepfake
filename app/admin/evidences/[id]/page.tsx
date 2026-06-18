@@ -87,8 +87,13 @@ export default function AdminEvidenceDetailPage() {
     return (
       <main className="mx-auto max-w-5xl px-4 py-8">
         <p className="text-sm text-destructive">증거 정보를 불러올 수 없습니다.</p>
-        <Button asChild variant="outline" className="mt-4">
-          <Link href="/admin/evidences">목록으로</Link>
+        <Button
+          variant="outline"
+          className="mt-4"
+          render={<Link href="/admin/evidences" />}
+          nativeButton={false}
+        >
+          목록으로
         </Button>
       </main>
     )
@@ -98,11 +103,15 @@ export default function AdminEvidenceDetailPage() {
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <Button asChild variant="ghost" size="sm" className="mb-2 -ml-2">
-            <Link href="/admin/evidences">
-              <ArrowLeft className="size-4" />
-              증거 목록
-            </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mb-2 -ml-2"
+            render={<Link href="/admin/evidences" />}
+            nativeButton={false}
+          >
+            <ArrowLeft className="size-4" />
+            증거 목록
           </Button>
           <h1 className="text-2xl font-semibold tracking-tight">{detail.fileName}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
