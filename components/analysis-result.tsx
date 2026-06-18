@@ -162,10 +162,8 @@ function getRiskToneClass(tone: AnalysisResultTone) {
 
 export function AnalysisResult({
   data,
-  onReset,
 }: {
   data: AnalysisResultData
-  onReset?: () => void
 }) {
   const riskTone = getRiskToneClass(data.tone)
 
@@ -215,15 +213,6 @@ export function AnalysisResult({
       <EvidenceReasonCard groups={data.reasonGroups} />
 
       <div className="flex flex-wrap gap-3">
-        {onReset ? (
-          <Button
-            variant="outline"
-            className="h-10 rounded-lg px-5 text-sm font-bold"
-            onClick={onReset}
-          >
-            새 분석 요청
-          </Button>
-        ) : null}
         <Button className="h-10 rounded-lg bg-teal-600 px-5 text-sm font-black hover:bg-teal-700">
           <Download className="size-4" aria-hidden="true" />
           PDF 리포트 다운로드
