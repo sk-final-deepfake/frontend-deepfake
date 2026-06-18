@@ -8,6 +8,8 @@ export const mockCases: CaseSummary[] = [
     status: "PROCESSING",
     createdAt: "2026-06-18T14:30:00",
     evidenceCount: 2,
+    representativeFileName: "suspect_video_01.mp4",
+    riskScore: 94,
   },
   {
     caseId: "a1f90210-8821-4c11-9a02-1100aa220011",
@@ -15,13 +17,17 @@ export const mockCases: CaseSummary[] = [
     status: "COMPLETED",
     createdAt: "2026-06-15T09:12:00",
     evidenceCount: 5,
+    representativeFileName: "cctv_entrance_02.mov",
+    riskScore: 12,
   },
   {
     caseId: "b7e44321-9912-4d22-8c13-2211bb331122",
     caseName: "음성 메일 증거 분석",
-    status: "PENDING",
+    status: "PROCESSING",
     createdAt: "2026-06-17T11:45:00",
     evidenceCount: 1,
+    representativeFileName: "voice_mail_0617.wav",
+    riskScore: null,
   },
   {
     caseId: "d9c55632-aa23-4e33-9d24-3322cc442233",
@@ -29,5 +35,7 @@ export const mockCases: CaseSummary[] = [
     status: "FAILED",
     createdAt: "2026-06-10T16:20:00",
     evidenceCount: 3,
+    representativeFileName: "interview_clip_03.mp4",
+    riskScore: null,
   },
 ]

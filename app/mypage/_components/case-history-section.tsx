@@ -6,12 +6,22 @@ import { sortCases } from "@/app/mypage/_lib/sort-cases"
 import { CaseHistoryList } from "@/app/mypage/_components/case-history-list"
 import { useUserSettings } from "@/hooks/use-user-settings"
 
-export function CaseHistorySection({ cases }: { cases: CaseSummary[] }) {
+export function CaseHistorySection({
+  cases,
+  page = 1,
+  pageSize = 10,
+}: {
+  cases: CaseSummary[]
+  page?: number
+  pageSize?: number
+}) {
   const { settings } = useUserSettings()
 
   const visibleCases = useMemo(() => {
-    return sortCases(cases, settings.listSort).slice(0, settings.listPageSize)
-  }, [cases, settings.listSort, settings.listPageSize])
+    const sorted = sortCases(cases, settings.listSort)
+    const start = (page - 1) * pageSize
+    return sorted.slice(start, start + pageSize)
+  }, [cases, page, pageSize, settings.listSort])
 
   return (
     <CaseHistoryList cases={visibleCases} dateFormat={settings.dateFormat} />
