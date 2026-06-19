@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
 import { login } from "@/lib/auth-api"
 import { getApiErrorMessage } from "@/lib/api/errors"
-import { applyLoginResponse } from "@/lib/auth"
+import { applyLoginResponse, getSession } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -34,6 +34,12 @@ export function LoginForm() {
   const [errorMessage, setErrorMessage] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  useEffect(() => {
+    const session = getSession()
+    if (!session) return
+    router.replace(session.role === "admin" ? "/admin" : "/main")
+  }, [router])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setErrorMessage("")
@@ -47,7 +53,7 @@ export function LoginForm() {
 
       applyLoginResponse(response)
 
-      router.push(response.role === "ROLE_ADMIN" ? "/admin" : "/main")
+      router.replace(response.role === "ROLE_ADMIN" ? "/admin" : "/main")
     } catch (error) {
       setErrorMessage(
         getApiErrorMessage(error, "로그인 요청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요.")
