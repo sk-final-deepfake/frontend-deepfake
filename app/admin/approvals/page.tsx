@@ -10,7 +10,7 @@ import {
   fetchAdminUsers,
   rejectAdminUser,
 } from "@/lib/api/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
 import { Button } from "@/components/ui/button"
 
 const HISTORY_PAGE_SIZE = 8
@@ -55,8 +55,7 @@ export default function AdminApprovalsPage() {
       setHistoryUsers(history.slice(start, start + HISTORY_PAGE_SIZE))
       setHistoryTotal(history.length)
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "승인 목록을 불러오지 못했습니다."
+      const message = getApiErrorMessage(error, "승인 목록을 불러오지 못했습니다.")
       toast({ title: "조회 실패", description: message })
     } finally {
       setLoading(false)
@@ -83,8 +82,7 @@ export default function AdminApprovalsPage() {
       })
       await loadData()
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "요청 처리 중 오류가 발생했습니다."
+      const message = getApiErrorMessage(error, "요청 처리 중 오류가 발생했습니다.")
       toast({ title: "처리 실패", description: message })
     } finally {
       setProcessingId(null)

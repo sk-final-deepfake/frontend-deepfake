@@ -1,17 +1,7 @@
 import type { AnalysisStatus } from "@/lib/analysis-status"
 
 export type { AnalysisStatus }
-import { apiFetch, apiFetchForm } from "@/lib/api-client"
-import {
-  mockCancelAnalysis,
-  mockFetchAnalysisStatus,
-  mockFetchAnalysisTrend,
-  mockFetchEvidenceStats,
-  mockStartEvidenceAnalysis,
-  mockUploadEvidence,
-} from "@/lib/mock-forensic-api"
-
-const USE_MOCK_API = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false"
+import { apiRequest, apiRequestForm } from "@/lib/api/client"
 
 export type MediaMetadata = {
   type?: string
@@ -57,11 +47,7 @@ export type EvidenceStatsResponse = {
 }
 
 export async function fetchEvidenceStats(): Promise<EvidenceStatsResponse> {
-  if (USE_MOCK_API) {
-    return mockFetchEvidenceStats()
-  }
-
-  return apiFetch<EvidenceStatsResponse>("/api/v1/evidences/stats")
+  return apiRequest<EvidenceStatsResponse>("/api/v1/evidences/stats")
 }
 
 export type AnalysisTrendPoint = {
@@ -75,12 +61,32 @@ export type AnalysisTrendResponse = {
 }
 
 export async function fetchAnalysisTrend(days = 7): Promise<AnalysisTrendResponse> {
-  if (USE_MOCK_API) {
-    return mockFetchAnalysisTrend(days)
-  }
-
-  return apiFetch<AnalysisTrendResponse>(
+  return apiRequest<AnalysisTrendResponse>(
     `/api/v1/evidences/stats/trend?days=${days}`
+  )
+}
+
+export type RecentAnalysisItem = {
+  evidenceId: number
+  analysisRequestId: number
+  fileName: string
+  requestedAt: string
+  status: AnalysisStatus
+  riskScore: number | null
+  riskLevel: "LOW" | "MEDIUM" | "HIGH" | null
+  verdictIndicator: "NORMAL" | "SUSPICIOUS" | "DANGER" | null
+}
+
+export type RecentAnalysisResponse = {
+  limit: number
+  items: RecentAnalysisItem[]
+}
+
+export async function fetchRecentAnalyses(limit = 5): Promise<RecentAnalysisResponse> {
+  const safeLimit = Math.min(5, Math.max(3, limit))
+
+  return apiRequest<RecentAnalysisResponse>(
+    `/api/v1/evidences/stats/recent?limit=${safeLimit}`
   )
 }
 
@@ -96,13 +102,9 @@ export async function startEvidenceAnalysis(
   evidenceIds: number[],
   caseName: string
 ): Promise<StartAnalysisResponse> {
-  if (USE_MOCK_API) {
-    return mockStartEvidenceAnalysis(evidenceIds, caseName)
-  }
-
-  return apiFetch<StartAnalysisResponse>("/api/v1/evidences/analyze", {
+  return apiRequest<StartAnalysisResponse>("/api/v1/evidences/analyze", {
     method: "POST",
-    body: JSON.stringify({ evidenceIds, caseName }),
+    body: { evidenceIds, caseName },
   })
 }
 
@@ -116,33 +118,25 @@ export type AnalysisStatusResponse = {
 export async function fetchAnalysisStatus(
   evidenceId: number
 ): Promise<AnalysisStatusResponse> {
-  if (USE_MOCK_API) {
-    return mockFetchAnalysisStatus(evidenceId)
-  }
-
-  return apiFetch<AnalysisStatusResponse>(
+  return apiRequest<AnalysisStatusResponse>(
     `/api/v1/evidences/${evidenceId}/analysis-status`
   )
 }
 
 export async function cancelEvidence(evidenceId: number): Promise<void> {
-  await apiFetch<void>(`/api/v1/evidences/${evidenceId}`, {
+  await apiRequest<void>(`/api/v1/evidences/${evidenceId}`, {
     method: "DELETE",
   })
 }
 
 export async function resetEvidence(evidenceId: number): Promise<void> {
-  await apiFetch<void>(`/api/v1/evidences/${evidenceId}/reset`, {
+  await apiRequest<void>(`/api/v1/evidences/${evidenceId}/reset`, {
     method: "DELETE",
   })
 }
 
 export async function cancelAnalysis(evidenceId: number): Promise<void> {
-  if (USE_MOCK_API) {
-    return mockCancelAnalysis(evidenceId)
-  }
-
-  await apiFetch<void>(`/api/v1/evidences/${evidenceId}/analysis`, {
+  await apiRequest<void>(`/api/v1/evidences/${evidenceId}/analysis`, {
     method: "DELETE",
   })
 }
@@ -151,17 +145,15 @@ export async function uploadEvidence(
   file: File,
   caseName?: string
 ): Promise<UploadResult> {
-  if (USE_MOCK_API) {
-    return mockUploadEvidence(file, caseName)
-  }
-
   const formData = new FormData()
   formData.append("file", file)
   if (caseName?.trim()) {
     formData.append("caseName", caseName.trim())
   }
 
-  const data = await apiFetchForm<FileUploadResponse>("/api/v1/evidences/upload", formData)
+  const data = await apiRequestForm<FileUploadResponse>("/api/v1/evidences/upload", {
+    body: formData,
+  })
 
   return {
     evidenceId: data.evidenceId,

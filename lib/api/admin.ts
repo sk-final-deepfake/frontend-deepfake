@@ -1,4 +1,5 @@
 import { apiDownload, apiRequest } from "@/lib/api/client"
+import { features } from "@/lib/features"
 import {
   MOCK_ADMIN_LOGS,
   MOCK_ADMIN_PROFILE,
@@ -188,7 +189,7 @@ export type UpdateAdminProfilePayload = {
   phone?: string
 }
 
-const USE_MOCK_ADMIN = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false"
+const USE_MOCK_ADMIN = features.mockApi
 
 type BackendPageResponse<T> = {
   content: T[]

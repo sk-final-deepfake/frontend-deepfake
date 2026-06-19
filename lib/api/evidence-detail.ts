@@ -1,10 +1,4 @@
 import { apiRequest } from "@/lib/api/client"
-import {
-  mockFetchCaseDetail,
-  mockFetchEvidenceDetail,
-} from "@/lib/mock-forensic-api"
-
-const USE_MOCK_API = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false"
 
 export type TechnicalMetadata = {
   // Common
@@ -96,17 +90,9 @@ export type CaseDetailData = {
 }
 
 export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceDetailData> {
-  if (USE_MOCK_API) {
-    return mockFetchEvidenceDetail(evidenceId)
-  }
-
   return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`)
 }
 
 export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {
-  if (USE_MOCK_API) {
-    return mockFetchCaseDetail(caseId)
-  }
-
   return apiRequest<CaseDetailData>(`/api/v1/cases?caseKey=${encodeURIComponent(caseId)}`)
 }

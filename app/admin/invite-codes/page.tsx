@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
 import type { InviteCode } from "@/app/admin/_types/admin"
 import { createAdminInviteCode, fetchAdminInviteCodes } from "@/lib/api/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
 
 function getStatusBadge(status: InviteCode["status"]) {
   switch (status) {
@@ -52,8 +52,7 @@ export default function AdminInviteCodesPage() {
       const response = await fetchAdminInviteCodes()
       setCodes(response)
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "생성코드 목록을 불러오지 못했습니다."
+      const message = getApiErrorMessage(error, "생성코드 목록을 불러오지 못했습니다.")
       toast({ title: "조회 실패", description: message })
     } finally {
       setLoading(false)
@@ -74,8 +73,7 @@ export default function AdminInviteCodesPage() {
         description: `${newCode.code} 코드가 발급되었습니다.`,
       })
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "생성코드 발급에 실패했습니다."
+      const message = getApiErrorMessage(error, "생성코드 발급에 실패했습니다.")
       toast({ title: "발급 실패", description: message })
     } finally {
       setCreating(false)

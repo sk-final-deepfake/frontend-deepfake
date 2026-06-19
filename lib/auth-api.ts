@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api-client"
+import { apiRequest } from "@/lib/api/client"
 
 export type LoginRequest = {
   loginId: string
@@ -15,8 +15,9 @@ export type LoginResponse = {
 }
 
 export async function login(request: LoginRequest): Promise<LoginResponse> {
-  return apiFetch<LoginResponse>("/api/auth/login", {
+  return apiRequest<LoginResponse>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify(request),
+    body: request,
+    auth: false,
   })
 }

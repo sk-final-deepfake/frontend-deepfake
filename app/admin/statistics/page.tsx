@@ -6,7 +6,7 @@ import { AdminPageHeader } from "@/app/admin/_components/admin-page-header"
 import { AdminWeeklyBarChart } from "@/app/admin/_components/admin-weekly-bar-chart"
 import { AdminRiskDonutChart } from "@/app/admin/_components/admin-risk-donut-chart"
 import { fetchAdminAnalysisStats, type AdminAnalysisStats } from "@/lib/api/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
 
 export default function AdminStatisticsPage() {
   const [stats, setStats] = useState<AdminAnalysisStats | null>(null)
@@ -21,9 +21,7 @@ export default function AdminStatisticsPage() {
         const data = await fetchAdminAnalysisStats()
         setStats(data)
       } catch (err) {
-        setError(
-          err instanceof ApiError ? err.message : "통계 데이터를 불러오지 못했습니다."
-        )
+        setError(getApiErrorMessage(err, "통계 데이터를 불러오지 못했습니다."))
       } finally {
         setLoading(false)
       }

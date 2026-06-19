@@ -17,7 +17,7 @@ import {
   type AdminDashboardOverview,
 } from "@/lib/api/admin"
 import type { AdminLog } from "@/app/admin/_types/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
 
 const menuItems = [
   {
@@ -91,7 +91,7 @@ export default function AdminDashboardPage() {
         const data = await fetchAdminDashboardOverview()
         setOverview(data)
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : "대시보드 데이터를 불러오지 못했습니다.")
+        setError(getApiErrorMessage(err, "대시보드 데이터를 불러오지 못했습니다."))
       } finally {
         setLoading(false)
       }

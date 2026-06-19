@@ -18,12 +18,14 @@ import { DeleteEvidenceDialog } from "@/app/admin/_components/delete-evidence-di
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
 import type { AdminEvidenceDetail } from "@/app/admin/_types/admin"
 import { deleteAdminEvidence, fetchAdminEvidenceDetail } from "@/lib/api/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
+import { formatFileSize as formatSharedFileSize } from "@/lib/formatters"
 
 function formatFileSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return formatSharedFileSize(bytes, {
+    zeroLabel: "0 B",
+    maxUnit: "MB",
+  })
 }
 
 export default function AdminEvidenceDetailPage() {
@@ -41,8 +43,7 @@ export default function AdminEvidenceDetailPage() {
       const response = await fetchAdminEvidenceDetail(params.id)
       setDetail(response)
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "증거 상세를 불러오지 못했습니다."
+      const message = getApiErrorMessage(error, "증거 상세를 불러오지 못했습니다.")
       toast({ title: "조회 실패", description: message })
     } finally {
       setLoading(false)
@@ -67,8 +68,7 @@ export default function AdminEvidenceDetailPage() {
       setDeleteOpen(false)
       router.push("/admin/evidences")
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "증거 삭제 중 오류가 발생했습니다."
+      const message = getApiErrorMessage(error, "증거 삭제 중 오류가 발생했습니다.")
       toast({ title: "삭제 실패", description: message })
     } finally {
       setDeleting(false)

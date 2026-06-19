@@ -87,14 +87,14 @@ export function SiteHeader({
           onClick={(event) => handleMainNavigation(event, brandHref)}
           className="flex min-w-0 items-center gap-4"
         >
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-100 text-sky-700 shadow-sm dark:border-primary/30 dark:bg-primary/15 dark:text-primary">
-            <ShieldCheck className="size-6" aria-hidden="true" />
+          <div className="flex size-14 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-100 text-sky-700 shadow-sm dark:border-primary/30 dark:bg-primary/15 dark:text-primary">
+            <ShieldCheck className="size-7" aria-hidden="true" />
           </div>
           <div className="flex flex-col leading-tight">
-            <span className="font-mono text-lg font-bold tracking-tight text-slate-900 dark:text-foreground">
+            <span className="font-mono text-base font-bold tracking-tight text-slate-900 dark:text-foreground">
               VeriForensics
             </span>
-            <span className="mt-1 text-sm font-medium text-slate-500 dark:text-muted-foreground">
+            <span className="mt-1 text-xs font-medium text-slate-500 dark:text-muted-foreground">
               Digital Media Authentication
             </span>
           </div>
