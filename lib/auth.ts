@@ -7,6 +7,7 @@ export type AuthSession = {
   userId: string
   loginId: string
   name: string
+  /** Access JWT만 저장한다. Refresh JWT는 HttpOnly 쿠키로만 주고받는다. */
   token: string
 }
 
@@ -51,6 +52,51 @@ export function getSession(): AuthSession | null {
 
 export function getToken(): string | null {
   return getSession()?.token ?? null
+}
+
+export function updateAccessToken(token: string) {
+  const session = getSession()
+  if (!session || !token) return
+  setSession({ ...session, token })
+}
+
+export function isAuthApiPath(path: string): boolean {
+  return (
+    path.startsWith("/api/auth/login") ||
+    path.startsWith("/api/auth/refresh") ||
+    path.startsWith("/api/auth/logout")
+  )
+}
+
+let refreshPromise: Promise<boolean> | null = null
+
+export async function tryRefreshSession(): Promise<boolean> {
+  if (typeof window === "undefined") return false
+
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+        })
+        if (!response.ok) return false
+
+        const data = (await response.json()) as { accessToken?: string; token?: string }
+        const accessToken = data.accessToken ?? data.token
+        if (!accessToken) return false
+
+        updateAccessToken(accessToken)
+        return true
+      } catch {
+        return false
+      }
+    })().finally(() => {
+      refreshPromise = null
+    })
+  }
+
+  return refreshPromise
 }
 
 export function setSession(session: AuthSession) {

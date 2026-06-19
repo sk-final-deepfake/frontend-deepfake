@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
-import { login } from "@/lib/auth-api"
+import { login, resolveAccessToken } from "@/lib/auth-api"
 import { getApiErrorMessage } from "@/lib/api/errors"
 import { mapBackendRole, setSession } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
@@ -51,7 +51,7 @@ export function LoginForm() {
         userId: String(response.userId),
         loginId: response.loginId,
         name: response.name,
-        token: response.token,
+        token: resolveAccessToken(response),
       })
 
       router.push(role === "admin" ? "/admin" : "/main")
