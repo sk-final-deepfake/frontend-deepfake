@@ -100,7 +100,7 @@ export function MediaMetadataPreviewContent({
                   <MetadataRow label="해상도" value={evidence.resolutionLabel} />
                   <MetadataRow label="업로드 시간" value={evidence.uploadAtLabel} />
                   <MetadataRow label="SHA-256" value={evidence.hashValue ?? "분석 시작 시 생성"} accent />
-                  <MetadataRow label="분석 모델" value="DeepScan v2.4.1" />
+                  <MetadataRow label="분석 모델" value="분석 요청 전" />
                 </dl>
               ) : (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-border dark:bg-muted/40">

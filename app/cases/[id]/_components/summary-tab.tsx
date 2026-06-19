@@ -7,6 +7,8 @@ import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
 import { formatDateTime } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
+import { getModuleSummaryValues, getSummaryPlaceholder } from "../_lib/evidence-display"
+
 type ProgressStep = {
   title: string
   time?: string | null
@@ -27,6 +29,7 @@ export function SummaryTab({
   progressSteps,
 }: SummaryTabProps) {
   const { analysisInfo } = data
+  const moduleSummary = getModuleSummaryValues(data, riskLabel)
 
   return (
     <>
@@ -41,13 +44,13 @@ export function SummaryTab({
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-border dark:bg-muted/30">
             <p className="text-sm font-semibold text-slate-700 dark:text-foreground">최종 결론</p>
             <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-muted-foreground">
-              {analysisInfo.summary || "AI 분석 결과 위변조 가능성이 낮은 정상 영상으로 판정되었습니다."}
+              {analysisInfo.summary?.trim() || getSummaryPlaceholder(analysisInfo.status)}
             </p>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <ModuleMini label="딥페이크 탐지" value={riskLabel} />
-            <ModuleMini label="프레임 연속성" value="정상" />
-            <ModuleMini label="품질 평가" value="통과" />
+            <ModuleMini label="딥페이크 탐지" value={moduleSummary.deepfake} />
+            <ModuleMini label="프레임 연속성" value={moduleSummary.frame} />
+            <ModuleMini label="품질 평가" value={moduleSummary.quality} />
           </div>
         </CompactPanel>
 

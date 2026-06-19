@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import {
   AlertCircle,
@@ -16,6 +16,12 @@ import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
 import { MetadataReportTab } from "./_components/metadata-report-tab"
 import { SummaryTab } from "./_components/summary-tab"
+import {
+  buildProgressSteps,
+  getCaseRiskClassName,
+  getCaseRiskTone,
+  getDisplayRiskLabel,
+} from "./_lib/evidence-display"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -31,19 +37,7 @@ import {
 } from "@/lib/api/evidence-detail"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
-import {
-  getAnalysisStatusLabel,
-  getRiskLabel as getSharedRiskLabel,
-  getRiskTone as getSharedRiskTone,
-} from "@/lib/status-labels"
-
-type RiskTone = "green" | "orange" | "red"
-
-type ProgressStep = {
-  title: string
-  time?: string | null
-  done: boolean
-}
+import { getAnalysisStatusLabel } from "@/lib/status-labels"
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -70,31 +64,8 @@ function getFileExtension(fileName: string, mediaType?: string) {
   return mediaType || "VIDEO"
 }
 
-function getRiskTone(score: number, failed: boolean): RiskTone {
-  if (failed) return "red"
-  const tone = getSharedRiskTone(score)
-  if (tone === "danger") return "red"
-  if (tone === "caution") return "orange"
-  return "green"
-}
-
-function getRiskLabel(tone: RiskTone) {
-  if (tone === "red") return getSharedRiskLabel(70)
-  if (tone === "orange") return getSharedRiskLabel(40)
-  return getSharedRiskLabel(0)
-}
-
-function getDisplayRiskLabel(data: EvidenceDetailData, tone: RiskTone) {
-  const { analysisInfo } = data
-  if (analysisInfo.status === "FAILED") return "분석 실패"
-  if (analysisInfo.summary?.trim()) return analysisInfo.summary.trim()
-  return getRiskLabel(tone)
-}
-
 function getStatusLabel(status: EvidenceDetailData["analysisInfo"]["status"]) {
-  if (status === "PENDING") return "대기"
-  if (status === "PROCESSING") return "처리 중"
-  return getAnalysisStatusLabel(status)
+  return getAnalysisStatusLabel(normalizeStatus(status))
 }
 
 function getCaseStatusLabel(status: string) {
@@ -102,46 +73,6 @@ function getCaseStatusLabel(status: string) {
   if (status === "PROCESSING") return "PROCESSING"
   if (status === "FAILED") return "FAILED"
   return status || "PENDING"
-}
-
-function getRiskClassName(tone: RiskTone) {
-  if (tone === "red") {
-    return {
-      badge: "border-red-200 bg-red-50 text-red-600",
-      text: "text-red-500",
-      soft: "bg-red-50 text-red-600",
-      bar: "bg-red-500",
-    }
-  }
-
-  if (tone === "orange") {
-    return {
-      badge: "border-orange-200 bg-orange-50 text-orange-600",
-      text: "text-orange-500",
-      soft: "bg-orange-50 text-orange-600",
-      bar: "bg-orange-500",
-    }
-  }
-
-  return {
-    badge: "border-emerald-200 bg-emerald-50 text-emerald-600",
-    text: "text-emerald-600",
-    soft: "bg-emerald-50 text-emerald-600",
-    bar: "bg-teal-500",
-  }
-}
-
-function buildProgressSteps(data: EvidenceDetailData): ProgressStep[] {
-  const { evidenceInfo, analysisInfo } = data
-
-  return [
-    { title: "파일 업로드", time: evidenceInfo.uploadedAt, done: true },
-    { title: "무결성 검증", time: evidenceInfo.uploadedAt, done: true },
-    { title: "프레임 분석", time: analysisInfo.requestedAt, done: Boolean(analysisInfo.requestedAt) },
-    { title: "위험도 탐지", time: analysisInfo.completedAt, done: analysisInfo.status === "COMPLETED" },
-    { title: "품질 평가", time: analysisInfo.completedAt, done: analysisInfo.status === "COMPLETED" },
-    { title: "분석 완료", time: analysisInfo.completedAt, done: analysisInfo.status === "COMPLETED" },
-  ]
 }
 
 function sortEvidences(evidences: CaseEvidenceSummary[]) {
@@ -364,13 +295,12 @@ function EvidenceWorkspace({
 }) {
   const { evidenceInfo, analysisInfo } = data
   const riskScore = analysisInfo.riskScore ?? 0
-  const confidenceScore = analysisInfo.confidenceScore ?? 0
   const failed = analysisInfo.status === "FAILED"
-  const riskTone = getRiskTone(riskScore, failed)
-  const riskClassName = getRiskClassName(riskTone)
-  const displayRiskLabel = getDisplayRiskLabel(data, riskTone)
+  const riskTone = getCaseRiskTone(riskScore, failed)
+  const riskClassName = getCaseRiskClassName(riskTone)
+  const displayRiskLabel = getDisplayRiskLabel(data)
   const extension = getFileExtension(evidenceInfo.fileName, evidenceInfo.mediaType)
-  const progressSteps = useMemo(() => buildProgressSteps(data), [data])
+  const progressSteps = buildProgressSteps(data)
   const reportReady = analysisInfo.status === "COMPLETED"
   const verificationCode = `VF-${String(evidenceInfo.evidenceId).padStart(8, "0")}`
 

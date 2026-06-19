@@ -1,4 +1,5 @@
-import type { ModuleResult } from "@/lib/api/evidence-detail"
+import type { AnalysisStatus } from "@/lib/analysis-status"
+import { getAnalysisStatusLabel } from "@/lib/status-labels"
 
 export type VideoModuleDetails = {
   deepfakeDetected?: boolean
@@ -43,14 +44,10 @@ export function formatModuleDetailsText(raw: string): string | null {
   return parts.length > 0 ? parts.join(" · ") : null
 }
 
-export function buildModuleReasonText(modules: ModuleResult[], summary: string): string {
-  const parts: string[] = []
-  if (summary.trim()) parts.push(summary.trim())
-
-  for (const module of modules) {
-    const formatted = formatModuleDetailsText(module.details)
-    if (formatted) parts.push(formatted)
-  }
-
-  return parts.join(" · ") || "AI 분석 완료"
+export function getAnalysisEvidenceMessage(status: AnalysisStatus): string {
+  if (status === "PENDING") return "분석 대기"
+  if (status === "PROCESSING") return "분석 중"
+  if (status === "COMPLETED") return "분석 근거 없음"
+  if (status === "FAILED") return "분석 실패로 근거 데이터를 표시할 수 없습니다."
+  return "현재 AI 분석 결과를 사용할 수 없습니다."
 }

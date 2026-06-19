@@ -1,8 +1,8 @@
 import { BarChart3, CheckCircle2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { formatModuleDetailsText, getAnalysisEvidenceMessage, resolveModelLabel } from "@/lib/analysis-display"
 import type { EvidenceDetailData, ModuleResult } from "@/lib/api/evidence-detail"
-import { formatModuleDetailsText, resolveModelLabel } from "@/lib/analysis-display"
 import { cn } from "@/lib/utils"
 
 type SuspiciousSegment = {
@@ -123,14 +123,6 @@ export function DeepfakeModelTab({
       </section>
     </div>
   )
-}
-
-function getAnalysisEvidenceMessage(status: EvidenceDetailData["analysisInfo"]["status"]) {
-  if (status === "PENDING") return "분석 대기"
-  if (status === "PROCESSING") return "분석 중"
-  if (status === "COMPLETED") return "분석 근거 없음"
-  if (status === "FAILED") return "분석 실패로 근거 데이터를 표시할 수 없습니다."
-  return "현재 AI 분석 결과를 사용할 수 없습니다."
 }
 
 function AnalysisEvidenceEmptyState({

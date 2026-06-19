@@ -2,7 +2,7 @@ import { Download, FileBadge, FileText, FileVideo } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
-import { formatDateTime } from "@/lib/formatters"
+import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
 type MetadataReportTabProps = {
@@ -20,9 +20,8 @@ export function MetadataReportTab({
 }: MetadataReportTabProps) {
   const { evidenceInfo, analysisInfo } = data
   const metadata = evidenceInfo.technicalMetadata
-  const chainValid = data.integrityInfo.isChainValid ?? data.integrityInfo.chainValid
-  const recoveryScore = chainValid ? 98 : 64
-  const dataLoss = chainValid ? 2 : 28
+  const durationSeconds = metadata.durationSec
+  const frameRate = metadata.fps
 
   return (
     <div className="grid gap-5 2xl:grid-cols-[1fr_380px]">
@@ -35,42 +34,28 @@ export function MetadataReportTab({
           <MetaTable
             rows={[
               ["해상도", formatResolution(data)],
-              ["영상 길이", formatPreciseDuration(getDurationSeconds(data))],
-              ["비디오 코덱", metadata.codec || "H.264"],
-              ["FPS", `${getFrameRate(data)} fps`],
+              ["영상 길이", durationSeconds != null ? formatDuration(durationSeconds) : "확인되지 않음"],
+              ["비디오 코덱", metadata.codec || "확인되지 않음"],
+              ["FPS", frameRate != null ? `${frameRate} fps` : "확인되지 않음"],
               ["오디오 포함", metadata.channels ? "포함" : "확인되지 않음"],
-              ["컨테이너", extension || "MP4"],
+              ["컨테이너", extension || "확인되지 않음"],
               ["생성일", formatDateTimeWithSeconds(evidenceInfo.uploadedAt)],
               ["수정일", "확인되지 않음"],
               ["촬영기기", metadata.deviceInfo || "확인되지 않음"],
               ["소프트웨어", "확인되지 않음"],
               ["EXIF 존재 여부", metadata.capturedAt ? "존재" : "확인되지 않음"],
-              ["추출 상태", metadata.extractionStatus || "COMPLETED"],
+              ["추출 상태", metadata.extractionStatus || "확인되지 않음"],
             ]}
           />
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card">
           <h3 className="text-lg font-black text-slate-900 dark:text-foreground">파일 상태</h3>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-4 dark:bg-muted/30">
-              <div>
-                <p className="text-sm font-bold text-slate-800 dark:text-foreground">Recovery Score</p>
-                <p className="mt-1 text-xs font-bold text-slate-400 dark:text-muted-foreground">파일 손상·메타 상태 기반</p>
-              </div>
-              <span className={cn("text-3xl font-black", recoveryScore >= 80 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-500")}>
-                {recoveryScore}
-              </span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-4 dark:bg-muted/30">
-              <div>
-                <p className="text-sm font-bold text-slate-800 dark:text-foreground">데이터 소실도</p>
-                <p className="mt-1 text-xs font-bold text-slate-400 dark:text-muted-foreground">메타·스트림 누락 기반</p>
-              </div>
-              <span className={cn("text-3xl font-black", dataLoss <= 10 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-500")}>
-                {dataLoss}%
-              </span>
-            </div>
+          <div className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center dark:border-border dark:bg-muted/30">
+            <p className="text-sm font-bold text-slate-700 dark:text-foreground">Recovery Score · 데이터 소실도</p>
+            <p className="mt-2 text-xs font-bold leading-5 text-slate-400 dark:text-muted-foreground">
+              백엔드에서 파일 상태 지표가 제공되면 이 영역에 표시됩니다.
+            </p>
           </div>
         </section>
 
@@ -218,39 +203,10 @@ function VerificationQr({ value }: { value: string }) {
   )
 }
 
-function formatDateTimeWithSeconds(value?: string | null) {
-  if (!value) return "-"
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  const hours = String(date.getHours()).padStart(2, "0")
-  const minutes = String(date.getMinutes()).padStart(2, "0")
-  const seconds = String(date.getSeconds()).padStart(2, "0")
-
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-}
-
-function formatPreciseDuration(seconds: number) {
-  const minutes = Math.floor(seconds / 60)
-  const remain = seconds - minutes * 60
-  return `${String(minutes).padStart(2, "0")}:${remain.toFixed(3).padStart(6, "0")}`
-}
-
-function getDurationSeconds(data: EvidenceDetailData) {
-  return data.evidenceInfo.technicalMetadata.durationSec ?? 31.24
-}
-
-function getFrameRate(data: EvidenceDetailData) {
-  return data.evidenceInfo.technicalMetadata.fps ?? 29.97
-}
-
 function formatResolution(data: EvidenceDetailData) {
   const metadata = data.evidenceInfo.technicalMetadata
-  const width = metadata?.width ?? 1920
-  const height = metadata?.height ?? 1080
+  const width = metadata?.width
+  const height = metadata?.height
+  if (width == null || height == null) return "확인되지 않음"
   return `${width} × ${height}`
 }

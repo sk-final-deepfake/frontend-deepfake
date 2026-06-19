@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 const progressItems = [
   { label: "파일 해시 생성 (SHA-256)", threshold: 14 },
   { label: "메타데이터 추출", threshold: 28 },
-  { label: "AI 위변조 분석 (DeepScan v2.4.1)", threshold: 48 },
+  { label: "AI 위변조 분석", threshold: 48 },
   { label: "디지털 서명 적용 (PKI · RSA-4096)", threshold: 64 },
   { label: "원본 파일 WORM 저장", threshold: 78 },
   { label: "블록체인 앵커링", threshold: 90 },
