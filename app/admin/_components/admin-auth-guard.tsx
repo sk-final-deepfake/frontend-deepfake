@@ -2,14 +2,19 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { getSession, type AuthSession } from "@/lib/auth"
+import { bootstrapAuthSession, getSession, type AuthSession } from "@/lib/auth"
 
 export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [session, setAuthSession] = useState<AuthSession | null>(null)
 
   useEffect(() => {
-    function syncSession() {
+    let cancelled = false
+
+    async function syncSession() {
+      await bootstrapAuthSession()
+      if (cancelled) return
+
       const current = getSession()
 
       if (!current) {
@@ -25,9 +30,16 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
       setAuthSession(current)
     }
 
-    syncSession()
-    window.addEventListener("auth-change", syncSession)
-    return () => window.removeEventListener("auth-change", syncSession)
+    const onAuthChange = () => {
+      void syncSession()
+    }
+
+    void syncSession()
+    window.addEventListener("auth-change", onAuthChange)
+    return () => {
+      cancelled = true
+      window.removeEventListener("auth-change", onAuthChange)
+    }
   }, [router])
 
   if (!session || session.role !== "admin") {
