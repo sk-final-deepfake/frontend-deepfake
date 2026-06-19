@@ -48,6 +48,8 @@ export function getToken(): string | null {
   return memorySession?.token ?? null
 }
 
+// 로그인 및 refresh 응답을 한 곳에서 세션으로 변환하는 함수
+// login-form, tryRefreshSession 이 이걸 씀
 export function applyLoginResponse(response: {
   userId: number
   loginId: string
@@ -81,6 +83,8 @@ export function isAuthApiPath(path: string): boolean {
 
 let refreshPromise: Promise<boolean> | null = null
 
+// 이전에는 refresh 응답에서 accessToken만 반환했으나 이제는 accessToken과 refreshToken 모두 반환
+// 전체 세션 복구 코드
 export async function tryRefreshSession(): Promise<boolean> {
   if (typeof window === "undefined") return false
 
@@ -127,7 +131,8 @@ export async function tryRefreshSession(): Promise<boolean> {
   return refreshPromise
 }
 
-/** 새로고침 후 HttpOnly refresh 쿠키로 세션 복구 시도 */
+
+// 새로고침 후 HttpOnly refresh 쿠키로 세션 복구 시도
 export async function bootstrapAuthSession(): Promise<void> {
   if (typeof window === "undefined") return
   if (authBootstrapped) return
