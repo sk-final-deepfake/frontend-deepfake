@@ -2,6 +2,7 @@ import { BarChart3, CheckCircle2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import type { EvidenceDetailData, ModuleResult } from "@/lib/api/evidence-detail"
+import { formatModuleDetailsText, resolveModelLabel } from "@/lib/analysis-display"
 import { cn } from "@/lib/utils"
 
 type SuspiciousSegment = {
@@ -31,6 +32,7 @@ export function DeepfakeModelTab({
   const { analysisInfo } = data
   const modules = analysisInfo.moduleResults
   const evidenceMessage = getAnalysisEvidenceMessage(analysisInfo.status)
+  const modelLabel = resolveModelLabel(analysisInfo.summary ?? "")
 
   return (
     <div className="space-y-5">
@@ -80,11 +82,13 @@ export function DeepfakeModelTab({
         <div className="mt-4 flex flex-wrap gap-2 text-sm">
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-muted/30">
             <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">모델</span>
-            <span className="font-bold text-slate-800 dark:text-foreground">DeepScan Video</span>
+            <span className="font-bold text-slate-800 dark:text-foreground">{modelLabel}</span>
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-muted/30">
             <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">버전</span>
-            <span className="font-bold text-slate-800 dark:text-foreground">2.4.1</span>
+            <span className="font-bold text-slate-800 dark:text-foreground">
+              {/xception/i.test(analysisInfo.summary ?? "") ? "v1.0.0" : "test"}
+            </span>
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-muted/30">
             <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">신뢰도</span>
@@ -250,6 +254,7 @@ function FrameRiskChart({
 function ModelResultCard({ module }: { module: ModuleResult }) {
   const score = Math.round(module.score * 100)
   const suspicious = module.detected || score >= 55
+  const detailText = formatModuleDetailsText(module.details) ?? module.details
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-border dark:bg-card">
@@ -272,7 +277,7 @@ function ModelResultCard({ module }: { module: ModuleResult }) {
           </Badge>
         </div>
       </div>
-      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-muted-foreground">{module.details}</p>
+      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-muted-foreground">{detailText}</p>
     </div>
   )
 }

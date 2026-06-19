@@ -84,6 +84,13 @@ function getRiskLabel(tone: RiskTone) {
   return getSharedRiskLabel(0)
 }
 
+function getDisplayRiskLabel(data: EvidenceDetailData, tone: RiskTone) {
+  const { analysisInfo } = data
+  if (analysisInfo.status === "FAILED") return "분석 실패"
+  if (analysisInfo.summary?.trim()) return analysisInfo.summary.trim()
+  return getRiskLabel(tone)
+}
+
 function getStatusLabel(status: EvidenceDetailData["analysisInfo"]["status"]) {
   if (status === "PENDING") return "대기"
   if (status === "PROCESSING") return "처리 중"
@@ -361,6 +368,7 @@ function EvidenceWorkspace({
   const failed = analysisInfo.status === "FAILED"
   const riskTone = getRiskTone(riskScore, failed)
   const riskClassName = getRiskClassName(riskTone)
+  const displayRiskLabel = getDisplayRiskLabel(data, riskTone)
   const extension = getFileExtension(evidenceInfo.fileName, evidenceInfo.mediaType)
   const progressSteps = useMemo(() => buildProgressSteps(data), [data])
   const reportReady = analysisInfo.status === "COMPLETED"
@@ -402,7 +410,7 @@ function EvidenceWorkspace({
         <EvidenceSummaryCard
           data={data}
           extension={extension}
-          riskLabel={getRiskLabel(riskTone)}
+          riskLabel={displayRiskLabel}
           statusLabel={getStatusLabel(analysisInfo.status)}
           riskBadgeClassName={riskClassName.badge}
         />
@@ -410,7 +418,7 @@ function EvidenceWorkspace({
         <TabsContent value="summary" className="space-y-5">
           <SummaryTab
             data={data}
-            riskLabel={getRiskLabel(riskTone)}
+            riskLabel={displayRiskLabel}
             riskSoftClassName={riskClassName.soft}
             progressSteps={progressSteps}
           />
@@ -419,7 +427,7 @@ function EvidenceWorkspace({
         <TabsContent value="deepfake" className="space-y-5">
           <DeepfakeModelTab
             data={data}
-            riskLabel={getRiskLabel(riskTone)}
+            riskLabel={displayRiskLabel}
             riskBadgeClassName={riskClassName.badge}
           />
         </TabsContent>
