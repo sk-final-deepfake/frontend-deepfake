@@ -6,7 +6,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_USE_MOCK_API=false
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_USE_MOCK_API=$NEXT_PUBLIC_USE_MOCK_API
 RUN pnpm build
 
 # ---- Stage 2: 실행 ----

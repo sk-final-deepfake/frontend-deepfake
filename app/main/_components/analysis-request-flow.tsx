@@ -22,6 +22,9 @@ import { Button } from "@/components/ui/button"
 import { AnalysisProgress } from "@/components/analysis-progress"
 import {
   AnalysisResult,
+  buildSampleResultData,
+  sampleFrameRisks,
+  sampleReasonGroups,
   type AnalysisResultData,
   type AnalysisResultTone,
   type FrameRiskBar,
@@ -32,6 +35,7 @@ import {
   startEvidenceAnalysis,
   uploadEvidence,
 } from "@/lib/evidence-api"
+import { fetchEvidenceDetail, type EvidenceDetailData } from "@/lib/api/evidence-detail"
 import { features } from "@/lib/features"
 import { formatDateTime, formatFileSize } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
@@ -1068,27 +1072,29 @@ export function ResultStep({
   onPrevious: () => void
 }) {
   const evidence = evidences[activeIndex] ?? DEFAULT_EVIDENCE
-  const result = getResultPreset(activeIndex)
+  const [detail, setDetail] = useState<EvidenceDetailData | null>(null)
 
-  const data: AnalysisResultData = {
-    fileName: evidence.name,
-    evidenceId: result.evidenceId,
-    uploadedAtLabel: evidence.uploadAtLabel,
-    riskScore: result.riskScore,
-    riskLabel: result.riskLabel,
-    tone: result.tone as AnalysisResultTone,
-    frameRisks: getFrameRisksForResult(activeIndex),
-    reasonGroups: getSuspiciousFrameGroupsForResult(activeIndex),
-    integrityRows: [
-      ["SHA-256", getMockHash(activeIndex)],
-      ["전자서명", "PKI · RSA-4096 적용"],
-      ["WORM 저장", "S3 Object Lock"],
-      ["블록체인 Tx", getMockTxHash(activeIndex)],
-      ["Custody Log", `LOG-2026-${String(488 + activeIndex).padStart(6, "0")}`],
-      ["분석 모델", "DeepScan v2.4.1"],
-      ["파일 형식", evidence.extension],
-    ],
-  }
+  useEffect(() => {
+    if (typeof evidence.evidenceId !== "number") {
+      setDetail(null)
+      return
+    }
+
+    let cancelled = false
+    void fetchEvidenceDetail(evidence.evidenceId)
+      .then((data) => {
+        if (!cancelled) setDetail(data)
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [evidence.evidenceId])
+
+  const data = buildResultData(evidence, activeIndex, detail)
 
   return (
     <div className="space-y-5">
@@ -1160,6 +1166,94 @@ function formatBytes(bytes: number) {
     zeroLabel: "0 B",
     maxUnit: "GB",
   })
+}
+
+function buildResultData(
+  evidence: SelectedEvidence,
+  index: number,
+  detail: EvidenceDetailData | null
+): AnalysisResultData {
+  if (detail?.analysisInfo.status === "COMPLETED" && detail.analysisInfo.riskScore != null) {
+    const riskScore = Math.round(detail.analysisInfo.riskScore)
+    const tone: AnalysisResultTone =
+      detail.analysisInfo.riskLevel === "HIGH"
+        ? "red"
+        : detail.analysisInfo.riskLevel === "MEDIUM"
+          ? "orange"
+          : "green"
+    const riskLabel =
+      detail.analysisInfo.riskLevel === "HIGH"
+        ? "딥페이크 의심 - 위험"
+        : detail.analysisInfo.riskLevel === "MEDIUM"
+          ? "위변조 정황 - 주의"
+          : "위변조 가능성 낮음"
+    const detectedModules = detail.analysisInfo.moduleResults.filter((item) => item.detected)
+
+    return {
+      fileName: detail.evidenceInfo.fileName || evidence.name,
+      evidenceId: `EVD-${detail.evidenceInfo.evidenceId}`,
+      uploadedAtLabel: evidence.uploadAtLabel,
+      riskScore,
+      riskLabel: detail.analysisInfo.summary || riskLabel,
+      tone,
+      frameRisks: sampleFrameRisks(detail.evidenceInfo.evidenceId, riskScore),
+      reasonGroups:
+        detectedModules.length > 0
+          ? [
+              {
+                level: detail.analysisInfo.riskLevel ?? "MEDIUM",
+                timeRange: "전체 구간",
+                reason: detectedModules.map((item) => item.details || item.moduleName).join(" · "),
+                score: `${riskScore}%`,
+                tone: tone === "red" ? "red" : tone === "orange" ? "amber" : "green",
+                frames: [],
+              },
+            ]
+          : tone === "green"
+            ? []
+            : sampleReasonGroups(tone === "red"),
+      integrityRows: [
+        ["SHA-256", detail.integrityInfo.originalHash.slice(0, 16) + "..."],
+        ["전자서명", detail.integrityInfo.verificationStatus],
+        ["WORM 저장", "S3 Object Lock"],
+        ["체인 검증", detail.integrityInfo.chainValid ? "유효" : "검증 필요"],
+        ["Custody Log", `${detail.cocLogs.length}건`],
+        ["분석 모델", "GPU Worker (test pipeline)"],
+        ["파일 형식", evidence.extension],
+      ],
+    }
+  }
+
+  if (typeof evidence.evidenceId === "number") {
+    return buildSampleResultData({
+      seed: evidence.evidenceId,
+      fileName: evidence.name,
+      evidenceCode: `EVD-${evidence.evidenceId}`,
+      uploadedAtLabel: evidence.uploadAtLabel,
+      extension: evidence.extension,
+    })
+  }
+
+  const preset = resultPresets[index % resultPresets.length]
+  return {
+    fileName: evidence.name,
+    evidenceId: preset.evidenceId,
+    uploadedAtLabel: evidence.uploadAtLabel,
+    riskScore: preset.riskScore,
+    riskLabel: preset.riskLabel,
+    tone: preset.tone as AnalysisResultTone,
+    frameRisks: getFrameRisksForResult(index),
+    reasonGroups: getSuspiciousFrameGroupsForResult(index),
+    integrityRows: [
+      ["SHA-256", getMockHash(index)],
+      ["전자서명", "PKI · RSA-4096 적용"],
+      ["WORM 저장", "S3 Object Lock"],
+      ["블록체인 Tx", getMockTxHash(index)],
+      ["Custody Log", `LOG-2026-${String(488 + index).padStart(6, "0")}`],
+      ["분석 모델", "DeepScan v2.4.1"],
+      ["파일 형식", evidence.extension],
+    ],
+  }
 }
 
 function getResultPreset(index: number) {
