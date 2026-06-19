@@ -692,6 +692,91 @@ function sampleEvidenceRecord(
   }
 }
 
+function offsetIsoTime(value: string | undefined, minutes: number) {
+  const date = new Date(value ?? new Date().toISOString())
+  if (Number.isNaN(date.getTime())) return value ?? new Date().toISOString()
+  date.setMinutes(date.getMinutes() + minutes)
+  return date.toISOString()
+}
+
+function buildCocLogs(record: MockEvidenceRecord): EvidenceDetailData["cocLogs"] {
+  const requestedAt = record.analysisRequestedAt ?? record.uploadedAt
+  const completedAt = record.analysisCompletedAt ?? offsetIsoTime(requestedAt, 2)
+  const logs: EvidenceDetailData["cocLogs"] = [
+    {
+      logId: record.evidenceId * 10 + 1,
+      eventType: "UPLOAD",
+      userId: "mock-user",
+      description: "증거 파일이 mock 저장소에 등록되었습니다.",
+      createdAt: record.uploadedAt,
+      currentLogHash: record.hashValue,
+    },
+    {
+      logId: record.evidenceId * 10 + 2,
+      eventType: "HASH_CREATED",
+      userId: "mock-system",
+      description: "원본 파일의 SHA-256 해시가 생성되었습니다.",
+      createdAt: offsetIsoTime(record.uploadedAt, 0),
+      currentLogHash: `${record.hashValue.slice(0, 52)}c0ffee`,
+    },
+    {
+      logId: record.evidenceId * 10 + 3,
+      eventType: "INTEGRITY_VERIFIED",
+      userId: "mock-system",
+      description: "해시 체인과 원본성 검증이 완료되었습니다.",
+      createdAt: offsetIsoTime(record.uploadedAt, 1),
+      currentLogHash: `${record.hashValue.slice(0, 52)}b10cc0`,
+    },
+  ]
+
+  if (record.analysisRequestedAt) {
+    logs.push(
+      {
+        logId: record.evidenceId * 10 + 4,
+        eventType: "ANALYSIS_REQUESTED",
+        userId: "mock-user",
+        description: "AI 위변조 분석 요청이 mock 큐에 등록되었습니다.",
+        createdAt: requestedAt,
+        currentLogHash: `${record.hashValue.slice(0, 48)}feedface`,
+      },
+      {
+        logId: record.evidenceId * 10 + 5,
+        eventType: "FRAME_ANALYSIS_STARTED",
+        userId: "ai-worker-01",
+        description: "프레임 단위 위변조 탐지와 모델 분석이 시작되었습니다.",
+        createdAt: offsetIsoTime(requestedAt, 1),
+        currentLogHash: `${record.hashValue.slice(0, 50)}a11a1a`,
+      }
+    )
+  }
+
+  if (record.analysisStatus === "COMPLETED" || record.analysisStatus === "FAILED") {
+    logs.push(
+      {
+        logId: record.evidenceId * 10 + 6,
+        eventType: record.analysisStatus === "COMPLETED" ? "ANALYSIS_COMPLETED" : "ANALYSIS_FAILED",
+        userId: "ai-worker-01",
+        description:
+          record.analysisStatus === "COMPLETED"
+            ? "AI 분석 결과와 판정 요약이 생성되었습니다."
+            : "AI 분석 처리 중 오류 상태가 기록되었습니다.",
+        createdAt: completedAt,
+        currentLogHash: `${record.hashValue.slice(0, 50)}d0c0de`,
+      },
+      {
+        logId: record.evidenceId * 10 + 7,
+        eventType: "REPORT_GENERATED",
+        userId: "mock-system",
+        description: "검증 보고서와 다운로드 가능한 PDF 기록이 생성되었습니다.",
+        createdAt: offsetIsoTime(completedAt, 1),
+        currentLogHash: `${record.hashValue.slice(0, 50)}5afe00`,
+      }
+    )
+  }
+
+  return logs
+}
+
 function buildEvidenceDetail(
   record: MockEvidenceRecord,
   caseId: string
@@ -728,28 +813,7 @@ function buildEvidenceDetail(
       summary: completed ? record.summary ?? "" : "분석 큐에서 결과 생성을 준비 중입니다.",
       moduleResults: completed ? record.moduleResults ?? [] : [],
     },
-    cocLogs: [
-      {
-        logId: record.evidenceId * 10 + 1,
-        eventType: "UPLOAD",
-        userId: "mock-user",
-        description: "증거 파일이 mock 저장소에 등록되고 SHA-256 해시가 생성되었습니다.",
-        createdAt: record.uploadedAt,
-        currentLogHash: record.hashValue,
-      },
-      ...(record.analysisRequestedAt
-        ? [
-            {
-              logId: record.evidenceId * 10 + 2,
-              eventType: "ANALYSIS_REQUESTED",
-              userId: "mock-user",
-              description: "AI 위변조 분석 요청이 mock 큐에 등록되었습니다.",
-              createdAt: record.analysisRequestedAt,
-              currentLogHash: `${record.hashValue.slice(0, 48)}feedface`,
-            },
-          ]
-        : []),
-    ],
+    cocLogs: buildCocLogs(record),
   }
 }
 

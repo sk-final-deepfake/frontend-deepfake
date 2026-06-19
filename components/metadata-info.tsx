@@ -6,13 +6,14 @@ import { Badge } from "@/components/ui/badge"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
 import type { MetadataDisplayItem } from "@/lib/metadata-types"
 import type { MediaMetadata } from "@/lib/evidence-api"
+import { formatFileSize } from "@/lib/formatters"
 
 function formatBytes(bytes: number) {
-  if (bytes === 0) return "0 B"
-  const k = 1024
-  const sizes = ["B", "KB", "MB", "GB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+  return formatFileSize(bytes, {
+    zeroLabel: "0 B",
+    maxUnit: "GB",
+    trimTrailingZero: true,
+  })
 }
 
 function formatUploadedAt(iso: string) {

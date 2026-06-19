@@ -14,13 +14,11 @@ import {
 } from "lucide-react"
 import type { CaseStatus, CaseSummary } from "@/app/mypage/_types/case"
 import { CaseHistorySection } from "@/app/mypage/_components/case-history-section"
-import { mockCases } from "@/app/mypage/_data/mock-cases"
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
-import { ApiError } from "@/lib/api/client"
+import { isUnauthorizedError } from "@/lib/api/errors"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-const USE_MOCK_API = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false"
 const HISTORY_PAGE_SIZE = 10
 
 const statusFilters: Array<{ label: string; value: "ALL" | CaseStatus }> = [
@@ -50,13 +48,11 @@ export function MyPageContent() {
       try {
         const response = await fetchMyAnalysisHistory()
         if (cancelled) return
-        const nextCases =
-          USE_MOCK_API && response.content.length === 0 ? mockCases : response.content
-        setCases(nextCases)
-        setTotalCount(nextCases.length)
+        setCases(response.content)
+        setTotalCount(response.totalElements)
       } catch (error) {
         if (cancelled) return
-        if (error instanceof ApiError && error.status === 401) {
+        if (isUnauthorizedError(error)) {
           setErrorMessage("분석 기록을 보려면 로그인이 필요합니다.")
         } else {
           setErrorMessage("분석 기록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")

@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api-client"
+import { apiRequest } from "@/lib/api/client"
 import type { OrgType } from "@/app/signup/organizationData"
 
 export type SignupAgreements = {
@@ -41,23 +41,27 @@ export type DepartmentsResponse = {
 }
 
 export async function signup(request: SignupRequest): Promise<SignupResponse> {
-  return apiFetch<SignupResponse>("/api/v1/auth/signup", {
+  return apiRequest<SignupResponse>("/api/v1/auth/signup", {
     method: "POST",
-    body: JSON.stringify(request),
+    body: request,
+    auth: false,
   })
 }
 
 export async function checkUsername(loginId: string): Promise<UsernameCheckResponse> {
   const params = new URLSearchParams({ loginId })
-  return apiFetch<UsernameCheckResponse>(`/api/v1/auth/username/check?${params}`)
+  return apiRequest<UsernameCheckResponse>(`/api/v1/auth/username/check?${params}`, {
+    auth: false,
+  })
 }
 
 export async function validateInviteCode(
   code: string
 ): Promise<InviteCodeValidateResponse> {
-  return apiFetch<InviteCodeValidateResponse>("/api/v1/invite-codes/validate", {
+  return apiRequest<InviteCodeValidateResponse>("/api/v1/invite-codes/validate", {
     method: "POST",
-    body: JSON.stringify({ code }),
+    body: { code },
+    auth: false,
   })
 }
 
@@ -65,7 +69,8 @@ export async function fetchDepartments(
   organizationType: OrgType
 ): Promise<DepartmentsResponse> {
   const params = new URLSearchParams({ organizationType })
-  return apiFetch<DepartmentsResponse>(
-    `/api/v1/organizations/departments?${params}`
+  return apiRequest<DepartmentsResponse>(
+    `/api/v1/organizations/departments?${params}`,
+    { auth: false }
   )
 }

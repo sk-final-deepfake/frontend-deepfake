@@ -6,7 +6,7 @@ import { AdminPageHeader } from "@/app/admin/_components/admin-page-header"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
 import type { AdminLog, LogCategory } from "@/app/admin/_types/admin"
 import { exportAdminLogsCsv, fetchAdminLogs } from "@/lib/api/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
 import { Button } from "@/components/ui/button"
 
 const PAGE_SIZE = 10
@@ -93,8 +93,7 @@ export default function AdminLogsPage() {
       setLogs(response.items)
       setTotal(response.total)
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "로그 목록을 불러오지 못했습니다."
+      const message = getApiErrorMessage(error, "로그 목록을 불러오지 못했습니다.")
       toast({ title: "조회 실패", description: message })
     } finally {
       setLoading(false)
@@ -128,8 +127,7 @@ export default function AdminLogsPage() {
         description: "현재 필터 조건의 로그가 다운로드되었습니다.",
       })
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "CSV보내기에 실패했습니다."
+      const message = getApiErrorMessage(error, "CSV보내기에 실패했습니다.")
       toast({ title: "보내기 실패", description: message })
     } finally {
       setExporting(false)

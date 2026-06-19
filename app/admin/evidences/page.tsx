@@ -14,16 +14,18 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Loader2, Search, Copy } from "lucide-react"
 import { fetchAdminEvidences } from "@/lib/api/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
+import { formatFileSize as formatSharedFileSize } from "@/lib/formatters"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
 import type { AdminEvidence, EvidenceFileType, EvidenceStatus } from "@/app/admin/_types/admin"
 
 const PAGE_SIZE = 10
 
 function formatFileSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return formatSharedFileSize(bytes, {
+    zeroLabel: "0 B",
+    maxUnit: "MB",
+  })
 }
 
 function getFileTypeLabel(type: EvidenceFileType) {
@@ -112,8 +114,7 @@ export default function AdminEvidencesPage() {
       setItems(response.items)
       setTotal(response.total)
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "증거 목록을 불러오지 못했습니다."
+      const message = getApiErrorMessage(error, "증거 목록을 불러오지 못했습니다.")
       toast({ title: "조회 실패", description: message })
     } finally {
       setLoading(false)

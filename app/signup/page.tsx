@@ -8,7 +8,8 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { ShieldCheck, User, Lock, Mail, Landmark, Briefcase, Phone, KeyRound, Eye, EyeOff, Check, ChevronLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { ApiError } from "@/lib/api-client"
+import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
 import { checkUsername, signup, validateInviteCode } from "@/lib/signup-api"
 import SignupAgreementStep, { type Agreements } from "./SignupAgreementStep"
 import DepartmentAutocomplete from "./DepartmentAutocomplete"
@@ -97,11 +98,7 @@ export default function SignupPage() {
       setUsernameStatus(result.available ? "available" : "taken")
     } catch (err) {
       setUsernameStatus("")
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : "아이디 중복 확인에 실패했습니다."
-      )
+      setError(getApiErrorMessage(err, "아이디 중복 확인에 실패했습니다."))
     } finally {
       setIsCheckingUsername(false)
     }
@@ -142,9 +139,9 @@ export default function SignupPage() {
       setSubmitted(true)
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.details?.[0]?.reason ?? err.message)
+        setError(err.details?.[0]?.reason ?? getApiErrorMessage(err, "가입 신청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요."))
       } else {
-        setError("가입 신청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요.")
+        setError(getApiErrorMessage(err, "가입 신청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요."))
       }
     } finally {
       setIsSubmitting(false)

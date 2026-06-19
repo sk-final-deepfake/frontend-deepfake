@@ -19,6 +19,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { User, ShieldCheck, Lock, ArrowLeft, Loader2 } from "lucide-react"
 import { fetchMyProfile, updateMyProfile } from "@/lib/api/user"
 import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, setSession } from "@/lib/auth"
 
 export default function EditProfilePage() {
@@ -54,7 +55,7 @@ export default function EditProfilePage() {
         }))
       } catch (error) {
         if (cancelled) return
-        if (error instanceof ApiError && error.status === 401) {
+        if (isUnauthorizedError(error)) {
           toast({
             variant: "destructive",
             title: "로그인 필요",
@@ -160,9 +161,7 @@ export default function EditProfilePage() {
         variant: "destructive",
         title: "수정 실패",
         description:
-          error instanceof ApiError
-            ? error.message
-            : "정보를 업데이트하는 중 오류가 발생했습니다.",
+          getApiErrorMessage(error, "정보를 업데이트하는 중 오류가 발생했습니다."),
       })
     } finally {
       setIsLoading(false)

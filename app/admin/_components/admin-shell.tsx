@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   LogOut,
 } from "lucide-react"
+import { logoutApi } from "@/lib/auth-api"
 import { clearSession, getSession } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -33,9 +34,13 @@ export function AdminShell({ children }: AdminShellProps) {
   const router = useRouter()
   const session = getSession()
 
-  function handleLogout() {
-    clearSession()
-    router.replace("/login")
+  async function handleLogout() {
+    try {
+      await logoutApi()
+    } finally {
+      clearSession()
+      router.replace("/login")
+    }
   }
 
   function isActive(href: string, exact?: boolean) {

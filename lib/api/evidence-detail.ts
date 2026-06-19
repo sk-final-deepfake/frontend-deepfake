@@ -1,10 +1,7 @@
 import { apiRequest } from "@/lib/api/client"
-import {
-  mockFetchCaseDetail,
-  mockFetchEvidenceDetail,
-} from "@/lib/mock-forensic-api"
-
-const USE_MOCK_API = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false"
+import { features } from "@/lib/features"
+import { mockFetchCaseDetail, mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
+import { decodeRouteParam } from "@/lib/route-params"
 
 export type TechnicalMetadata = {
   // Common
@@ -85,6 +82,10 @@ export type CaseEvidenceSummary = {
   fileName: string
   mediaType: string
   analysisStatus: string
+  thumbnailUrl?: string | null
+  previewUrl?: string | null
+  videoUrl?: string | null
+  fileUrl?: string | null
 }
 
 export type CaseDetailData = {
@@ -96,7 +97,7 @@ export type CaseDetailData = {
 }
 
 export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceDetailData> {
-  if (USE_MOCK_API) {
+  if (features.mockApi) {
     return mockFetchEvidenceDetail(evidenceId)
   }
 
@@ -104,9 +105,11 @@ export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceD
 }
 
 export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {
-  if (USE_MOCK_API) {
+  if (features.mockApi) {
     return mockFetchCaseDetail(caseId)
   }
 
-  return apiRequest<CaseDetailData>(`/api/v1/cases?caseKey=${encodeURIComponent(caseId)}`)
+  const caseKey = decodeRouteParam(caseId)
+  const params = new URLSearchParams({ caseKey })
+  return apiRequest<CaseDetailData>(`/api/v1/cases?${params}`)
 }

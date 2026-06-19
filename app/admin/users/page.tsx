@@ -24,7 +24,7 @@ import {
   resetAdminUserPassword,
   updateAdminUser,
 } from "@/lib/api/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
 import { Button } from "@/components/ui/button"
 
 const PAGE_SIZE = 10
@@ -95,8 +95,7 @@ export default function AdminUsersPage() {
       setUsers(response.items)
       setTotal(response.total)
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "계정 목록을 불러오지 못했습니다."
+      const message = getApiErrorMessage(error, "계정 목록을 불러오지 못했습니다.")
       toast({ title: "조회 실패", description: message })
     } finally {
       setLoading(false)
@@ -128,8 +127,7 @@ export default function AdminUsersPage() {
       setEditTarget(null)
       await loadUsers()
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "계정 수정 중 오류가 발생했습니다."
+      const message = getApiErrorMessage(error, "계정 수정 중 오류가 발생했습니다.")
       toast({ title: "수정 실패", description: message })
     } finally {
       setProcessingId(null)
@@ -148,8 +146,7 @@ export default function AdminUsersPage() {
       setDeleteTarget(null)
       await loadUsers()
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "계정 삭제 중 오류가 발생했습니다."
+      const message = getApiErrorMessage(error, "계정 삭제 중 오류가 발생했습니다.")
       toast({ title: "삭제 실패", description: message })
     } finally {
       setProcessingId(null)
