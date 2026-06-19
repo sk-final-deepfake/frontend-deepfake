@@ -68,6 +68,8 @@ export async function fetchAnalysisTrend(days = 7): Promise<AnalysisTrendRespons
 
 export type RecentAnalysisItem = {
   evidenceId: number
+  caseId?: string | null
+  caseName?: string | null
   analysisRequestId: number
   fileName: string
   requestedAt: string

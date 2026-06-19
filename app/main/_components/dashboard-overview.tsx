@@ -546,26 +546,32 @@ function RecentAnalysisList({
 
   return (
     <ul className="space-y-3">
-      {analyses.slice(0, 4).map((analysis) => (
-        <li key={analysis.analysisRequestId}>
-          <Link
-            href={`/evidences/${encodeURIComponent(String(analysis.evidenceId))}`}
-            className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:border-border dark:hover:border-teal-500/30 dark:hover:bg-teal-500/10"
-          >
-            <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-slate-700 dark:text-foreground">{analysis.fileName}</p>
-              <p className="mt-1 text-[11px] text-slate-400 dark:text-muted-foreground">
-                {formatDashboardDate(analysis.requestedAt)}
-                {typeof analysis.riskScore === "number" ? ` · 위험도 ${Math.round(analysis.riskScore)}` : ""}
-              </p>
-            </div>
-            <AnalysisStatusBadge
-              status={normalizeDashboardStatus(analysis.status)}
-              className="hidden sm:inline-flex"
-            />
-          </Link>
-        </li>
-      ))}
+      {analyses.slice(0, 4).map((analysis) => {
+        const href = analysis.caseId
+          ? `/cases/${encodeURIComponent(analysis.caseId)}?evidenceId=${encodeURIComponent(String(analysis.evidenceId))}`
+          : "/mypage"
+
+        return (
+          <li key={analysis.analysisRequestId}>
+            <Link
+              href={href}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:border-border dark:hover:border-teal-500/30 dark:hover:bg-teal-500/10"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-xs font-bold text-slate-700 dark:text-foreground">{analysis.fileName}</p>
+                <p className="mt-1 text-[11px] text-slate-400 dark:text-muted-foreground">
+                  {formatDashboardDate(analysis.requestedAt)}
+                  {typeof analysis.riskScore === "number" ? ` · 위험도 ${Math.round(analysis.riskScore)}` : ""}
+                </p>
+              </div>
+              <AnalysisStatusBadge
+                status={normalizeDashboardStatus(analysis.status)}
+                className="hidden sm:inline-flex"
+              />
+            </Link>
+          </li>
+        )
+      })}
     </ul>
   )
 }

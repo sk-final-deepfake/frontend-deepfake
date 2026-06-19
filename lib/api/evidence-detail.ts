@@ -1,4 +1,6 @@
 import { apiRequest } from "@/lib/api/client"
+import { features } from "@/lib/features"
+import { mockFetchCaseDetail, mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
 
 export type TechnicalMetadata = {
   // Common
@@ -79,6 +81,10 @@ export type CaseEvidenceSummary = {
   fileName: string
   mediaType: string
   analysisStatus: string
+  thumbnailUrl?: string | null
+  previewUrl?: string | null
+  videoUrl?: string | null
+  fileUrl?: string | null
 }
 
 export type CaseDetailData = {
@@ -90,9 +96,17 @@ export type CaseDetailData = {
 }
 
 export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceDetailData> {
+  if (features.mockApi) {
+    return mockFetchEvidenceDetail(evidenceId)
+  }
+
   return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`)
 }
 
 export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {
+  if (features.mockApi) {
+    return mockFetchCaseDetail(caseId)
+  }
+
   return apiRequest<CaseDetailData>(`/api/v1/cases?caseKey=${encodeURIComponent(caseId)}`)
 }

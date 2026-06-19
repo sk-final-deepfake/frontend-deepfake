@@ -6,7 +6,7 @@ type DateTimeValue = string | number | Date | null | undefined
 
 // 2026-06-18T19:38:29 -> 2026.06.18 19:38
 export function formatDateTime(value?: DateTimeValue): string {
-  if (!value) return "-"
+  if (value === null || value === undefined || value === "") return "-"
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
 
@@ -21,7 +21,7 @@ export function formatDateTime(value?: DateTimeValue): string {
 
 // 초 단위 포함: 2026.06.18 19:38:29
 export function formatDateTimeWithSeconds(value?: DateTimeValue): string {
-  if (!value) return "-"
+  if (value === null || value === undefined || value === "") return "-"
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
 
