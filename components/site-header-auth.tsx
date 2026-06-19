@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { Bell, ChevronDown, LogOut, Moon, Sun, UserCog, User } from "lucide-react"
 import { useUserSettings } from "@/hooks/use-user-settings"
 import { fetchMyProfile } from "@/lib/api/user"
+import { logoutApi } from "@/lib/auth-api"
 import { clearSession, getSession, type AuthSession } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -73,11 +74,15 @@ export function SiteHeaderAuth() {
     }
   }, [open])
 
-  function handleLogout() {
-    clearSession()
-    setOpen(false)
-    setSession(null)
-    router.push("/login")
+  async function handleLogout() {
+    try {
+      await logoutApi()
+    } finally {
+      clearSession()
+      setOpen(false)
+      setSession(null)
+      router.push("/login")
+    }
   }
 
   const displayName = session?.name || "홍길동"

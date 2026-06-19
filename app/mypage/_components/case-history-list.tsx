@@ -122,12 +122,10 @@ function RiskScoreText({
   status: CaseSummary["status"]
 }) {
   if (typeof score !== "number") {
-    const label =
-      status === "FAILED"
-        ? "분석 실패"
-        : status === "PROCESSING" || status === "PENDING"
-          ? "처리 중"
-          : "-"
+    let label = "-"
+    if (status === "FAILED") label = "분석 실패"
+    if (status === "PENDING") label = "분석 대기"
+    if (status === "PROCESSING") label = "처리 중"
 
     return <span className="text-muted-foreground">{label}</span>
   }

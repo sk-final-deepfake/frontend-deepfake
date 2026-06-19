@@ -11,7 +11,7 @@ import {
   updateAdminPassword,
   updateAdminProfile,
 } from "@/lib/api/admin"
-import { ApiError } from "@/lib/api/client"
+import { getApiErrorMessage } from "@/lib/api/errors"
 
 const inputClassName =
   "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -46,8 +46,7 @@ export default function AdminProfilePage() {
         setProfile(response)
         setInitialProfile(response)
       } catch (error) {
-        const message =
-          error instanceof ApiError ? error.message : "프로필을 불러오지 못했습니다."
+        const message = getApiErrorMessage(error, "프로필을 불러오지 못했습니다.")
         toast({ title: "조회 실패", description: message })
       } finally {
         setLoading(false)
@@ -82,8 +81,7 @@ export default function AdminProfilePage() {
         description: "관리자 개인정보가 저장되었습니다.",
       })
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "프로필 저장 중 오류가 발생했습니다."
+      const message = getApiErrorMessage(error, "프로필 저장 중 오류가 발생했습니다.")
       setProfileError(message)
     } finally {
       setSaving(false)
@@ -114,8 +112,7 @@ export default function AdminProfilePage() {
       setNewPassword("")
       setConfirmPassword("")
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "비밀번호 변경 중 오류가 발생했습니다."
+      const message = getApiErrorMessage(error, "비밀번호 변경 중 오류가 발생했습니다.")
       setPasswordError(message)
     } finally {
       setChangingPassword(false)

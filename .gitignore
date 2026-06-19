@@ -21,5 +21,9 @@ node_modules
 # Next.js generated
 next-env.d.ts
 
+# Local Swagger/OpenAPI exports
+openapi.json
+docs/api/
+
 # Package manager (이 프로젝트는 pnpm 사용)
 package-lock.json

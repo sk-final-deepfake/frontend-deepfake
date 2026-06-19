@@ -16,14 +16,14 @@ import {
 import { Button } from "@/components/ui/button"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
 import { AnalysisRequestFlow } from "@/app/main/_components/analysis-request-flow"
-import type { CaseSummary } from "@/app/mypage/_types/case"
-import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
 import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
   fetchAnalysisTrend,
   fetchEvidenceStats,
+  fetchRecentAnalyses,
   type AnalysisTrendPoint,
   type EvidenceStatsResponse,
+  type RecentAnalysisItem,
 } from "@/lib/evidence-api"
 import { cn } from "@/lib/utils"
 
@@ -80,7 +80,7 @@ type DashboardDataState = {
   historyStatus: LoadStatus
   trendStatus: LoadStatus
   stats: EvidenceStatsResponse | null
-  history: CaseSummary[]
+  history: RecentAnalysisItem[]
   trendPoints: AnalysisTrendPoint[]
 }
 
@@ -102,7 +102,7 @@ export function DashboardOverview() {
     async function loadDashboardData() {
       const [statsResult, historyResult, trendResult] = await Promise.allSettled([
         fetchEvidenceStats(),
-        fetchMyAnalysisHistory({ sort: "newest", page: 0, size: 10 }),
+        fetchRecentAnalyses(5),
         fetchAnalysisTrend(7),
       ])
 
@@ -113,7 +113,7 @@ export function DashboardOverview() {
         historyStatus: historyResult.status === "fulfilled" ? "success" : "error",
         trendStatus: trendResult.status === "fulfilled" ? "success" : "error",
         stats: statsResult.status === "fulfilled" ? statsResult.value : null,
-        history: historyResult.status === "fulfilled" ? historyResult.value.content : [],
+        history: historyResult.status === "fulfilled" ? historyResult.value.items : [],
         trendPoints: trendResult.status === "fulfilled" ? trendResult.value.points : [],
       })
     }
@@ -483,7 +483,7 @@ function RecentPanel({
   onStartAnalysis,
 }: {
   status: LoadStatus
-  analyses: CaseSummary[]
+  analyses: RecentAnalysisItem[]
   onStartAnalysis: () => void
 }) {
   return (
@@ -510,7 +510,7 @@ function RecentAnalysisList({
   analyses,
 }: {
   status: LoadStatus
-  analyses: CaseSummary[]
+  analyses: RecentAnalysisItem[]
 }) {
   if (status === "loading") {
     return (
@@ -547,15 +547,16 @@ function RecentAnalysisList({
   return (
     <ul className="space-y-3">
       {analyses.slice(0, 4).map((analysis) => (
-        <li key={analysis.caseId}>
+        <li key={analysis.analysisRequestId}>
           <Link
-            href={`/cases/${encodeURIComponent(analysis.caseId)}`}
+            href={`/evidences/${encodeURIComponent(String(analysis.evidenceId))}`}
             className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:border-border dark:hover:border-teal-500/30 dark:hover:bg-teal-500/10"
           >
             <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-slate-700 dark:text-foreground">{analysis.caseName}</p>
+              <p className="truncate text-xs font-bold text-slate-700 dark:text-foreground">{analysis.fileName}</p>
               <p className="mt-1 text-[11px] text-slate-400 dark:text-muted-foreground">
-                {formatDashboardDate(analysis.createdAt)} · 증거 {analysis.evidenceCount}건
+                {formatDashboardDate(analysis.requestedAt)}
+                {typeof analysis.riskScore === "number" ? ` · 위험도 ${Math.round(analysis.riskScore)}` : ""}
               </p>
             </div>
             <AnalysisStatusBadge
@@ -569,7 +570,7 @@ function RecentAnalysisList({
   )
 }
 
-function normalizeDashboardStatus(status: CaseSummary["status"]): AnalysisStatus {
+function normalizeDashboardStatus(status: RecentAnalysisItem["status"]): AnalysisStatus {
   if (status === "PROCESSING" || status === "COMPLETED" || status === "FAILED") {
     return status
   }

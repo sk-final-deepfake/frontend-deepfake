@@ -1,4 +1,6 @@
-import { apiFetch } from "@/lib/api-client"
+import { apiRequest } from "@/lib/api/client"
+import { API_BASE_URL } from "@/lib/api/config"
+import { getToken } from "@/lib/auth"
 
 export type LoginRequest = {
   loginId: string
@@ -8,6 +10,8 @@ export type LoginRequest = {
 export type LoginResponse = {
   success: boolean
   token: string
+  accessToken?: string
+  accessTokenExpiresIn?: number
   userId: number
   loginId: string
   name: string
@@ -15,8 +19,27 @@ export type LoginResponse = {
 }
 
 export async function login(request: LoginRequest): Promise<LoginResponse> {
-  return apiFetch<LoginResponse>("/api/auth/login", {
+  return apiRequest<LoginResponse>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify(request),
+    body: request,
+    auth: false,
   })
+}
+
+export async function logoutApi(): Promise<void> {
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  await fetch(`${API_BASE_URL}/api/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+    headers,
+  })
+}
+
+export function resolveAccessToken(response: LoginResponse): string {
+  return response.accessToken ?? response.token
 }

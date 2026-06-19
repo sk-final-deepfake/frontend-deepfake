@@ -30,7 +30,8 @@ import {
   uploadEvidence,
   type UploadResult,
 } from "@/lib/evidence-api"
-import { ApiError } from "@/lib/api-client"
+import { getApiErrorMessage } from "@/lib/api/errors"
+import { formatFileSize } from "@/lib/formatters"
 import {
   clearMainUploadPanelSession,
   createPlaceholderFile,
@@ -69,11 +70,11 @@ const tabs: { value: MediaKind; label: string; icon: React.ElementType }[] = [
 ]
 
 function formatBytes(bytes: number) {
-  if (bytes === 0) return "0 B"
-  const k = 1024
-  const sizes = ["B", "KB", "MB", "GB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+  return formatFileSize(bytes, {
+    zeroLabel: "0 B",
+    maxUnit: "GB",
+    trimTrailingZero: true,
+  })
 }
 
 function kindFromType(type: string): MediaKind {
@@ -385,11 +386,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         })
       )
     } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "분석 중단에 실패했습니다."
-      setGlobalError(message)
+      setGlobalError(getApiErrorMessage(error, "분석 중단에 실패했습니다."))
     } finally {
       setIsCancelling(false)
     }
@@ -434,10 +431,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         )
       } catch (error) {
         hasError = true
-        const message =
-          error instanceof ApiError
-            ? error.message
-            : "파일 업로드에 실패했습니다."
+        const message = getApiErrorMessage(error, "파일 업로드에 실패했습니다.")
 
         setFileStates((prev) =>
           prev.map((entry, idx) =>
@@ -518,11 +512,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
 
       setStatus("completed")
     } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "분석 요청에 실패했습니다."
-      setGlobalError(message)
+      setGlobalError(getApiErrorMessage(error, "분석 요청에 실패했습니다."))
 
       setFileStates((prev) =>
         prev.map((entry) => {
@@ -654,7 +644,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
             하세요
           </p>
           <p className="text-xs text-muted-foreground">
-            최대 2GB · MP4, MOV, WAV, MP3, JPG, PNG 지원
+            용량 제한 없음 · MP4, MOV, WAV, MP3, JPG, PNG 지원
           </p>
         </div>
         <input

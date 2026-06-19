@@ -1,15 +1,23 @@
-import { getToken, handleUnauthorizedResponse } from "@/lib/auth"
+import {
+  API_FETCH_CREDENTIALS,
+  shouldRetryAfterUnauthorized,
+} from "@/lib/api/interceptor"
+import { getToken } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api/config"
+
+export type ApiErrorDetail = { field: string; reason: string }
 
 export class ApiError extends Error {
   status: number
   errorCode?: string
+  details?: ApiErrorDetail[]
 
-  constructor(message: string, status: number, errorCode?: string) {
+  constructor(message: string, status: number, errorCode?: string, details?: ApiErrorDetail[]) {
     super(message)
     this.name = "ApiError"
     this.status = status
     this.errorCode = errorCode
+    this.details = details
   }
 }
 
@@ -19,7 +27,39 @@ type RequestOptions = {
   auth?: boolean
 }
 
-export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+type FormRequestOptions = {
+  method?: "POST" | "PATCH" | "PUT"
+  body: FormData
+  auth?: boolean
+}
+
+async function parseApiError(response: Response): Promise<ApiError> {
+  let message = "요청 처리 중 오류가 발생했습니다."
+  let errorCode: string | undefined
+  let details: ApiErrorDetail[] | undefined
+
+  try {
+    const errorBody = (await response.json()) as {
+      message?: string
+      errorCode?: string
+      error?: string
+      details?: ApiErrorDetail[]
+    }
+    message = errorBody.message ?? message
+    errorCode = errorBody.errorCode ?? errorBody.error
+    details = errorBody.details
+  } catch {
+    // ignore parse errors
+  }
+
+  return new ApiError(message, response.status, errorCode, details)
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+  retried = false
+): Promise<T> {
   const { method = "GET", body, auth = true } = options
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -40,30 +80,23 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
+    credentials: API_FETCH_CREDENTIALS,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
 
   if (!response.ok) {
-    let message = "요청 처리 중 오류가 발생했습니다."
-    let errorCode: string | undefined
-
-    try {
-      const errorBody = (await response.json()) as {
-        message?: string
-        errorCode?: string
-        error?: string
-      }
-      message = errorBody.message ?? message
-      errorCode = errorBody.errorCode ?? errorBody.error
-    } catch {
-      // ignore parse errors
-    }
-
     if (response.status === 401 && auth) {
-      handleUnauthorizedResponse()
+      const shouldRetry = await shouldRetryAfterUnauthorized({
+        path,
+        retried,
+        requiresAuth: auth,
+      })
+      if (shouldRetry) {
+        return apiRequest<T>(path, options, true)
+      }
     }
 
-    throw new ApiError(message, response.status, errorCode)
+    throw await parseApiError(response)
   }
 
   if (response.status === 204) {
@@ -73,7 +106,54 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return (await response.json()) as T
 }
 
-export async function apiDownload(path: string): Promise<Blob> {
+export async function apiRequestForm<T>(
+  path: string,
+  options: FormRequestOptions,
+  retried = false
+): Promise<T> {
+  const { method = "POST", body, auth = true } = options
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  }
+
+  if (auth) {
+    const token = getToken()
+    if (!token) {
+      throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
+    }
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers,
+    credentials: API_FETCH_CREDENTIALS,
+    body,
+  })
+
+  if (!response.ok) {
+    if (response.status === 401 && auth) {
+      const shouldRetry = await shouldRetryAfterUnauthorized({
+        path,
+        retried,
+        requiresAuth: auth,
+      })
+      if (shouldRetry) {
+        return apiRequestForm<T>(path, options, true)
+      }
+    }
+
+    throw await parseApiError(response)
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  return (await response.json()) as T
+}
+
+export async function apiDownload(path: string, retried = false): Promise<Blob> {
   const token = getToken()
   if (!token) {
     throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
@@ -83,29 +163,22 @@ export async function apiDownload(path: string): Promise<Blob> {
     headers: {
       Authorization: `Bearer ${token}`,
     },
+    credentials: API_FETCH_CREDENTIALS,
   })
 
   if (!response.ok) {
-    let message = "요청 처리 중 오류가 발생했습니다."
-    let errorCode: string | undefined
-
-    try {
-      const errorBody = (await response.json()) as {
-        message?: string
-        errorCode?: string
-        error?: string
-      }
-      message = errorBody.message ?? message
-      errorCode = errorBody.errorCode ?? errorBody.error
-    } catch {
-      // ignore parse errors
-    }
-
     if (response.status === 401) {
-      handleUnauthorizedResponse()
+      const shouldRetry = await shouldRetryAfterUnauthorized({
+        path,
+        retried,
+        requiresAuth: true,
+      })
+      if (shouldRetry) {
+        return apiDownload(path, true)
+      }
     }
 
-    throw new ApiError(message, response.status, errorCode)
+    throw await parseApiError(response)
   }
 
   return response.blob()

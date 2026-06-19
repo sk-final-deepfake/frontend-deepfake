@@ -5,8 +5,8 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
 import { login } from "@/lib/auth-api"
-import { ApiError } from "@/lib/api-client"
-import { mapBackendRole, setSession } from "@/lib/auth"
+import { getApiErrorMessage } from "@/lib/api/errors"
+import { applyLoginResponse } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -45,22 +45,13 @@ export function LoginForm() {
         password,
       })
 
-      const role = mapBackendRole(response.role)
-      setSession({
-        role,
-        userId: String(response.userId),
-        loginId: response.loginId,
-        name: response.name,
-        token: response.token,
-      })
+      applyLoginResponse(response)
 
-      router.push(role === "admin" ? "/admin" : "/main")
+      router.push(response.role === "ROLE_ADMIN" ? "/admin" : "/main")
     } catch (error) {
-      if (error instanceof ApiError) {
-        setErrorMessage(error.message)
-      } else {
-        setErrorMessage("로그인 요청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요.")
-      }
+      setErrorMessage(
+        getApiErrorMessage(error, "로그인 요청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요.")
+      )
     } finally {
       setIsSubmitting(false)
     }
