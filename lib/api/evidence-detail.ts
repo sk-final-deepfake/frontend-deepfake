@@ -1,6 +1,7 @@
 import { apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
 import { mockFetchCaseDetail, mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
+import { decodeRouteParam } from "@/lib/route-params"
 
 export type TechnicalMetadata = {
   // Common
@@ -108,5 +109,7 @@ export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {
     return mockFetchCaseDetail(caseId)
   }
 
-  return apiRequest<CaseDetailData>(`/api/v1/cases?caseKey=${encodeURIComponent(caseId)}`)
+  const caseKey = decodeRouteParam(caseId)
+  const params = new URLSearchParams({ caseKey })
+  return apiRequest<CaseDetailData>(`/api/v1/cases?${params}`)
 }

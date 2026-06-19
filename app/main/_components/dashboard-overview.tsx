@@ -26,6 +26,7 @@ import {
   type RecentAnalysisItem,
 } from "@/lib/evidence-api"
 import { cn } from "@/lib/utils"
+import { buildCaseDetailPath } from "@/lib/route-params"
 
 const trustItems = [
   {
@@ -548,7 +549,7 @@ function RecentAnalysisList({
     <ul className="space-y-3">
       {analyses.slice(0, 4).map((analysis) => {
         const href = analysis.caseId
-          ? `/cases/${encodeURIComponent(analysis.caseId)}?evidenceId=${encodeURIComponent(String(analysis.evidenceId))}`
+          ? buildCaseDetailPath(analysis.caseId, analysis.evidenceId)
           : "/mypage"
 
         return (

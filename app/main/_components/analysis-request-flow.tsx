@@ -119,7 +119,8 @@ export function AnalysisRequestFlow() {
         setProgress(100)
         const firstEvidenceId = valid[0]?.evidenceId
         if (firstEvidenceId) {
-          router.push(buildCaseDetailHref(caseName, firstEvidenceId))
+          // 사건명 인코딩 이슈를 피하기 위해 증거 ID로 먼저 이동한 뒤 사건 상세로 리다이렉트한다.
+          router.push(`/evidences/${encodeURIComponent(String(firstEvidenceId))}`)
         }
       }
     }
@@ -348,10 +349,6 @@ export function AnalysisRequestFlow() {
       ) : null}
     </section>
   )
-}
-
-function buildCaseDetailHref(caseName: string, evidenceId: number) {
-  return `/cases/${encodeURIComponent(caseName.trim())}?evidenceId=${encodeURIComponent(String(evidenceId))}`
 }
 
 function Breadcrumb() {

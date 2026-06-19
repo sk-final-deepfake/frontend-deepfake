@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { fetchEvidenceDetail } from "@/lib/api/evidence-detail"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
+import { buildCaseDetailPath } from "@/lib/route-params"
 
 function getDetailErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -47,14 +48,12 @@ export default function EvidenceDetailRedirectPage() {
         const detail = await fetchEvidenceDetail(evidenceId)
         if (cancelled) return
 
-        const caseId = detail.evidenceInfo.caseId
-        if (!caseId) {
+        const caseKey = detail.evidenceInfo.caseId ?? detail.evidenceInfo.caseName
+        if (!caseKey) {
           throw new Error("이 증거가 연결된 사건 정보를 찾을 수 없습니다.")
         }
 
-        router.replace(
-          `/cases/${encodeURIComponent(caseId)}?evidenceId=${encodeURIComponent(String(evidenceId))}`
-        )
+        router.replace(buildCaseDetailPath(caseKey, evidenceId))
       } catch (err) {
         if (!cancelled) {
           setError(getDetailErrorMessage(err, "사건 상세 페이지로 이동하지 못했습니다."))

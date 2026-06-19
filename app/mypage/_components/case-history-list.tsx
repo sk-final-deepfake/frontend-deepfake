@@ -6,6 +6,7 @@ import { CaseStatusBadge } from "@/app/mypage/_components/case-status-badge"
 import { CaseHistoryEmpty } from "@/app/mypage/_components/case-history-empty"
 import type { DateFormat } from "@/lib/user-settings"
 import { cn } from "@/lib/utils"
+import { buildCaseDetailPath } from "@/lib/route-params"
 
 export function CaseHistoryList({
   cases,
@@ -25,7 +26,7 @@ export function CaseHistoryList({
         {cases.map((item) => (
           <li key={item.caseId}>
             <Link
-              href={`/cases/${encodeURIComponent(item.caseId)}`}
+              href={buildCaseDetailPath(item.caseId)}
               className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-accent/40"
             >
               <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">
@@ -72,7 +73,7 @@ export function CaseHistoryList({
               <tr key={item.caseId} className="transition-colors hover:bg-accent/40">
                 <td className="px-5 py-3.5">
                   <Link
-                    href={`/cases/${encodeURIComponent(item.caseId)}`}
+                    href={buildCaseDetailPath(item.caseId)}
                     className="block max-w-[260px] truncate font-medium text-foreground hover:underline"
                   >
                     {item.caseName}
@@ -98,7 +99,7 @@ export function CaseHistoryList({
                 </td>
                 <td className="px-5 py-3.5">
                   <Link
-                    href={`/cases/${encodeURIComponent(item.caseId)}`}
+                    href={buildCaseDetailPath(item.caseId)}
                     className="inline-flex items-center gap-0.5 text-muted-foreground transition-colors hover:text-foreground"
                     aria-label={`${item.caseName} 상세 보기`}
                   >

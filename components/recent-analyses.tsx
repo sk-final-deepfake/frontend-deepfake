@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
 import type { UploadResult } from "@/lib/evidence-api"
+import { buildCaseDetailPath } from "@/lib/route-params"
 
 type MediaKind = "audio" | "video" | "image" | "unknown"
 
@@ -78,7 +79,7 @@ export function RecentAnalyses({ uploads }: RecentAnalysesProps) {
             const kind = kindFromFileName(item.fileName)
             const Icon = kindIcon[kind]
             const href = item.caseName
-              ? `/cases/${encodeURIComponent(item.caseName)}?evidenceId=${encodeURIComponent(String(item.evidenceId))}`
+              ? buildCaseDetailPath(item.caseName, item.evidenceId)
               : "/mypage"
 
             return (

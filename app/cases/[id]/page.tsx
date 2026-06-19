@@ -38,6 +38,7 @@ import {
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
+import { decodeRouteParam } from "@/lib/route-params"
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -83,7 +84,7 @@ export default function CaseDetailPage() {
   const { id } = useParams()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const caseId = Array.isArray(id) ? id[0] : id
+  const caseId = decodeRouteParam(Array.isArray(id) ? id[0] : id)
   const initialEvidenceId = Number(searchParams.get("evidenceId"))
   const [caseData, setCaseData] = useState<CaseDetailData | null>(null)
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<number | null>(null)
