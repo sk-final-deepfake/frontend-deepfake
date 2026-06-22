@@ -22,8 +22,8 @@ export function EvidenceDrawer({ count, children }: { count: number; children: R
           </span>
         </button>
 
-        {/* 패널: 기본 숨김 → hover/focus 시 슬라이드 인 */}
-        <div className="pointer-events-none absolute left-10 top-0 w-[380px] max-w-[calc(100vw-2.5rem)] -translate-x-[calc(100%+2.5rem)] opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100">
+        {/* 패널: 화면 왼쪽 끝에서 hover/focus 시 슬라이드 인 */}
+        <div className="pointer-events-none absolute left-0 top-0 w-[420px] max-w-[calc(100vw-0.75rem)] -translate-x-full opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100">
           {children}
         </div>
       </div>

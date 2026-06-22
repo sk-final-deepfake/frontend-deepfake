@@ -32,7 +32,6 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const modelScore = getPrimaryModelScore(analysisInfo.moduleResults) ?? 0.82
   const confidence = normalizePercent(analysisInfo.confidenceScore) ?? 94
   const quality = Math.min(100, confidence + 1)
-  const resolution = metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : "1280 × 720"
   const duration = formatDuration(metadata.durationSec)
   const verdict = getVerdict(modelScore)
   const summary =
@@ -40,26 +39,25 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
     "해당 구간에서 얼굴 경계의 비자연스러운 경계선, 피부 질감의 불일치, 조명 반응의 불균일성, 시간축 일관성 저하가 복합적으로 감지되었습니다. 특히 00:09~00:18 구간은 연속된 프레임에서 높은 점수가 지속되어 조작 의심이 높습니다."
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-      {/* 메인 분석 영역 */}
-      <div className="min-w-0 space-y-4">
+    <div className="space-y-4">
+      {/* 영상 + 모델 정보: 높이를 영상에 맞춤 */}
+      <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <VideoPlayerCard duration={duration} />
-
-        <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} quality={quality} />
-
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-          <FrameRiskGraph score={modelScore} />
-          <ReasoningNote summary={summary} />
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-          <RepresentativeFrames />
-          <PerItemScores modules={analysisInfo.moduleResults} />
-        </div>
+        <ModelInfoSidebar />
       </div>
 
-      {/* 딥페이크 모델 분석 정보 (사이드바) */}
-      <ModelInfoSidebar resolution={resolution} />
+      {/* 아래는 전체 폭 */}
+      <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} quality={quality} />
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <FrameRiskGraph score={modelScore} />
+        <ReasoningNote summary={summary} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <RepresentativeFrames />
+        <PerItemScores modules={analysisInfo.moduleResults} />
+      </div>
     </div>
   )
 }
@@ -172,7 +170,7 @@ function SummaryCard({
   return (
     <section
       className={cn(
-        "rounded-xl border bg-card p-4 text-center shadow-sm",
+        "flex min-h-[148px] flex-col items-center justify-center rounded-xl border bg-card p-4 text-center shadow-sm",
         emphasize ? "border-red-200 dark:border-red-900/50" : "border-border"
       )}
     >
@@ -180,8 +178,8 @@ function SummaryCard({
         {title}
         <Info className="size-3 text-muted-foreground/60" aria-hidden="true" />
       </p>
-      <p className={cn("mt-3 flex items-center justify-center gap-1 text-2xl font-black", TONE_TEXT[tone])}>
-        {icon ? <AlertTriangle className="size-5" aria-hidden="true" /> : null}
+      <p className={cn("mt-3 flex items-center justify-center gap-1 font-black", TONE_TEXT[tone], icon ? "text-xl" : "text-[2rem] leading-none")}>
+        {icon ? <AlertTriangle className="size-5 shrink-0" aria-hidden="true" /> : null}
         {value}
       </p>
       {sub ? <p className="mt-2 text-[11px] font-semibold text-muted-foreground">{sub}</p> : null}
@@ -218,7 +216,7 @@ function FrameRiskGraph({ score }: { score: number }) {
             {bars.map((bar, index) => (
               <span
                 key={index}
-                className={cn("flex-1 rounded-t-sm", bar.className)}
+                className={cn("flex-1", bar.className)}
                 style={{ height: `${bar.height}%` }}
                 aria-hidden="true"
               />
@@ -324,7 +322,7 @@ function PerItemScores({ modules }: { modules: ModuleResult[] }) {
   )
 }
 
-function ModelInfoSidebar({ resolution }: { resolution: string }) {
+function ModelInfoSidebar() {
   const rows: Array<[string, string]> = [
     ["분석 모델", "DeepScan Video"],
     ["모델 버전", "v2.4.1"],
@@ -339,17 +337,16 @@ function ModelInfoSidebar({ resolution }: { resolution: string }) {
   ]
 
   return (
-    <aside className="rounded-xl border border-border bg-card p-5 shadow-sm">
+    <aside className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
       <h3 className="text-base font-black text-foreground">딥페이크 모델 분석 정보</h3>
-      <dl className="mt-4">
+      <dl className="mt-4 flex flex-1 flex-col justify-between">
         {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-3 border-b border-border py-3 last:border-0">
+          <div key={label} className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0">
             <dt className="shrink-0 text-sm font-medium text-muted-foreground">{label}</dt>
             <dd className="min-w-0 break-words text-right text-sm font-bold text-foreground">{value}</dd>
           </div>
         ))}
       </dl>
-      <p className="mt-3 text-[11px] font-semibold text-muted-foreground/70">입력 영상 해상도: {resolution}</p>
     </aside>
   )
 }

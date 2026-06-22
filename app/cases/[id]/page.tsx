@@ -330,7 +330,7 @@ function EvidenceWorkspace({
   const litIndex = Math.max(0, TAB_VALUES.indexOf(litTab))
   const tabClass = (value: string) =>
     cn(
-      "z-10 h-full min-w-0 rounded-none px-5 text-base font-semibold outline-none transition-colors after:hidden focus-visible:ring-0 focus-visible:outline-none",
+      "z-10 h-full min-w-0 rounded-none px-5 text-base font-medium outline-none transition-colors after:hidden focus-visible:ring-0 focus-visible:outline-none",
       litTab === value ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"
     )
 

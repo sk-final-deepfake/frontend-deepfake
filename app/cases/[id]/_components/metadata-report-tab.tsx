@@ -3,7 +3,6 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
 import {
-  AlertCircle,
   Check,
   Download,
   ExternalLink,
@@ -59,24 +58,26 @@ export function MetadataReportTab({
   const metadata = evidenceInfo.technicalMetadata
   const analysisDone = analysisInfo.status === "COMPLETED"
 
-  const [pdfStatus, setPdfStatus] = useState<PdfStatus>("NOT_CREATED")
+  const [pdfStatus, setPdfStatus] = useState<PdfStatus>(reportReady ? "CREATED" : "NOT_CREATED")
   const [includes, setIncludes] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(REPORT_SECTIONS.map((section) => [section, true]))
   )
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null)
-  const [failureReason, setFailureReason] = useState<string | null>(null)
+  const [showSectionPicker, setShowSectionPicker] = useState(false)
+  const [generatedAt, setGeneratedAt] = useState<string | null>(
+    reportReady ? (analysisInfo.completedAt ?? evidenceInfo.uploadedAt) : null
+  )
 
   const fileName = `report_EVD-${evidenceInfo.evidenceId}.pdf`
   // 원본 증거 SHA-256과 구분되는 "보고서 파일 해시". 데모용 결정적 생성값.
   const reportHash = makeReportHash(`${fileName}:${verificationCode}`)
   const selected = REPORT_SECTIONS.filter((section) => includes[section])
   const isCreated = pdfStatus === "CREATED"
-  const sectionsLocked = pdfStatus === "GENERATING" || pdfStatus === "CREATED"
+  const sectionsLocked = pdfStatus === "GENERATING"
 
   function handleGenerate() {
     if (!analysisDone) return
-    setFailureReason(null)
     setPdfStatus("GENERATING")
+    setShowSectionPicker(false)
     window.setTimeout(() => {
       setGeneratedAt(new Date().toISOString())
       setPdfStatus("CREATED")
@@ -84,10 +85,8 @@ export function MetadataReportTab({
   }
 
   function handleRegenerate() {
-    // 재생성 시 포함 항목을 다시 고를 수 있도록 미생성 상태로 되돌린다.
-    setGeneratedAt(null)
-    setFailureReason(null)
-    setPdfStatus("NOT_CREATED")
+    // 재생성은 기존 보고서를 유지한 채, 포함 항목 선택 UI만 다시 연다.
+    setShowSectionPicker(true)
   }
 
   const history = isCreated && generatedAt ? buildHistory(generatedAt, fileName, verificationCode) : []
@@ -115,184 +114,71 @@ export function MetadataReportTab({
         />
       </section>
 
-      {/* 1. 보고서 생성 */}
-      <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="flex items-center gap-2 text-lg font-black text-foreground">
-            <FileBadge className="size-5 text-teal-600" aria-hidden="true" />
-            보고서 생성
-          </h3>
-          <StatusBadge status={pdfStatus} />
-        </div>
-
-        {pdfStatus === "NOT_CREATED" ? (
-          <div className="mt-5 flex flex-col gap-4 rounded-lg border border-dashed border-border bg-muted/20 px-5 py-6 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-bold text-foreground">아직 생성된 PDF 보고서가 없습니다.</p>
+      {/* 보고서 상태 / QR 검증 정보 */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="grid gap-4 md:grid-cols-[0.7fr_1.4fr_0.7fr]">
+            <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-muted/10 p-5 text-center">
+              {isCreated ? (
+                <span className="flex size-14 items-center justify-center rounded-full bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-300">
+                  <Check className="size-7" aria-hidden="true" />
+                </span>
+              ) : pdfStatus === "GENERATING" ? (
+                <span className="flex size-14 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300">
+                  <Loader2 className="size-7 animate-spin" aria-hidden="true" />
+                </span>
+              ) : (
+                <span className="flex size-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  <FileBadge className="size-7" aria-hidden="true" />
+                </span>
+              )}
+              <p className="mt-3 text-sm font-bold text-teal-600 dark:text-teal-300">
+                {isCreated ? "생성 완료" : pdfStatus === "GENERATING" ? "생성 중" : "생성 전"}
+              </p>
               <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                {analysisDone
-                  ? "아래 포함 항목을 선택한 뒤 보고서를 생성할 수 있습니다."
-                  : "분석이 완료되면 보고서를 생성할 수 있습니다."}
+                {isCreated ? "PDF 보고서 생성이 완료되었습니다." : "포함 항목을 선택해 보고서를 생성하세요."}
               </p>
             </div>
-            <Button
-              type="button"
-              onClick={handleGenerate}
-              disabled={!analysisDone}
-              className="h-11 shrink-0 bg-teal-600 font-black hover:bg-teal-700"
-            >
-              <FileBadge className="size-4" aria-hidden="true" />
-              PDF 보고서 생성
-            </Button>
-          </div>
-        ) : null}
 
-        {pdfStatus === "GENERATING" ? (
-          <div className="mt-5 rounded-lg border border-border bg-muted/20 px-5 py-6">
-            <div className="flex items-center gap-2 text-sm font-bold text-blue-600 dark:text-blue-300">
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              PDF 보고서를 생성 중입니다.
+            <div className="rounded-lg border border-border bg-card px-4 py-3">
+              <InfoRow label="보고서 생성 시각">{isCreated ? formatDateTime(generatedAt) : "-"}</InfoRow>
+              <InfoRow label="보고서 파일명">{isCreated ? fileName : "-"}</InfoRow>
+              <InfoRow label="보고서 해시(reportHash)" mono>{isCreated ? shorten(reportHash) : "-"}</InfoRow>
+              <InfoRow label="검증번호">{isCreated ? verificationCode : "-"}</InfoRow>
             </div>
-            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full w-2/3 animate-pulse rounded-full bg-blue-500" />
-            </div>
-            <p className="mt-2 text-xs font-semibold text-muted-foreground">선택 항목으로 PDF를 구성하고 reportHash·검증번호를 생성하는 중...</p>
-            <Button type="button" disabled className="mt-5 h-11 bg-teal-600 font-black">
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              생성 중...
-            </Button>
-          </div>
-        ) : null}
 
-        {pdfStatus === "CREATED" ? (
-          <div className="mt-5 space-y-4">
-            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-300">PDF 보고서 생성이 완료되었습니다.</p>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" className="h-11 bg-teal-600 font-black hover:bg-teal-700">
+            <div className="flex flex-col gap-2">
+              <Button
+                type="button"
+                disabled={!isCreated}
+                className="h-12 bg-teal-600 font-black hover:bg-teal-700 disabled:bg-muted disabled:text-muted-foreground"
+              >
                 <Download className="size-4" aria-hidden="true" />
                 PDF 리포트 다운로드
               </Button>
-              <Button type="button" variant="outline" className="h-11 font-bold">
+              <Button type="button" variant="outline" disabled={!isCreated} className="h-12 font-bold">
                 <ExternalLink className="size-4" aria-hidden="true" />
                 검증 페이지 열기
               </Button>
-              <Button type="button" variant="outline" onClick={handleRegenerate} className="h-11 font-bold text-muted-foreground">
-                <RefreshCw className="size-4" aria-hidden="true" />
-                보고서 재생성
+              <Button
+                type="button"
+                variant="outline"
+                onClick={isCreated ? handleRegenerate : () => setShowSectionPicker(true)}
+                disabled={!analysisDone || pdfStatus === "GENERATING"}
+                className="h-12 font-bold text-muted-foreground"
+              >
+                {isCreated ? <RefreshCw className="size-4" aria-hidden="true" /> : <FileBadge className="size-4" aria-hidden="true" />}
+                {isCreated ? "보고서 재생성" : "보고서 생성"}
               </Button>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CopyButton label="reportHash 복사" text={reportHash} />
-              <CopyButton label="검증번호 복사" text={verificationCode} />
-            </div>
-          </div>
-        ) : null}
-
-        {pdfStatus === "FAILED" ? (
-          <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-5 py-5 dark:border-red-900/60 dark:bg-red-950/20">
-            <p className="flex items-center gap-2 text-sm font-bold text-red-700 dark:text-red-300">
-              <AlertCircle className="size-4" aria-hidden="true" />
-              PDF 보고서 생성에 실패했습니다.
-            </p>
-            <p className="mt-1 text-xs font-semibold text-red-600/90 dark:text-red-300/80">
-              {failureReason || "보고서 생성 중 오류가 발생했습니다."}
-            </p>
-            <Button type="button" onClick={handleGenerate} className="mt-4 h-11 bg-teal-600 font-black hover:bg-teal-700">
-              <RefreshCw className="size-4" aria-hidden="true" />
-              다시 생성
-            </Button>
-          </div>
-        ) : null}
-      </section>
-
-      {/* 2. 보고서 포함 항목 선택 */}
-      <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-lg font-black text-foreground">보고서 포함 항목 선택</h3>
-          <span className="text-xs font-bold text-muted-foreground">{selected.length} / {REPORT_SECTIONS.length} 선택</span>
-        </div>
-        <p className="mt-1 text-xs font-semibold text-muted-foreground">PDF 보고서에 포함할 섹션을 선택합니다.</p>
-        {sectionsLocked ? (
-          <p className="mt-3 rounded-lg bg-muted/30 px-3 py-2 text-xs font-semibold text-muted-foreground">
-            보고서 재생성 시 항목을 다시 선택할 수 있습니다.
-          </p>
-        ) : null}
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {REPORT_SECTIONS.map((section) => {
-            const on = includes[section]
-            return (
-              <button
-                key={section}
-                type="button"
-                aria-pressed={on}
-                disabled={sectionsLocked}
-                onClick={() => setIncludes((prev) => ({ ...prev, [section]: !prev[section] }))}
-                className={cn(
-                  "flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70",
-                  on
-                    ? "border-teal-300 bg-teal-50 text-teal-700 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-300"
-                    : "border-border bg-card text-muted-foreground hover:bg-muted/40"
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded border",
-                    on ? "border-teal-500 bg-teal-500 text-white" : "border-muted-foreground/40"
-                  )}
-                >
-                  {on ? <Check className="size-3" aria-hidden="true" /> : null}
-                </span>
-                {section}
-              </button>
-            )
-          })}
-        </div>
-      </section>
-
-      {/* 3 + 4: 보고서 상태 / QR 검증 정보 */}
-      <div className="grid gap-5 lg:grid-cols-2">
-        {/* 3. 보고서 상태 */}
-        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-lg font-black text-foreground">보고서 상태</h3>
-            <StatusBadge status={pdfStatus} />
-          </div>
-          <div className="mt-4">
-            {isCreated ? (
-              <>
-                <InfoRow label="PDF 생성 상태">생성 완료</InfoRow>
-                <InfoRow label="보고서 생성 시각">{formatDateTime(generatedAt)}</InfoRow>
-                <InfoRow label="보고서 파일명">{fileName}</InfoRow>
-                <InfoRow label="보고서 해시(reportHash)" mono>{shorten(reportHash)}</InfoRow>
-                <InfoRow label="검증번호">{verificationCode}</InfoRow>
-              </>
-            ) : pdfStatus === "GENERATING" ? (
-              <>
-                <InfoRow label="PDF 생성 상태">생성 중</InfoRow>
-                <InfoRow label="요청 시각">{formatDateTime(new Date().toISOString())}</InfoRow>
-                <InfoRow label="현재 단계">PDF 구성 · 해시 생성</InfoRow>
-                <p className="pt-3 text-xs font-semibold text-muted-foreground">잠시 후 생성이 완료됩니다.</p>
-              </>
-            ) : pdfStatus === "FAILED" ? (
-              <>
-                <InfoRow label="PDF 생성 상태">생성 실패</InfoRow>
-                <InfoRow label="실패 사유">{failureReason || "오류 발생"}</InfoRow>
-                <InfoRow label="재시도">가능</InfoRow>
-              </>
-            ) : (
-              <>
-                <InfoRow label="PDF 생성 상태">미생성</InfoRow>
-                <p className="pt-3 text-xs font-semibold text-muted-foreground">
-                  보고서를 생성하면 다운로드와 검증번호를 확인할 수 있습니다.
-                </p>
-              </>
-            )}
           </div>
         </section>
 
-        {/* 4. QR 검증 정보 */}
         <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <h3 className="text-lg font-black text-foreground">QR 검증 정보</h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-black text-foreground">QR 검증 정보</h3>
+            {isCreated ? <StatusBadge status={pdfStatus} /> : null}
+          </div>
           {isCreated ? (
             <div className="mt-4 flex flex-col items-center gap-3">
               <QrPlaceholder seed={reportHash} muted={false} />
@@ -316,37 +202,71 @@ export function MetadataReportTab({
         </section>
       </div>
 
-      {/* 5. 보고서 무결성 정보 */}
-      <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-        <h3 className="text-lg font-black text-foreground">보고서 무결성 정보</h3>
-        {isCreated ? (
-          <div className="mt-4">
-            <div className="flex items-center justify-between gap-3 border-b border-border py-3">
-              <span className="shrink-0 text-sm font-bold text-muted-foreground">보고서 해시(reportHash)</span>
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="truncate font-mono text-xs font-semibold text-foreground">{shorten(reportHash)}</span>
-                <CopyButton label="복사" text={reportHash} />
-              </span>
+      {showSectionPicker ? (
+        <ReportSectionPicker
+          includes={includes}
+          selectedCount={selected.length}
+          sectionsLocked={sectionsLocked}
+          onToggle={(section) => setIncludes((prev) => ({ ...prev, [section]: !prev[section] }))}
+          onGenerate={handleGenerate}
+          onCancel={() => setShowSectionPicker(false)}
+        />
+      ) : null}
+
+      <div className="grid gap-5 lg:grid-cols-[0.7fr_1.3fr]">
+        {/* 보고서 구성 항목 */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-black text-foreground">보고서 구성 항목</h3>
+              <p className="mt-1 text-xs font-semibold text-muted-foreground">PDF 보고서에는 아래 항목들이 포함됩니다.</p>
             </div>
-            <InfoRow label="Hash 알고리즘">SHA-256</InfoRow>
-            <InfoRow label="보고서 파일명">{fileName}</InfoRow>
-            <InfoRow label="보고서 생성 시각">{formatDateTime(generatedAt)}</InfoRow>
-            <InfoRow label="검증 상태">
-              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-300">
-                <Check className="size-4" aria-hidden="true" />
-                확인 가능
-              </span>
-            </InfoRow>
-            <p className="pt-3 text-xs font-semibold text-muted-foreground">
-              이 해시는 PDF 보고서 파일의 해시입니다. 원본 증거 파일 SHA-256 검증은 “위변조·무결성 검증” 탭에서 확인하세요.
-            </p>
+            <span className="text-xs font-bold text-muted-foreground">{selected.length} / {REPORT_SECTIONS.length}</span>
           </div>
-        ) : (
-          <p className="mt-4 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-xs font-semibold text-muted-foreground">
-            보고서 생성 후 reportHash가 표시됩니다.
-          </p>
-        )}
-      </section>
+          <div className="mt-4 grid gap-2">
+            {REPORT_SECTIONS.map((section) => (
+              <div key={section} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm font-semibold text-foreground">
+                <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-teal-500 text-white">
+                  <Check className="size-3" aria-hidden="true" />
+                </span>
+                {section}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 보고서 무결성 정보 */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h3 className="text-lg font-black text-foreground">보고서 무결성 정보</h3>
+          {isCreated ? (
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-3 border-b border-border py-3">
+                <span className="shrink-0 text-sm font-bold text-muted-foreground">보고서 해시(reportHash)</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate font-mono text-xs font-semibold text-foreground">{shorten(reportHash)}</span>
+                  <CopyButton label="복사" text={reportHash} />
+                </span>
+              </div>
+              <InfoRow label="Hash 알고리즘">SHA-256</InfoRow>
+              <InfoRow label="보고서 파일명">{fileName}</InfoRow>
+              <InfoRow label="보고서 생성 시각">{formatDateTime(generatedAt)}</InfoRow>
+              <InfoRow label="검증 상태">
+                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-300">
+                  <Check className="size-4" aria-hidden="true" />
+                  확인 가능
+                </span>
+              </InfoRow>
+              <p className="pt-3 text-xs font-semibold text-muted-foreground">
+                보고서 해시와 검증번호로 보고서 진위 여부를 확인할 수 있습니다.
+              </p>
+            </div>
+          ) : (
+            <p className="mt-4 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-xs font-semibold text-muted-foreground">
+              보고서 생성 후 reportHash가 표시됩니다.
+            </p>
+          )}
+        </section>
+      </div>
 
       {/* 6. 보고서 생성 이력 */}
       <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -386,6 +306,88 @@ export function MetadataReportTab({
         )}
       </section>
     </div>
+  )
+}
+
+function ReportSectionPicker({
+  includes,
+  selectedCount,
+  sectionsLocked,
+  onToggle,
+  onGenerate,
+  onCancel,
+}: {
+  includes: Record<string, boolean>
+  selectedCount: number
+  sectionsLocked: boolean
+  onToggle: (section: string) => void
+  onGenerate: () => void
+  onCancel: () => void
+}) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-foreground">보고서 포함 항목 선택</h3>
+          <p className="mt-1 text-xs font-semibold text-muted-foreground">
+            PDF 보고서에 담을 항목을 선택한 뒤 마지막에 보고서를 생성합니다.
+          </p>
+        </div>
+        <span className="shrink-0 text-xs font-bold text-muted-foreground">
+          {selectedCount} / {REPORT_SECTIONS.length} 선택
+        </span>
+      </div>
+
+      <div className="mt-4 rounded-lg bg-muted/30 px-3 py-2 text-xs font-semibold text-muted-foreground">
+        필수 항목은 아직 분리하지 않고, 선택한 항목 기준으로 PDF 구성을 준비합니다.
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {REPORT_SECTIONS.map((section) => {
+          const on = includes[section]
+          return (
+            <button
+              key={section}
+              type="button"
+              aria-pressed={on}
+              disabled={sectionsLocked}
+              onClick={() => onToggle(section)}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70",
+                on
+                  ? "border-border bg-card text-foreground shadow-sm"
+                  : "border-border bg-card text-muted-foreground hover:bg-muted/40"
+              )}
+            >
+              <span
+                className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                  on ? "border-teal-500 bg-teal-500 text-white" : "border-muted-foreground/40"
+                )}
+              >
+                {on ? <Check className="size-3" aria-hidden="true" /> : null}
+              </span>
+              {section}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onCancel} className="h-11 font-bold">
+          취소
+        </Button>
+        <Button
+          type="button"
+          onClick={onGenerate}
+          disabled={selectedCount === 0 || sectionsLocked}
+          className="h-11 bg-teal-600 font-black hover:bg-teal-700"
+        >
+          <FileBadge className="size-4" aria-hidden="true" />
+          선택 항목으로 보고서 생성
+        </Button>
+      </div>
+    </section>
   )
 }
 
