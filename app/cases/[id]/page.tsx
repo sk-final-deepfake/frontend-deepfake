@@ -1,11 +1,14 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import {
   AlertCircle,
   ArrowLeft,
+  ChevronRight,
   FileSearch,
+  Home,
   Loader2,
 } from "lucide-react"
 
@@ -189,22 +192,14 @@ export default function CaseDetailPage() {
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
       <SiteHeader />
 
-      <main className="mx-auto flex w-full max-w-[1560px] flex-col gap-5 px-5 py-8 sm:px-8 lg:px-10">
+      <main className="mx-auto flex w-full max-w-[1560px] flex-col gap-5 px-5 py-7 sm:px-8 lg:px-10">
         {caseLoading ? (
           <LoadingCard label="사건 상세 정보를 불러오는 중입니다..." />
         ) : error ? (
           <ErrorState error={error} onBack={() => router.back()} />
         ) : caseData ? (
           <>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-10 w-fit rounded-lg border-slate-200 text-sm font-bold text-slate-600 dark:border-border dark:text-muted-foreground"
-              onClick={() => router.back()}
-            >
-              <ArrowLeft className="size-4" />
-              분석 이력
-            </Button>
+            <CaseBreadcrumb />
 
             <CaseHero data={caseData} getStatusLabel={getCaseStatusLabel} normalizeStatus={normalizeStatus} />
 
@@ -285,6 +280,19 @@ function EmptyEvidenceState() {
   )
 }
 
+function CaseBreadcrumb() {
+  return (
+    <nav className="flex items-center gap-2 text-sm font-bold text-muted-foreground" aria-label="현재 위치">
+      <Link href="/mypage" className="inline-flex items-center gap-2 transition-colors hover:text-foreground">
+        <Home className="size-4" aria-hidden="true" />
+        분석이력
+      </Link>
+      <ChevronRight className="size-4 text-muted-foreground/50" aria-hidden="true" />
+      <span className="text-foreground">사건 상세</span>
+    </nav>
+  )
+}
+
 function EvidenceWorkspace({
   data,
   copied,
@@ -307,69 +315,75 @@ function EvidenceWorkspace({
 
   return (
     <section className="min-w-0 space-y-5">
+      <EvidenceSummaryCard
+        data={data}
+        extension={extension}
+        riskLabel={displayRiskLabel}
+        statusLabel={getStatusLabel(analysisInfo.status)}
+        riskBadgeClassName={riskClassName.badge}
+        riskTextClassName={riskClassName.text}
+        progressBarClassName={riskClassName.bar}
+      />
+
       <Tabs defaultValue="summary" className="gap-4">
-        <TabsList
-          variant="line"
-          className="!grid h-24 w-full grid-cols-4 overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-sm dark:border-border dark:bg-card"
-        >
-          <TabsTrigger
-            value="summary"
-            className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-bold text-slate-500 outline-none after:hidden data-active:border-teal-600 data-active:text-slate-950 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:text-muted-foreground dark:data-active:text-foreground"
+        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <TabsList
+            variant="line"
+            className="!grid h-16 w-full grid-cols-4 rounded-none border-b border-border bg-card p-0"
           >
-            분석 요약
-          </TabsTrigger>
-          <TabsTrigger
-            value="deepfake"
-            className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-bold text-slate-500 outline-none after:hidden data-active:border-teal-600 data-active:text-slate-950 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:text-muted-foreground dark:data-active:text-foreground"
-          >
-            딥페이크 · 모델 분석
-          </TabsTrigger>
-          <TabsTrigger
-            value="integrity"
-            className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-bold text-slate-500 outline-none after:hidden data-active:border-teal-600 data-active:text-slate-950 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:text-muted-foreground dark:data-active:text-foreground"
-          >
-            위변조 · 무결성 검증
-          </TabsTrigger>
-          <TabsTrigger
-            value="report"
-            className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-bold text-slate-500 outline-none after:hidden data-active:border-teal-600 data-active:text-slate-950 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:text-muted-foreground dark:data-active:text-foreground"
-          >
-            메타데이터 · 보고서
-          </TabsTrigger>
-        </TabsList>
+            <TabsTrigger
+              value="summary"
+              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-bold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+            >
+              분석 요약
+            </TabsTrigger>
+            <TabsTrigger
+              value="deepfake"
+              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-bold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+            >
+              딥페이크 · 모델 분석
+            </TabsTrigger>
+            <TabsTrigger
+              value="integrity"
+              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-bold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+            >
+              위변조 · 무결성 검증
+            </TabsTrigger>
+            <TabsTrigger
+              value="report"
+              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-bold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+            >
+              메타데이터 · 보고서
+            </TabsTrigger>
+          </TabsList>
 
-        <EvidenceSummaryCard
-          data={data}
-          extension={extension}
-          riskLabel={displayRiskLabel}
-          statusLabel={getStatusLabel(analysisInfo.status)}
-          riskBadgeClassName={riskClassName.badge}
-        />
+          <div className="p-4">
+            <TabsContent value="summary" className="space-y-5">
+              <SummaryTab
+                data={data}
+                riskLabel={displayRiskLabel}
+                riskSoftClassName={riskClassName.soft}
+                progressSteps={progressSteps}
+              />
+            </TabsContent>
 
-        <TabsContent value="summary" className="space-y-5">
-          <SummaryTab
-            data={data}
-            riskLabel={displayRiskLabel}
-            riskSoftClassName={riskClassName.soft}
-            progressSteps={progressSteps}
-          />
-        </TabsContent>
+            <TabsContent value="deepfake" className="space-y-5">
+              <DeepfakeModelTab
+                data={data}
+                riskLabel={displayRiskLabel}
+                riskBadgeClassName={riskClassName.badge}
+              />
+            </TabsContent>
 
-        <TabsContent value="deepfake" className="space-y-5">
-          <DeepfakeModelTab
-            data={data}
-            riskLabel={displayRiskLabel}
-            riskBadgeClassName={riskClassName.badge}
-          />
-        </TabsContent>
+            <TabsContent value="integrity" className="space-y-5">
+              <IntegrityTab data={data} copied={copied} onCopyHash={onCopyHash} />
+            </TabsContent>
 
-        <TabsContent value="integrity" className="space-y-5">
-          <IntegrityTab data={data} copied={copied} onCopyHash={onCopyHash} />
-        </TabsContent>
-
-        <TabsContent value="report" className="space-y-5">
-          <MetadataReportTab data={data} extension={extension} reportReady={reportReady} verificationCode={verificationCode} />
-        </TabsContent>
+            <TabsContent value="report" className="space-y-5">
+              <MetadataReportTab data={data} extension={extension} reportReady={reportReady} verificationCode={verificationCode} />
+            </TabsContent>
+          </div>
+        </section>
       </Tabs>
     </section>
   )

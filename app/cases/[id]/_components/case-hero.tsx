@@ -17,7 +17,7 @@ export function CaseHero({ data, getStatusLabel, normalizeStatus }: CaseHeroProp
   const failed = data.evidences.filter((item) => normalizeStatus(item.analysisStatus) === "FAILED").length
 
   return (
-    <section className="py-2">
+    <section className="py-1">
       <div className="flex min-w-0 items-center gap-2">
         <h1 className="truncate text-3xl font-black tracking-normal text-slate-950 sm:text-4xl dark:text-foreground">
           {data.caseName}
@@ -44,10 +44,12 @@ export function CaseHero({ data, getStatusLabel, normalizeStatus }: CaseHeroProp
 function HeroChip({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500 dark:bg-muted dark:text-muted-foreground">
+      <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
         {label}
       </span>
-      <span className={cn("text-slate-800 dark:text-foreground", highlight && "text-emerald-600")}>{value}</span>
+      <span className={cn("text-foreground", highlight && "rounded-full bg-emerald-50 px-3 py-1 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300")}>
+        {value}
+      </span>
     </div>
   )
 }

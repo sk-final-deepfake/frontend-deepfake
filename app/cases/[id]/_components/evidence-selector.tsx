@@ -20,16 +20,16 @@ export function EvidenceSelector({
   normalizeStatus,
 }: EvidenceSelectorProps) {
   return (
-    <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-border dark:bg-card xl:sticky xl:top-28">
+    <aside className="rounded-xl border border-border bg-card p-4 shadow-sm xl:sticky xl:top-28">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-black text-slate-900 dark:text-foreground">증거 파일</h2>
+        <h2 className="text-lg font-black text-foreground">증거 파일</h2>
         <Badge variant="secondary" className="rounded-full px-3 font-black">
           {evidences.length}개
         </Badge>
       </div>
 
       {evidences.length === 0 ? (
-        <div className="mt-5 rounded-lg border border-dashed border-slate-200 px-4 py-10 text-center text-xs font-bold text-slate-500 dark:border-border dark:text-muted-foreground">
+        <div className="mt-5 rounded-lg border border-dashed border-border px-4 py-10 text-center text-xs font-bold text-muted-foreground">
           연결된 증거가 없습니다.
         </div>
       ) : (
@@ -45,28 +45,28 @@ export function EvidenceSelector({
                 className={cn(
                   "group w-full overflow-hidden rounded-lg border text-left transition-colors",
                   active
-                    ? "border-teal-400 bg-teal-50 shadow-sm"
-                    : "border-slate-200 bg-white hover:bg-slate-50 dark:border-border dark:bg-card dark:hover:bg-muted/30"
+                    ? "border-teal-400 bg-teal-50 shadow-sm dark:bg-teal-950/20"
+                    : "border-border bg-card hover:bg-muted/30"
                 )}
               >
                 <div className="flex gap-3 p-3">
-                  <EvidenceThumbnail evidenceId={evidence.evidenceId} active={active} />
+                  <EvidenceThumbnail evidence={evidence} active={active} />
                   <div className="min-w-0 flex-1 py-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-700 dark:text-foreground">
+                        <p className="truncate text-sm font-semibold text-foreground">
                           {evidence.fileName}
                         </p>
-                        <p className="mt-1 font-mono text-[11px] font-bold text-slate-500">EVD-{evidence.evidenceId}</p>
+                        <p className="mt-1 font-mono text-[11px] font-bold text-muted-foreground">EVD-{evidence.evidenceId}</p>
                       </div>
-                      <ChevronRight className={cn("mt-0.5 size-4 shrink-0", active ? "text-teal-600" : "text-slate-300")} />
+                      <ChevronRight className={cn("mt-0.5 size-4 shrink-0", active ? "text-teal-600" : "text-muted-foreground/40")} />
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2">
-                      <span className={cn("inline-flex items-center gap-1.5 text-xs font-black", completed ? "text-teal-600" : "text-slate-500")}>
-                        <span className={cn("size-2 rounded-full", completed ? "bg-teal-500" : "bg-slate-300")} />
+                      <span className={cn("inline-flex items-center gap-1.5 text-xs font-black", completed ? "text-teal-600" : "text-muted-foreground")}>
+                        <span className={cn("size-2 rounded-full", completed ? "bg-teal-500" : "bg-muted-foreground/30")} />
                         {completed ? "분석 완료" : getStatusLabel(evidence.analysisStatus)}
                       </span>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-muted">
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                         VIDEO
                       </span>
                     </div>
@@ -81,7 +81,41 @@ export function EvidenceSelector({
   )
 }
 
-function EvidenceThumbnail({ evidenceId, active }: { evidenceId: number; active: boolean }) {
+function EvidenceThumbnail({ evidence, active }: { evidence: CaseEvidenceSummary; active: boolean }) {
+  const mediaUrl = evidence.thumbnailUrl ?? evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl
+
+  if (mediaUrl) {
+    return (
+      <span
+        className={cn(
+          "relative flex aspect-video w-24 shrink-0 overflow-hidden rounded-md border border-border bg-muted",
+          active && "ring-2 ring-teal-400 ring-offset-2 ring-offset-background"
+        )}
+      >
+        {evidence.thumbnailUrl ? (
+          <img
+            src={evidence.thumbnailUrl}
+            alt={`${evidence.fileName} 썸네일`}
+            className="size-full object-cover"
+          />
+        ) : (
+          <video
+            src={mediaUrl}
+            className="size-full object-cover"
+            muted
+            playsInline
+            preload="metadata"
+            aria-label={`${evidence.fileName} 미리보기`}
+          />
+        )}
+        <span className="absolute left-1/2 top-1/2 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm">
+          <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
+        </span>
+      </span>
+    )
+  }
+
+  const evidenceId = evidence.evidenceId
   const tone = evidenceId % 3
   const backgroundClass =
     tone === 0
@@ -95,7 +129,7 @@ function EvidenceThumbnail({ evidenceId, active }: { evidenceId: number; active:
       className={cn(
         "relative flex aspect-video w-24 shrink-0 overflow-hidden rounded-md bg-gradient-to-br shadow-inner",
         backgroundClass,
-        active && "ring-2 ring-teal-400 ring-offset-2 ring-offset-teal-50"
+        active && "ring-2 ring-teal-400 ring-offset-2 ring-offset-background"
       )}
     >
       <span className="absolute inset-x-2 top-2 h-1 rounded-full bg-white/15" />
@@ -106,7 +140,7 @@ function EvidenceThumbnail({ evidenceId, active }: { evidenceId: number; active:
         <span className="h-1 rounded-full bg-white/10" />
       </span>
       <span className="absolute left-1/2 top-1/2 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-900 shadow-sm">
-        <Play className="ml-0.5 size-4 fill-current" />
+        <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
       </span>
     </span>
   )
