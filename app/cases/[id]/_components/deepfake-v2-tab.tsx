@@ -40,24 +40,23 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
 
   return (
     <div className="space-y-4">
-      {/* 영상 + 모델 정보: 높이를 영상에 맞춤 */}
-      <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <VideoPlayerCard duration={duration} />
-        <ModelInfoSidebar />
-      </div>
-
-      {/* 아래는 전체 폭 */}
       <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} quality={quality} />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <FrameRiskGraph score={modelScore} />
-        <ReasoningNote summary={summary} />
-      </div>
+      <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+        <ModelInfoSidebar />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="mt-4 grid items-stretch gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <VideoPlayerCard duration={duration} />
+          <FrameRiskGraph score={modelScore} />
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <RepresentativeFrames />
         <PerItemScores modules={analysisInfo.moduleResults} />
       </div>
+
+      <ReasoningNote summary={summary} />
     </div>
   )
 }
@@ -337,17 +336,17 @@ function ModelInfoSidebar() {
   ]
 
   return (
-    <aside className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
+    <section className="rounded-lg border border-border bg-background/40 p-4">
       <h3 className="text-base font-black text-foreground">딥페이크 모델 분석 정보</h3>
-      <dl className="mt-4 flex flex-1 flex-col justify-between">
+      <dl className="mt-3 grid gap-x-5 md:grid-cols-2 xl:grid-cols-5">
         {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0">
-            <dt className="shrink-0 text-sm font-medium text-muted-foreground">{label}</dt>
-            <dd className="min-w-0 break-words text-right text-sm font-bold text-foreground">{value}</dd>
+          <div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-border py-2.5">
+            <dt className="shrink-0 text-xs font-medium text-muted-foreground">{label}</dt>
+            <dd className="min-w-0 truncate text-right text-xs font-bold text-foreground">{value}</dd>
           </div>
         ))}
       </dl>
-    </aside>
+    </section>
   )
 }
 
