@@ -65,9 +65,9 @@ export function DeepfakeModelTab({
     <div className="space-y-4">
       <DeepfakeDetectionSummary data={data} riskLabel={riskLabel} />
 
-      <section className="grid overflow-hidden rounded-xl border border-border bg-card shadow-sm lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.45fr)]">
+      <section className="grid items-stretch overflow-hidden rounded-xl border border-border bg-card shadow-sm lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.45fr)]">
         <VideoPlayerPanel fileName={evidenceInfo.fileName} duration={duration} />
-        <div className="border-t border-border lg:border-l lg:border-t-0">
+        <div className="flex flex-col border-t border-border lg:border-l lg:border-t-0">
           <FrameRiskPanel />
           <ModelAnalysisInfo
             metadata={metadata}
@@ -121,7 +121,7 @@ function SummaryMetric({
 
 function VideoPlayerPanel({ fileName, duration }: { fileName: string; duration: string }) {
   return (
-    <div className="p-4">
+    <div className="flex h-full min-h-[480px] flex-col p-4">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-semibold text-foreground">영상 플레이어</h3>
         <div className="flex rounded-full bg-muted/50 p-1">
@@ -139,8 +139,8 @@ function VideoPlayerPanel({ fileName, duration }: { fileName: string; duration: 
         </div>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-lg border border-border bg-slate-950">
-        <div className="relative aspect-video bg-[linear-gradient(135deg,#111827,#1f2937_45%,#111827)]">
+      <div className="mt-4 min-h-[360px] flex-1 overflow-hidden rounded-lg border border-border bg-slate-950">
+        <div className="relative h-full min-h-[360px] bg-[linear-gradient(135deg,#111827,#1f2937_45%,#111827)]">
           <div className="absolute left-4 top-4 rounded bg-black/35 px-2 py-1 font-mono text-xs font-medium text-white">
             {formatMockTimestamp()}
           </div>
