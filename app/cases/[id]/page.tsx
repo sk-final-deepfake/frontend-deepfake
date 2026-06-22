@@ -14,6 +14,7 @@ import {
 
 import { CaseHero } from "./_components/case-hero"
 import { DeepfakeModelTab } from "./_components/deepfake-model-tab"
+import { EvidenceDrawer } from "./_components/evidence-drawer"
 import { EvidenceSelector } from "./_components/evidence-selector"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
@@ -203,32 +204,40 @@ export default function CaseDetailPage() {
 
             <CaseHero data={caseData} getStatusLabel={getCaseStatusLabel} normalizeStatus={normalizeStatus} />
 
-            <div className="grid items-start gap-5 xl:grid-cols-[360px_1fr]">
-              <EvidenceSelector
-                evidences={caseData.evidences}
-                selectedEvidenceId={selectedEvidenceId}
-                onSelect={setSelectedEvidenceId}
-                getStatusLabel={getCaseStatusLabel}
-                normalizeStatus={normalizeStatus}
-              />
+            <div className="relative">
+              {/* 증거 파일: 2개 이상일 때만 왼쪽 hover 드로어로 (1개면 숨김) */}
+              {caseData.evidences.length > 1 ? (
+                <EvidenceDrawer count={caseData.evidences.length}>
+                  <EvidenceSelector
+                    evidences={caseData.evidences}
+                    selectedEvidenceId={selectedEvidenceId}
+                    onSelect={setSelectedEvidenceId}
+                    getStatusLabel={getCaseStatusLabel}
+                    normalizeStatus={normalizeStatus}
+                  />
+                </EvidenceDrawer>
+              ) : null}
 
-              {detailLoading ? (
-                <LoadingCard label="선택한 증거의 분석 상세를 불러오는 중입니다..." />
-              ) : detailError ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>증거 상세 로드 오류</AlertTitle>
-                  <AlertDescription>{detailError}</AlertDescription>
-                </Alert>
-              ) : evidenceDetail ? (
-                <EvidenceWorkspace
-                  data={evidenceDetail}
-                  copied={copied}
-                  onCopyHash={() => copyHash(evidenceDetail.integrityInfo.originalHash)}
-                />
-              ) : (
-                <EmptyEvidenceState />
-              )}
+              {/* 결과: 전체 폭 (드로어는 오버레이라 폭에 영향 없음) */}
+              <div className="min-w-0">
+                {detailLoading ? (
+                  <LoadingCard label="선택한 증거의 분석 상세를 불러오는 중입니다..." />
+                ) : detailError ? (
+                  <Alert variant="destructive">
+                    <AlertCircle className="size-4" />
+                    <AlertTitle>증거 상세 로드 오류</AlertTitle>
+                    <AlertDescription>{detailError}</AlertDescription>
+                  </Alert>
+                ) : evidenceDetail ? (
+                  <EvidenceWorkspace
+                    data={evidenceDetail}
+                    copied={copied}
+                    onCopyHash={() => copyHash(evidenceDetail.integrityInfo.originalHash)}
+                  />
+                ) : (
+                  <EmptyEvidenceState />
+                )}
+              </div>
             </div>
           </>
         ) : null}
@@ -326,29 +335,29 @@ function EvidenceWorkspace({
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <TabsList
             variant="line"
-            className="!grid h-14 w-full grid-cols-4 rounded-none border-b border-border bg-card p-0"
+            className="relative !grid h-14 w-full grid-cols-4 rounded-none border-b-0 bg-card p-0 after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border after:content-['']"
           >
             <TabsTrigger
               value="summary"
-              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               분석 요약
             </TabsTrigger>
             <TabsTrigger
               value="deepfake"
-              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               탐지 상세
             </TabsTrigger>
             <TabsTrigger
               value="integrity"
-              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               무결성 검증
             </TabsTrigger>
             <TabsTrigger
               value="report"
-              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               메타데이터/보고서
             </TabsTrigger>
