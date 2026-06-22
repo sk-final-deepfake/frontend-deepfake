@@ -13,7 +13,6 @@ import {
 } from "lucide-react"
 
 import { CaseHero } from "./_components/case-hero"
-import { DeepfakeModelTab } from "./_components/deepfake-model-tab"
 import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
 import { EvidenceDrawer } from "./_components/evidence-drawer"
 import { EvidenceSelector } from "./_components/evidence-selector"
@@ -304,7 +303,7 @@ function CaseBreadcrumb() {
   )
 }
 
-const TAB_VALUES = ["summary", "deepfake", "deepfake2", "integrity", "report"]
+const TAB_VALUES = ["summary", "deepfake", "integrity", "report"]
 
 function EvidenceWorkspace({
   data,
@@ -350,7 +349,7 @@ function EvidenceWorkspace({
           <TabsList
             variant="line"
             onMouseLeave={() => setHoveredTab(null)}
-            className="relative !grid h-16 w-full grid-cols-5 rounded-none border-b-0 bg-card p-0 after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-border after:content-['']"
+            className="relative !grid h-16 w-full grid-cols-4 rounded-none border-b-0 bg-card p-0 after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-border after:content-['']"
           >
             <TabsTrigger
               value="summary"
@@ -364,14 +363,7 @@ function EvidenceWorkspace({
               onMouseEnter={() => setHoveredTab("deepfake")}
               className={tabClass("deepfake")}
             >
-              탐지 상세
-            </TabsTrigger>
-            <TabsTrigger
-              value="deepfake2"
-              onMouseEnter={() => setHoveredTab("deepfake2")}
-              className={tabClass("deepfake2")}
-            >
-              딥페이크2
+              딥페이크 탐지
             </TabsTrigger>
             <TabsTrigger
               value="integrity"
@@ -392,7 +384,7 @@ function EvidenceWorkspace({
             <span
               aria-hidden="true"
               className="pointer-events-none absolute bottom-0 z-20 h-[3px] bg-blue-500 transition-[left] duration-300 ease-out"
-              style={{ left: `${litIndex * 20}%`, width: "20%" }}
+              style={{ left: `${litIndex * 25}%`, width: "25%" }}
             />
           </TabsList>
 
@@ -407,14 +399,6 @@ function EvidenceWorkspace({
             </TabsContent>
 
             <TabsContent value="deepfake" className="space-y-5">
-              <DeepfakeModelTab
-                data={data}
-                riskLabel={displayRiskLabel}
-                riskBadgeClassName={riskClassName.badge}
-              />
-            </TabsContent>
-
-            <TabsContent value="deepfake2" className="space-y-5">
               <DeepfakeV2Tab data={data} />
             </TabsContent>
 

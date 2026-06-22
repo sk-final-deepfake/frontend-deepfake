@@ -42,21 +42,17 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
     <div className="space-y-4">
       <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} quality={quality} />
 
-      <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <VideoPlayerCard duration={duration} />
         <ModelInfoSidebar />
+      </div>
 
-        <div className="mt-4 grid items-stretch gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-          <VideoPlayerCard duration={duration} />
-          <FrameRiskGraph score={modelScore} />
-        </div>
-      </section>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <FrameRiskGraph score={modelScore} />
+        <ReasoningNote summary={summary} />
         <RepresentativeFrames />
         <PerItemScores modules={analysisInfo.moduleResults} />
       </div>
-
-      <ReasoningNote summary={summary} />
     </div>
   )
 }
@@ -336,17 +332,17 @@ function ModelInfoSidebar() {
   ]
 
   return (
-    <section className="rounded-lg border border-border bg-background/40 p-4">
+    <aside className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
       <h3 className="text-base font-black text-foreground">딥페이크 모델 분석 정보</h3>
-      <dl className="mt-3 grid gap-x-5 md:grid-cols-2 xl:grid-cols-5">
+      <dl className="mt-4 flex flex-1 flex-col justify-between">
         {rows.map(([label, value]) => (
-          <div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-border py-2.5">
+          <div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-border py-2 last:border-0">
             <dt className="shrink-0 text-xs font-medium text-muted-foreground">{label}</dt>
-            <dd className="min-w-0 truncate text-right text-xs font-bold text-foreground">{value}</dd>
+            <dd className="min-w-0 break-words text-right text-xs font-bold text-foreground">{value}</dd>
           </div>
         ))}
       </dl>
-    </section>
+    </aside>
   )
 }
 
