@@ -8,8 +8,8 @@ import { Files } from "lucide-react"
 // children = 증거 파일 패널(EvidenceSelector).
 export function EvidenceDrawer({ count, children }: { count: number; children: ReactNode }) {
   return (
-    <div className="group absolute -left-11 top-0 z-30 h-full sm:-left-14 lg:-left-16">
-      <div className="sticky top-24">
+    <div className="group fixed left-0 top-[22rem] z-50">
+      <div className="relative">
         {/* 손잡이: 항상 보임 */}
         <button
           type="button"
@@ -23,7 +23,7 @@ export function EvidenceDrawer({ count, children }: { count: number; children: R
         </button>
 
         {/* 패널: 기본 숨김 → hover/focus 시 슬라이드 인 */}
-        <div className="pointer-events-none absolute left-0 top-0 w-[340px] max-w-[80vw] -translate-x-[calc(100%+0.75rem)] opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100">
+        <div className="pointer-events-none absolute left-9 top-0 w-[340px] max-w-[calc(100vw-2.25rem)] -translate-x-[calc(100%+2.25rem)] opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100">
           {children}
         </div>
       </div>
