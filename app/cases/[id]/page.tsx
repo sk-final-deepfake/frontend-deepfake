@@ -303,9 +303,7 @@ function EvidenceWorkspace({
   onCopyHash: () => void
 }) {
   const { evidenceInfo, analysisInfo } = data
-  const riskScore = analysisInfo.riskScore ?? 0
-  const failed = analysisInfo.status === "FAILED"
-  const riskTone = getCaseRiskTone(riskScore, failed)
+  const riskTone = getCaseRiskTone(data)
   const riskClassName = getCaseRiskClassName(riskTone)
   const displayRiskLabel = getDisplayRiskLabel(data)
   const extension = getFileExtension(evidenceInfo.fileName, evidenceInfo.mediaType)

@@ -27,3 +27,10 @@ docs/api/
 
 # Package manager (이 프로젝트는 pnpm 사용)
 package-lock.json
+
+# personal dev-blog drafts (do NOT commit)
+blog/
+*.blog.md
+
+# 임시 업로드 테스트 파일 (커밋 금지)
+tmp-*.mp4

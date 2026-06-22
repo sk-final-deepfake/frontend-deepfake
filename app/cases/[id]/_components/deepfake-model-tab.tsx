@@ -33,6 +33,7 @@ export function DeepfakeModelTab({
   const modules = analysisInfo.moduleResults
   const evidenceMessage = getAnalysisEvidenceMessage(analysisInfo.status)
   const modelLabel = resolveModelLabel(analysisInfo.summary ?? "")
+  const confidence = formatScorePercent(analysisInfo.confidenceScore)
 
   return (
     <div className="space-y-5">
@@ -92,7 +93,9 @@ export function DeepfakeModelTab({
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-muted/30">
             <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">신뢰도</span>
-            <span className="font-bold text-teal-600 dark:text-teal-300">{analysisInfo.confidenceScore ?? 0}%</span>
+            <span className="font-bold text-teal-600 dark:text-teal-300">
+              {confidence == null ? "-" : `${confidence}%`}
+            </span>
           </span>
         </div>
         <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 dark:border-border">
@@ -151,6 +154,12 @@ function scoreTone(score: number) {
   if (score >= 70) return { text: "text-red-500 dark:text-red-400", bar: "bg-red-500", hex: "#ef4444" }
   if (score >= 40) return { text: "text-orange-500 dark:text-orange-400", bar: "bg-orange-500", hex: "#f97316" }
   return { text: "text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500", hex: "#10b981" }
+}
+
+function formatScorePercent(score: number | null) {
+  if (score == null) return null
+  const normalized = score > 0 && score <= 1 ? score * 100 : score
+  return Math.round(normalized)
 }
 
 function RingGauge({ value, size = "size-16" }: { value: number; size?: string }) {

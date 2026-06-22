@@ -4,9 +4,12 @@ import { getAnalysisStatusLabel, getRiskLabel, getRiskTone } from "@/lib/status-
 
 export type CaseRiskTone = "green" | "orange" | "red"
 
-export function getCaseRiskTone(score: number, failed: boolean): CaseRiskTone {
-  if (failed) return "red"
-  const tone = getRiskTone(normalizeScore(score))
+export function getCaseRiskTone(data: EvidenceDetailData): CaseRiskTone {
+  const { analysisInfo } = data
+
+  if (analysisInfo.status === "FAILED") return "red"
+
+  const tone = getRiskToneFromAnalysis(data)
   if (tone === "danger") return "red"
   if (tone === "caution") return "orange"
   return "green"
@@ -46,9 +49,29 @@ export function getDisplayRiskLabel(data: EvidenceDetailData): string {
   if (analysisInfo.status !== "COMPLETED") {
     return getAnalysisStatusLabel(analysisInfo.status)
   }
+  const riskLevelLabel = getRiskLevelLabel(analysisInfo.riskLevel)
+  if (riskLevelLabel) return riskLevelLabel
+
   if (analysisInfo.riskScore == null) return "분석 근거 없음"
 
   return getRiskLabel(normalizeScore(analysisInfo.riskScore))
+}
+
+function getRiskToneFromAnalysis(data: EvidenceDetailData) {
+  const { analysisInfo } = data
+
+  if (analysisInfo.riskLevel === "HIGH") return "danger"
+  if (analysisInfo.riskLevel === "MEDIUM") return "caution"
+  if (analysisInfo.riskLevel === "LOW") return "normal"
+
+  return getRiskTone(normalizeScore(analysisInfo.riskScore ?? 0))
+}
+
+function getRiskLevelLabel(riskLevel: EvidenceDetailData["analysisInfo"]["riskLevel"]) {
+  if (riskLevel === "HIGH") return "위험"
+  if (riskLevel === "MEDIUM") return "주의"
+  if (riskLevel === "LOW") return "정상"
+  return null
 }
 
 function normalizeScore(score: number) {
