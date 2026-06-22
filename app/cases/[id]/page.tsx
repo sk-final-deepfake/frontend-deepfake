@@ -193,7 +193,7 @@ export default function CaseDetailPage() {
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
       <SiteHeader />
 
-      <main className="mx-auto flex w-full max-w-[1560px] flex-col gap-5 px-5 py-7 sm:px-8 lg:px-10">
+      <main className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-5 py-7 sm:px-8 lg:px-10">
         {caseLoading ? (
           <LoadingCard label="사건 상세 정보를 불러오는 중입니다..." />
         ) : error ? (
@@ -319,6 +319,8 @@ function EvidenceWorkspace({
   const progressSteps = buildProgressSteps(data)
   const reportReady = analysisInfo.status === "COMPLETED"
   const verificationCode = `VF-${String(evidenceInfo.evidenceId).padStart(8, "0")}`
+  // 탭은 클릭이 아니라 hover(마우스 올림)로 전환 → controlled 상태로 관리
+  const [activeTab, setActiveTab] = useState("summary")
 
   return (
     <section className="min-w-0 space-y-4">
@@ -331,32 +333,36 @@ function EvidenceWorkspace({
         riskTextClassName={riskClassName.text}
       />
 
-      <Tabs defaultValue="summary" className="gap-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <TabsList
             variant="line"
-            className="relative !grid h-16 w-full grid-cols-4 rounded-none border-b-0 bg-card p-0 after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border after:content-['']"
+            className="relative !grid h-16 w-full grid-cols-4 rounded-none border-b-0 bg-card p-0 after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-border after:content-['']"
           >
             <TabsTrigger
               value="summary"
+              onMouseEnter={() => setActiveTab("summary")}
               className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               분석 요약
             </TabsTrigger>
             <TabsTrigger
               value="deepfake"
+              onMouseEnter={() => setActiveTab("deepfake")}
               className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               탐지 상세
             </TabsTrigger>
             <TabsTrigger
               value="integrity"
+              onMouseEnter={() => setActiveTab("integrity")}
               className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               무결성 검증
             </TabsTrigger>
             <TabsTrigger
               value="report"
+              onMouseEnter={() => setActiveTab("report")}
               className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               메타데이터/보고서

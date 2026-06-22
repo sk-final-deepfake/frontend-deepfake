@@ -52,7 +52,7 @@ export function SummaryTab({
           <Button
             type="button"
             variant="outline"
-            className="mt-6 h-10 w-full border-border bg-card text-sm font-semibold text-foreground hover:bg-muted/40"
+            className="mt-auto h-10 w-full border-border bg-card text-sm font-semibold text-foreground hover:bg-muted/40"
             onClick={() => {
               // 무결성 검증 탭으로 이동(라디오 탭 트리거를 텍스트로 찾아 클릭)
               document.querySelectorAll<HTMLElement>('[role="tab"]').forEach((tab) => {
@@ -76,7 +76,7 @@ export function SummaryTab({
           <Button
             type="button"
             variant="outline"
-            className="mt-6 h-10 w-full border-blue-200 bg-card text-sm font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/60 dark:hover:bg-blue-950/30"
+            className="mt-auto h-10 w-full border-blue-200 bg-card text-sm font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/60 dark:hover:bg-blue-950/30"
           >
             <Download className="size-4" aria-hidden="true" />
             보고서 다운로드
@@ -106,12 +106,12 @@ function CompactPanel({
   quiet?: boolean
 }) {
   return (
-    <section className={cn("rounded-xl border border-border bg-card p-5 shadow-sm", className)}>
+    <section className={cn("flex flex-col rounded-xl border border-border bg-card p-5 shadow-sm", className)}>
       <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
         <Icon className={cn("size-5", quiet ? "text-teal-500" : "text-teal-600")} aria-hidden="true" />
         {title}
       </h3>
-      <div className="mt-5">{children}</div>
+      <div className="mt-5 flex flex-1 flex-col">{children}</div>
     </section>
   )
 }
