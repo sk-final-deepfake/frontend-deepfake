@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, ClipboardCheck, FileBadge, FileText, LockKeyhole, Play, Star, Video } from "lucide-react"
+import { AlertCircle, ClipboardCheck, FileBadge, FileText, LockKeyhole, Play, Star, Video } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +13,6 @@ type EvidenceSummaryCardProps = {
   statusLabel: string
   riskBadgeClassName: string
   riskTextClassName: string
-  progressBarClassName: string
 }
 
 export function EvidenceSummaryCard({
@@ -23,13 +22,11 @@ export function EvidenceSummaryCard({
   statusLabel,
   riskBadgeClassName,
   riskTextClassName,
-  progressBarClassName,
 }: EvidenceSummaryCardProps) {
   const { evidenceInfo, analysisInfo } = data
   const { technicalMetadata } = evidenceInfo
   const riskScore = formatScore(analysisInfo.riskScore)
   const confidenceScore = formatScore(analysisInfo.confidenceScore)
-  const progressValue = getProgressValue(analysisInfo.status)
   const resolution = technicalMetadata.width && technicalMetadata.height
     ? `${technicalMetadata.width} × ${technicalMetadata.height}`
     : "-"
@@ -90,19 +87,6 @@ export function EvidenceSummaryCard({
             valueClassName={confidenceScore == null ? "text-muted-foreground" : "text-emerald-600"}
           />
         </div>
-      </div>
-
-      <div className="mt-5 flex items-center gap-5">
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-          <div
-            className={cn("h-full rounded-full transition-all", progressBarClassName)}
-            style={{ width: `${progressValue}%` }}
-          />
-        </div>
-        <span className="inline-flex shrink-0 items-center gap-2 text-sm font-black text-teal-600">
-          {statusLabel}
-          <CheckCircle2 className="size-5" aria-hidden="true" />
-        </span>
       </div>
 
       {analysisInfo.status === "FAILED" ? (
@@ -167,13 +151,6 @@ function MetricCard({
       </span>
     </div>
   )
-}
-
-function getProgressValue(status: EvidenceDetailData["analysisInfo"]["status"]) {
-  if (status === "COMPLETED") return 88
-  if (status === "PROCESSING") return 62
-  if (status === "FAILED") return 100
-  return 18
 }
 
 function formatScore(score: number | null) {
