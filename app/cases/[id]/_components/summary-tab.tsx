@@ -4,7 +4,7 @@ import { CheckCircle2, Download, ExternalLink, FileText, Fingerprint, ShieldChec
 
 import { Button } from "@/components/ui/button"
 import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
-import { formatDateTime, formatDuration, formatFileSize } from "@/lib/formatters"
+import { formatDateTime } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
 type ProgressStep = {
@@ -33,25 +33,10 @@ export function SummaryTab({
   const shortHash = integrityInfo.originalHash
     ? `${integrityInfo.originalHash.slice(0, 12)}...${integrityInfo.originalHash.slice(-8)}`
     : "-"
-  const tm = evidenceInfo.technicalMetadata
-  const resolution = tm.width && tm.height ? `${tm.width} × ${tm.height}` : "-"
-  const duration = formatDuration(tm.durationSec)
-  const codec = tm.codec ?? "-"
 
   return (
     <>
-      <div className="grid gap-4 xl:grid-cols-4">
-        <CompactPanel title="파일 기본정보" icon={FileText}>
-          <InfoLine label="파일명" value={evidenceInfo.fileName} valueClassName="max-w-[160px] truncate" />
-          <InfoLine label="증거번호" value={`EVD-${evidenceInfo.evidenceId}`} />
-          <InfoLine label="업로드 일시" value={formatDateTime(evidenceInfo.uploadedAt)} />
-          <InfoLine label="파일 유형" value={evidenceInfo.mediaType || "VIDEO"} />
-          <InfoLine label="파일 크기" value={formatFileSize(evidenceInfo.fileSize)} />
-          <InfoLine label="해상도" value={resolution} />
-          <InfoLine label="재생 시간" value={duration} />
-          <InfoLine label="코덱" value={codec} />
-        </CompactPanel>
-
+      <div className="grid gap-4 xl:grid-cols-3">
         <CompactPanel title="판정 요약" icon={ShieldCheck}>
           <InfoLine label="위험 등급" value={riskLabel} pillClassName={riskSoftClassName} />
           <InfoLine label="분석 신뢰도" value={confidence == null ? "-" : `${confidence}%`} pillClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300" />

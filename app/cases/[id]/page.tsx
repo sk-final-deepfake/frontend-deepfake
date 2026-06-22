@@ -321,7 +321,7 @@ function EvidenceWorkspace({
   const verificationCode = `VF-${String(evidenceInfo.evidenceId).padStart(8, "0")}`
 
   return (
-    <section className="min-w-0 space-y-5">
+    <section className="min-w-0 space-y-4">
       <EvidenceSummaryCard
         data={data}
         extension={extension}
@@ -335,29 +335,29 @@ function EvidenceWorkspace({
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <TabsList
             variant="line"
-            className="relative !grid h-14 w-full grid-cols-4 rounded-none border-b-0 bg-card p-0 after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border after:content-['']"
+            className="relative !grid h-16 w-full grid-cols-4 rounded-none border-b-0 bg-card p-0 after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border after:content-['']"
           >
             <TabsTrigger
               value="summary"
-              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               분석 요약
             </TabsTrigger>
             <TabsTrigger
               value="deepfake"
-              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               탐지 상세
             </TabsTrigger>
             <TabsTrigger
               value="integrity"
-              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               무결성 검증
             </TabsTrigger>
             <TabsTrigger
               value="report"
-              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               메타데이터/보고서
             </TabsTrigger>

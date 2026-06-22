@@ -8,7 +8,7 @@ import { Files } from "lucide-react"
 // children = 증거 파일 패널(EvidenceSelector).
 export function EvidenceDrawer({ count, children }: { count: number; children: ReactNode }) {
   return (
-    <div className="group absolute left-0 top-0 z-30 h-full">
+    <div className="group absolute -left-5 top-0 z-30 h-full sm:-left-8 lg:-left-10">
       <div className="sticky top-24">
         {/* 손잡이: 항상 보임 */}
         <button
