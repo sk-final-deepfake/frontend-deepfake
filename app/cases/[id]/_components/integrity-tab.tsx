@@ -61,7 +61,7 @@ export function IntegrityTab({ data, copied, onCopyHash }: IntegrityTabProps) {
         />
       </section>
 
-      <FrameIntegrityChart chainValid={chainValid} duration={duration} />
+      <SuspiciousFrameSection chainValid={chainValid} />
 
       <section className="grid gap-4 rounded-xl border border-border bg-card p-4 shadow-sm xl:grid-cols-[minmax(0,1fr)_220px]">
         <div>
@@ -126,68 +126,37 @@ export function IntegrityTab({ data, copied, onCopyHash }: IntegrityTabProps) {
   )
 }
 
-function FrameIntegrityChart({ chainValid, duration }: { chainValid: boolean; duration: string }) {
-  const bars = buildIntegrityBars(chainValid)
+function SuspiciousFrameSection({ chainValid }: { chainValid: boolean }) {
+  const frames = buildSuspiciousFrames(chainValid)
 
   return (
     <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-          프레임별 위변조 위험도
-          <InfoIcon />
-        </h3>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-muted-foreground">
-          <LegendDot className="bg-teal-500" label="낮음 (0~0.3)" />
-          <LegendDot className="bg-amber-400" label="주의 (0.3~0.6)" />
-          <LegendDot className="bg-red-500" label="위험 (0.6~1.0)" />
-          <LegendDot className="bg-slate-300" label="분석 불가" />
-        </div>
+      <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+        위변조 의심 프레임 (주요 구간)
+        <InfoIcon />
+      </h3>
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {frames.map((frame) => (
+          <article key={frame.time} className="min-w-0">
+            <div className={cn("relative aspect-[16/9] overflow-hidden rounded-lg border border-border", frame.previewClassName)}>
+              <span className="absolute left-2 top-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {frame.time}
+              </span>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "absolute right-2 top-2 rounded-md border-transparent px-2 py-0.5 text-[10px] font-semibold",
+                  frame.tone === "safe" ? "bg-teal-500 text-white" : "bg-orange-400 text-white"
+                )}
+              >
+                {frame.status}
+              </Badge>
+            </div>
+            <p className="mt-2 text-xs font-semibold text-foreground">{frame.title}</p>
+            <p className="mt-1 text-[11px] font-medium text-muted-foreground">{frame.description}</p>
+          </article>
+        ))}
       </div>
-
-      <div className="mt-4 grid grid-cols-[42px_minmax(0,1fr)] gap-3">
-        <div className="flex h-44 flex-col justify-between pt-1 text-[11px] font-medium text-muted-foreground">
-          <span>1.00</span>
-          <span className="text-red-500">0.72</span>
-          <span>0.50</span>
-          <span>0.25</span>
-          <span>0.00</span>
-        </div>
-        <div className="relative h-44 border-l border-border">
-          <div className="absolute inset-x-0 top-[28%] border-t border-dashed border-red-300" />
-          <span className="absolute right-0 top-[calc(28%-18px)] text-[11px] font-semibold text-red-500">임계값 0.72</span>
-          <div className="absolute inset-x-0 top-0 h-px bg-border/60" />
-          <div className="absolute inset-x-0 top-1/4 h-px bg-border/60" />
-          <div className="absolute inset-x-0 top-1/2 h-px bg-border/60" />
-          <div className="absolute inset-x-0 top-3/4 h-px bg-border/60" />
-          <div className="absolute inset-x-0 bottom-0 h-px bg-border/60" />
-          <div className="absolute inset-x-2 bottom-2 flex h-32 items-end gap-1">
-            {bars.map((bar, index) => (
-              <span
-                key={index}
-                className={cn("flex-1 rounded-t-sm", bar.className)}
-                style={{ height: `${bar.height}%` }}
-                aria-hidden="true"
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="ml-[54px] mt-2 grid grid-cols-6 text-[11px] font-medium text-muted-foreground">
-        <span>00:00</span>
-        <span className="text-center">00:05</span>
-        <span className="text-center">00:10</span>
-        <span className="text-center">00:15</span>
-        <span className="text-center">00:20</span>
-        <span className="text-right">{duration === "-" ? "00:30" : duration}</span>
-      </div>
-
-      <p className="mt-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <CheckCircle2 className={cn("size-4", chainValid ? "text-teal-600" : "text-red-500")} aria-hidden="true" />
-        {chainValid
-          ? "전체 무결성 결과 기준으로 낮은 위험 상태입니다. 실제 프레임별 점수는 백엔드 제공 시 반영됩니다."
-          : "전체 무결성 결과에서 불일치가 확인되었습니다. 실제 프레임별 점수는 백엔드 제공 시 반영됩니다."}
-      </p>
     </section>
   )
 }
@@ -232,20 +201,24 @@ function ResultPanel({ title, children }: { title: string; children: ReactNode }
 
 function CocSummary({ steps }: { steps: CocStep[] }) {
   return (
-    <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+    <section className="rounded-xl border border-border bg-card px-5 py-6 shadow-sm">
       <h3 className="text-sm font-semibold text-foreground">Chain of Custody (CoC) 요약</h3>
-      <div className="relative mt-5 grid gap-3 md:grid-cols-5">
-        <div className="absolute left-[8%] right-[8%] top-4 hidden h-0.5 bg-teal-500 md:block" />
-        {steps.map((step, index) => (
-          <div key={`${step.title}-${index}`} className="relative rounded-lg border border-border bg-background/40 p-3 text-center">
-            <span className="absolute left-1/2 top-0 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-teal-500 text-card shadow-sm">
-              <CheckCircle2 className="size-4" aria-hidden="true" />
-            </span>
-            <p className="mt-2 text-xs font-semibold text-foreground">{index + 1}. {step.title}</p>
-            <p className="mt-1 text-[11px] font-medium text-muted-foreground">{step.time}</p>
-            <p className="mt-1 text-[11px] font-medium text-muted-foreground">처리자: {step.actor}</p>
+      <div className="mt-8 overflow-x-auto pb-1">
+        <div className="relative min-w-[760px] px-8">
+          <div className="absolute left-14 right-14 top-4 h-0.5 bg-teal-500" />
+          <div className="relative grid grid-cols-5 gap-6">
+            {steps.map((step, index) => (
+              <div key={`${step.title}-${index}`} className="text-center">
+                <span className="mx-auto flex size-8 items-center justify-center rounded-full bg-teal-500 text-card shadow-sm ring-4 ring-card">
+                  <CheckCircle2 className="size-4" aria-hidden="true" />
+                </span>
+                <p className="mt-3 text-xs font-semibold text-foreground">{index + 1}. {step.title}</p>
+                <p className="mt-1 text-[11px] font-medium text-muted-foreground">{step.time}</p>
+                <p className="mt-1 text-[11px] font-medium text-muted-foreground">처리자: {step.actor}</p>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
     </section>
   )
@@ -366,6 +339,15 @@ type ValidationRow = {
   description: string
 }
 
+type SuspiciousFrame = {
+  time: string
+  title: string
+  description: string
+  status: string
+  tone: "safe" | "warning"
+  previewClassName: string
+}
+
 function buildCocSteps(data: EvidenceDetailData): CocStep[] {
   const { evidenceInfo, analysisInfo, cocLogs } = data
   const actors = cocLogs.map((log) => log.userId).filter(Boolean)
@@ -377,6 +359,80 @@ function buildCocSteps(data: EvidenceDetailData): CocStep[] {
     { title: "분석 요청", time: formatDateTime(analysisInfo.requestedAt), actor: "system" },
     { title: "분석 완료", time: formatDateTime(analysisInfo.completedAt), actor: "system" },
     { title: "보고서 생성", time: formatDateTime(analysisInfo.completedAt), actor: "system" },
+  ]
+}
+
+function buildSuspiciousFrames(chainValid: boolean): SuspiciousFrame[] {
+  if (chainValid) {
+    return [
+      {
+        time: "00:08",
+        title: "정상 구간",
+        description: "자연스러운 장면 전환",
+        status: "정상",
+        tone: "safe",
+        previewClassName: "bg-[linear-gradient(135deg,#dbeafe_0%,#f8fafc_42%,#94a3b8_43%,#334155_100%)]",
+      },
+      {
+        time: "00:18",
+        title: "정상 구간",
+        description: "프레임 흐름 안정",
+        status: "정상",
+        tone: "safe",
+        previewClassName: "bg-[linear-gradient(135deg,#e2e8f0_0%,#bfdbfe_35%,#475569_36%,#0f172a_100%)]",
+      },
+      {
+        time: "00:19",
+        title: "정상 구간",
+        description: "압축 패턴 안정",
+        status: "정상",
+        tone: "safe",
+        previewClassName: "bg-[linear-gradient(135deg,#cbd5e1_0%,#f1f5f9_45%,#64748b_46%,#1e293b_100%)]",
+      },
+      {
+        time: "00:27",
+        title: "정상 구간",
+        description: "안정적인 장면 지속",
+        status: "정상",
+        tone: "safe",
+        previewClassName: "bg-[linear-gradient(135deg,#e0f2fe_0%,#f8fafc_40%,#334155_41%,#020617_100%)]",
+      },
+    ]
+  }
+
+  return [
+    {
+      time: "00:08",
+      title: "정상 구간",
+      description: "자연스러운 장면 전환",
+      status: "정상",
+      tone: "safe",
+      previewClassName: "bg-[linear-gradient(135deg,#dbeafe_0%,#f8fafc_42%,#94a3b8_43%,#334155_100%)]",
+    },
+    {
+      time: "00:18",
+      title: "급격한 장면 전환",
+      description: "연결부 변화 확인 필요",
+      status: "주의",
+      tone: "warning",
+      previewClassName: "bg-[linear-gradient(135deg,#fde68a_0%,#fed7aa_36%,#475569_37%,#111827_100%)]",
+    },
+    {
+      time: "00:19",
+      title: "압축 패턴 변화",
+      description: "프레임 압축 흔적 확인",
+      status: "주의",
+      tone: "warning",
+      previewClassName: "bg-[linear-gradient(135deg,#e2e8f0_0%,#fbbf24_32%,#64748b_33%,#1f2937_100%)]",
+    },
+    {
+      time: "00:27",
+      title: "정상 구간",
+      description: "안정적인 장면 지속",
+      status: "정상",
+      tone: "safe",
+      previewClassName: "bg-[linear-gradient(135deg,#e0f2fe_0%,#f8fafc_40%,#334155_41%,#020617_100%)]",
+    },
   ]
 }
 
@@ -393,16 +449,6 @@ function buildValidationRows(chainValid: boolean): ValidationRow[] {
     { label: "전자서명", result: chainValid ? "유효" : "미검증", status, tone, description: "Evidence Manifest 서명이 유효합니다." },
     { label: "블록체인 검증", result: chainValid ? "일치" : "확인 필요", status, tone, description: "블록체인에 등록된 해시와 현재 파일 해시가 일치합니다." },
   ]
-}
-
-function buildIntegrityBars(chainValid: boolean) {
-  return Array.from({ length: 54 }).map((_, index) => {
-    const height = 12 + ((index * 7) % 9)
-    return {
-      height: chainValid ? height : index % 9 === 0 ? 76 : height + 12,
-      className: chainValid ? "bg-teal-500" : index % 9 === 0 ? "bg-red-500" : "bg-amber-400",
-    }
-  })
 }
 
 function shortenHash(hash: string) {

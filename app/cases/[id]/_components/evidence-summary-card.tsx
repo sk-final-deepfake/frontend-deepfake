@@ -34,7 +34,7 @@ export function EvidenceSummaryCard({
 
   return (
     <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Badge variant="outline" className={cn("rounded-full px-4 text-xs font-semibold", riskBadgeClassName)}>
