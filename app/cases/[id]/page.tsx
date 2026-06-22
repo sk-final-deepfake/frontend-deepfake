@@ -13,8 +13,9 @@ import {
 } from "lucide-react"
 
 import { CaseHero } from "./_components/case-hero"
-import { DeepfakeDetectionSummary, DeepfakeModelTab } from "./_components/deepfake-model-tab"
+import { DeepfakeModelTab } from "./_components/deepfake-model-tab"
 import { EvidenceSelector } from "./_components/evidence-selector"
+import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
 import { MetadataReportTab } from "./_components/metadata-report-tab"
 import { SummaryTab } from "./_components/summary-tab"
@@ -312,13 +313,20 @@ function EvidenceWorkspace({
 
   return (
     <section className="min-w-0 space-y-5">
-      <DeepfakeDetectionSummary data={data} riskLabel={displayRiskLabel} />
+      <EvidenceSummaryCard
+        data={data}
+        extension={extension}
+        riskLabel={displayRiskLabel}
+        statusLabel={getStatusLabel(analysisInfo.status)}
+        riskBadgeClassName={riskClassName.badge}
+        riskTextClassName={riskClassName.text}
+      />
 
-      <Tabs defaultValue="deepfake" className="gap-4">
+      <Tabs defaultValue="summary" className="gap-4">
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <TabsList
             variant="line"
-            className="!grid h-14 w-full grid-cols-5 rounded-none border-b border-border bg-card p-0"
+            className="!grid h-14 w-full grid-cols-4 rounded-none border-b border-border bg-card p-0"
           >
             <TabsTrigger
               value="summary"
@@ -327,22 +335,16 @@ function EvidenceWorkspace({
               분석 요약
             </TabsTrigger>
             <TabsTrigger
-              value="detection"
+              value="deepfake"
               className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
               탐지 상세
             </TabsTrigger>
             <TabsTrigger
-              value="deepfake"
-              className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
-            >
-              딥페이크 · 모델 분석
-            </TabsTrigger>
-            <TabsTrigger
               value="integrity"
               className="h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-4 border-transparent px-5 text-sm font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
             >
-              위변조 · 무결성 검증
+              무결성 검증
             </TabsTrigger>
             <TabsTrigger
               value="report"
@@ -363,14 +365,6 @@ function EvidenceWorkspace({
             </TabsContent>
 
             <TabsContent value="deepfake" className="space-y-5">
-              <DeepfakeModelTab
-                data={data}
-                riskLabel={displayRiskLabel}
-                riskBadgeClassName={riskClassName.badge}
-              />
-            </TabsContent>
-
-            <TabsContent value="detection" className="space-y-5">
               <DeepfakeModelTab
                 data={data}
                 riskLabel={displayRiskLabel}

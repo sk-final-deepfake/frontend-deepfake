@@ -1,6 +1,5 @@
 import {
   CheckCircle2,
-  Clock3,
   Expand,
   Info,
   Pause,
@@ -29,13 +28,11 @@ export function DeepfakeDetectionSummary({ data, riskLabel }: DeepfakeDetectionS
   const confidence = normalizePercent(analysisInfo.confidenceScore)
   const quality = confidence == null ? null : Math.min(100, confidence + 1)
   const modelScore = getPrimaryModelScore(analysisInfo.moduleResults)
-  const reviewLabel = analysisInfo.status === "COMPLETED" ? "대기" : getReviewLabel(analysisInfo.status)
-  const reviewTone = analysisInfo.status === "COMPLETED" ? "orange" : analysisInfo.status === "FAILED" ? "red" : "muted"
 
   return (
     <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
       <h2 className="text-base font-semibold text-foreground">딥페이크 탐지 요약</h2>
-      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
         <SummaryMetric
           label="자동 탐지 결과"
           value={getDetectionResultLabel(riskLabel)}
@@ -46,12 +43,6 @@ export function DeepfakeDetectionSummary({ data, riskLabel }: DeepfakeDetectionS
         <SummaryMetric label="판정 임계값" value="0.72" tone="default" />
         <SummaryMetric label="분석 신뢰도" value={confidence == null ? "-" : `${confidence}%`} tone="teal" />
         <SummaryMetric label="품질 점수" value={quality == null ? "-" : `${quality} / 100`} tone="teal" />
-        <SummaryMetric
-          label="분석값 검토"
-          value={reviewLabel}
-          tone={reviewTone}
-          icon={reviewTone === "orange" ? <Clock3 className="size-4" aria-hidden="true" /> : undefined}
-        />
       </div>
       <p className="mt-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <Info className="size-3.5" aria-hidden="true" />
@@ -72,6 +63,8 @@ export function DeepfakeModelTab({
 
   return (
     <div className="space-y-4">
+      <DeepfakeDetectionSummary data={data} riskLabel={riskLabel} />
+
       <section className="grid overflow-hidden rounded-xl border border-border bg-card shadow-sm lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.45fr)]">
         <VideoPlayerPanel fileName={evidenceInfo.fileName} duration={duration} />
         <div className="border-t border-border lg:border-l lg:border-t-0">
@@ -383,13 +376,6 @@ function getRiskToneFromLabel(riskLabel: string) {
   if (riskLabel === "주의") return "orange"
   if (riskLabel === "정상") return "green"
   return "muted"
-}
-
-function getReviewLabel(status: EvidenceDetailData["analysisInfo"]["status"]) {
-  if (status === "PENDING") return "대기"
-  if (status === "PROCESSING") return "진행 중"
-  if (status === "FAILED") return "실패"
-  return "완료"
 }
 
 function formatMockTimestamp() {
