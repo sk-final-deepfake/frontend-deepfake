@@ -43,6 +43,7 @@ import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { decodeRouteParam } from "@/lib/route-params"
+import { cn } from "@/lib/utils"
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -193,7 +194,7 @@ export default function CaseDetailPage() {
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
       <SiteHeader />
 
-      <main className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-5 py-7 sm:px-8 lg:px-10">
+      <main className="mx-auto flex w-full max-w-[1280px] flex-col gap-5 px-5 py-7 sm:px-8 lg:px-10">
         {caseLoading ? (
           <LoadingCard label="사건 상세 정보를 불러오는 중입니다..." />
         ) : error ? (
@@ -302,6 +303,8 @@ function CaseBreadcrumb() {
   )
 }
 
+const TAB_VALUES = ["summary", "deepfake", "integrity", "report"]
+
 function EvidenceWorkspace({
   data,
   copied,
@@ -319,8 +322,16 @@ function EvidenceWorkspace({
   const progressSteps = buildProgressSteps(data)
   const reportReady = analysisInfo.status === "COMPLETED"
   const verificationCode = `VF-${String(evidenceInfo.evidenceId).padStart(8, "0")}`
-  // 탭은 클릭이 아니라 hover(마우스 올림)로 전환 → controlled 상태로 관리
+  // 내용 전환은 클릭으로만. hover는 파란 밑줄(인디케이터)만 따라가게 별도 상태로 관리.
   const [activeTab, setActiveTab] = useState("summary")
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null)
+  const litTab = hoveredTab ?? activeTab
+  const litIndex = Math.max(0, TAB_VALUES.indexOf(litTab))
+  const tabClass = (value: string) =>
+    cn(
+      "z-10 h-full min-w-0 rounded-none px-5 text-base font-semibold outline-none transition-colors after:hidden focus-visible:ring-0 focus-visible:outline-none",
+      litTab === value ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"
+    )
 
   return (
     <section className="min-w-0 space-y-4">
@@ -337,36 +348,44 @@ function EvidenceWorkspace({
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <TabsList
             variant="line"
+            onMouseLeave={() => setHoveredTab(null)}
             className="relative !grid h-16 w-full grid-cols-4 rounded-none border-b-0 bg-card p-0 after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-border after:content-['']"
           >
             <TabsTrigger
               value="summary"
-              onMouseEnter={() => setActiveTab("summary")}
-              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              onMouseEnter={() => setHoveredTab("summary")}
+              className={tabClass("summary")}
             >
               분석 요약
             </TabsTrigger>
             <TabsTrigger
               value="deepfake"
-              onMouseEnter={() => setActiveTab("deepfake")}
-              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              onMouseEnter={() => setHoveredTab("deepfake")}
+              className={tabClass("deepfake")}
             >
               탐지 상세
             </TabsTrigger>
             <TabsTrigger
               value="integrity"
-              onMouseEnter={() => setActiveTab("integrity")}
-              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              onMouseEnter={() => setHoveredTab("integrity")}
+              className={tabClass("integrity")}
             >
               무결성 검증
             </TabsTrigger>
             <TabsTrigger
               value="report"
-              onMouseEnter={() => setActiveTab("report")}
-              className="z-10 h-full min-w-0 rounded-none border-x-0 border-t-0 border-b-[3px] border-transparent px-5 text-base font-semibold text-muted-foreground outline-none after:hidden data-active:border-blue-500 data-active:text-blue-600 focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-none dark:data-active:text-blue-400"
+              onMouseEnter={() => setHoveredTab("report")}
+              className={tabClass("report")}
             >
               메타데이터/보고서
             </TabsTrigger>
+
+            {/* 활성/hover 탭으로 부드럽게 슬라이드하는 파란 밑줄 */}
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute bottom-0 z-20 h-[3px] bg-blue-500 transition-[left] duration-300 ease-out"
+              style={{ left: `${litIndex * 25}%`, width: "25%" }}
+            />
           </TabsList>
 
           <div className="p-4">
