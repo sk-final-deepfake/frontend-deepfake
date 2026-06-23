@@ -165,6 +165,7 @@ function getActiveNavKey(pathname: string, hash: string) {
   if (pathname.startsWith("/admin/logs")) return "admin-logs"
   if (pathname.startsWith("/admin/profile")) return "admin-profile"
   if (pathname === "/mypage") return "history"
+  if (pathname.startsWith("/cases") || pathname.startsWith("/evidences")) return "history"
   if (pathname === "/compare") return "compare"
   if (pathname !== "/main") return ""
   if (hash === "#new-analysis") return "analysis"

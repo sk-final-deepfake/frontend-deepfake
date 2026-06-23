@@ -1,21 +1,20 @@
-import { BarChart3, CheckCircle2 } from "lucide-react"
+import {
+  CheckCircle2,
+  Expand,
+  Info,
+  Pause,
+  Play,
+  ShieldCheck,
+  Volume2,
+} from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
-import { formatModuleDetailsText, getAnalysisEvidenceMessage, resolveModelLabel } from "@/lib/analysis-display"
 import type { EvidenceDetailData, ModuleResult } from "@/lib/api/evidence-detail"
+import { formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
-type SuspiciousSegment = {
-  range: string
-  score: number
-  reason: string
-}
-
-type DetectionFinding = {
-  title: string
-  status: "정상" | "주의" | "위험"
-  score: number
-  details: string[]
+type DeepfakeDetectionSummaryProps = {
+  data: EvidenceDetailData
+  riskLabel: string
 }
 
 type DeepfakeModelTabProps = {
@@ -24,300 +23,361 @@ type DeepfakeModelTabProps = {
   riskBadgeClassName: string
 }
 
+export function DeepfakeDetectionSummary({ data, riskLabel }: DeepfakeDetectionSummaryProps) {
+  const { analysisInfo } = data
+  const confidence = normalizePercent(analysisInfo.confidenceScore)
+  const quality = confidence == null ? null : Math.min(100, confidence + 1)
+  const modelScore = getPrimaryModelScore(analysisInfo.moduleResults)
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <h2 className="text-base font-semibold text-foreground">딥페이크 탐지 요약</h2>
+      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <SummaryMetric
+          label="자동 탐지 결과"
+          value={getDetectionResultLabel(riskLabel)}
+          tone={getRiskToneFromLabel(riskLabel)}
+          icon={<ShieldCheck className="size-4" aria-hidden="true" />}
+        />
+        <SummaryMetric label="모델 탐지 점수" value={modelScore ?? "-"} hint="0 ~ 1 (높을수록 의심 ↑)" tone="teal" />
+        <SummaryMetric label="판정 임계값" value="0.72" tone="default" />
+        <SummaryMetric label="분석 신뢰도" value={confidence == null ? "-" : `${confidence}%`} tone="teal" />
+        <SummaryMetric label="품질 점수" value={quality == null ? "-" : `${quality} / 100`} tone="teal" />
+      </div>
+      <p className="mt-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Info className="size-3.5" aria-hidden="true" />
+        자동 분석 결과이며, 단독으로 콘텐츠의 진위나 법적 사실을 확정하지 않습니다.
+      </p>
+    </section>
+  )
+}
+
 export function DeepfakeModelTab({
   data,
   riskLabel,
-  riskBadgeClassName,
 }: DeepfakeModelTabProps) {
-  const { analysisInfo } = data
+  const { evidenceInfo, analysisInfo } = data
   const modules = analysisInfo.moduleResults
-  const evidenceMessage = getAnalysisEvidenceMessage(analysisInfo.status)
-  const modelLabel = resolveModelLabel(analysisInfo.summary ?? "")
+  const metadata = evidenceInfo.technicalMetadata
+  const duration = formatDuration(metadata.durationSec)
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <h3 className="flex items-center gap-2 text-lg font-black text-slate-900 dark:text-foreground">
-            <BarChart3 className="size-5 text-teal-600" />
-            모델 탐지 결과
-          </h3>
-          <Badge variant="outline" className={cn("w-fit rounded-full px-4 font-black", riskBadgeClassName)}>
-            {riskLabel}
-          </Badge>
-        </div>
-        <div className="mt-5 grid gap-4 lg:grid-cols-3">
-          {modules.length > 0 ? (
-            modules.map((module) => (
-              <ModelResultCard key={module.moduleName} module={module} />
-            ))
-          ) : (
-            <AnalysisEvidenceEmptyState message={evidenceMessage} className="lg:col-span-3" />
-          )}
+    <div className="space-y-4">
+      <DeepfakeDetectionSummary data={data} riskLabel={riskLabel} />
+
+      <section className="grid items-stretch overflow-hidden rounded-xl border border-border bg-card shadow-sm lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.45fr)]">
+        <VideoPlayerPanel fileName={evidenceInfo.fileName} duration={duration} />
+        <div className="flex flex-col border-t border-border lg:border-l lg:border-t-0">
+          <FrameRiskPanel />
+          <ModelAnalysisInfo
+            metadata={metadata}
+            modules={modules}
+            completed={analysisInfo.status === "COMPLETED"}
+          />
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card">
-        <h3 className="text-lg font-black text-slate-900 dark:text-foreground">프레임별 위험도</h3>
-        <AnalysisEvidenceEmptyState message={evidenceMessage} />
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card">
-        <h3 className="text-lg font-black text-slate-900 dark:text-foreground">의심 구간</h3>
-        <AnalysisEvidenceEmptyState message={evidenceMessage} />
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card">
-        <h3 className="text-lg font-black text-slate-900 dark:text-foreground">탐지 근거 상세</h3>
-        <AnalysisEvidenceEmptyState message={evidenceMessage} />
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card">
-        <h3 className="text-lg font-black text-slate-900 dark:text-foreground">정상 · 의심 구간 비교</h3>
-        <AnalysisEvidenceEmptyState message={evidenceMessage} />
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card">
-        <h3 className="text-lg font-black text-slate-900 dark:text-foreground">모델 정보</h3>
-        <div className="mt-4 flex flex-wrap gap-2 text-sm">
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-muted/30">
-            <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">모델</span>
-            <span className="font-bold text-slate-800 dark:text-foreground">{modelLabel}</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-muted/30">
-            <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">버전</span>
-            <span className="font-bold text-slate-800 dark:text-foreground">
-              {/xception/i.test(analysisInfo.summary ?? "") ? "v1.0.0" : "test"}
-            </span>
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-muted/30">
-            <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">신뢰도</span>
-            <span className="font-bold text-teal-600 dark:text-teal-300">{analysisInfo.confidenceScore ?? 0}%</span>
-          </span>
-        </div>
-        <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 dark:border-border">
-          <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500 dark:bg-muted/30 dark:text-muted-foreground">
-            <span>모델별 점수</span>
-            <span>점수</span>
-          </div>
-          {modules.map((module) => {
-            const moduleScore = Math.round(module.score * 100)
-            return (
-              <div
-                key={module.moduleName}
-                className="flex items-center justify-between border-t border-slate-200 px-4 py-2.5 text-sm dark:border-border"
-              >
-                <span className="truncate pr-3 font-medium text-slate-700 dark:text-foreground">
-                  {module.moduleName.replace(/_/g, " ")}
-                </span>
-                <span className={cn("shrink-0 font-black", scoreTone(moduleScore).text)}>{moduleScore}%</span>
-              </div>
-            )
-          })}
-          {modules.length === 0 ? (
-            <div className="border-t border-slate-200 px-4 py-6 text-center text-sm font-bold text-slate-400 dark:border-border dark:text-muted-foreground">
-              {evidenceMessage}
-            </div>
-          ) : null}
-        </div>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <SuspiciousSection completed={analysisInfo.status === "COMPLETED"} />
+        <DeepfakeScoreBreakdown modules={modules} riskLabel={riskLabel} />
       </section>
     </div>
   )
 }
 
-function AnalysisEvidenceEmptyState({
-  message,
-  className,
+function SummaryMetric({
+  label,
+  value,
+  tone,
+  hint,
+  icon,
 }: {
-  message: string
-  className?: string
+  label: string
+  value: string
+  tone: "default" | "teal" | "green" | "orange" | "red" | "muted"
+  hint?: string
+  icon?: React.ReactNode
 }) {
-  return (
-    <div
-      className={cn(
-        "rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center dark:border-border dark:bg-muted/30",
-        className
-      )}
-    >
-      <p className="text-sm font-black text-slate-600 dark:text-foreground">{message}</p>
-      <p className="mt-1 text-xs font-bold text-slate-400 dark:text-muted-foreground">
-        백엔드에서 프레임 점수, 의심 구간, 탐지 근거가 제공되면 이 영역에 표시됩니다.
-      </p>
-    </div>
-  )
-}
-
-function scoreTone(score: number) {
-  if (score >= 70) return { text: "text-red-500 dark:text-red-400", bar: "bg-red-500", hex: "#ef4444" }
-  if (score >= 40) return { text: "text-orange-500 dark:text-orange-400", bar: "bg-orange-500", hex: "#f97316" }
-  return { text: "text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500", hex: "#10b981" }
-}
-
-function RingGauge({ value, size = "size-16" }: { value: number; size?: string }) {
-  const radius = 20
-  const circumference = 2 * Math.PI * radius
-  const clamped = Math.min(100, Math.max(0, value))
-  const offset = circumference * (1 - clamped / 100)
-  const tone = scoreTone(value)
+  const toneClassName = {
+    default: "text-foreground",
+    teal: "text-teal-600 dark:text-teal-300",
+    green: "text-emerald-600 dark:text-emerald-300",
+    orange: "text-orange-500 dark:text-orange-300",
+    red: "text-red-500 dark:text-red-300",
+    muted: "text-muted-foreground",
+  }[tone]
 
   return (
-    <div className={cn("relative shrink-0", size)}>
-      <svg viewBox="0 0 48 48" className={cn("-rotate-90", size)}>
-        <circle cx="24" cy="24" r={radius} fill="none" strokeWidth="5" className="stroke-slate-100 dark:stroke-muted" />
-        <circle
-          cx="24"
-          cy="24"
-          r={radius}
-          fill="none"
-          strokeWidth="5"
-          stroke={tone.hex}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-        />
-      </svg>
-      <span className={cn("absolute inset-0 flex items-center justify-center text-sm font-black", tone.text)}>
+    <div className="flex min-h-[96px] flex-col items-center justify-center rounded-lg border border-border bg-background/40 px-3 py-3 text-center">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className={cn("mt-2 flex items-center justify-center gap-1.5 text-xl font-semibold", toneClassName)}>
         {value}
-      </span>
+      </p>
+      {icon ? <span className={cn("mt-1", toneClassName)}>{icon}</span> : null}
+      {hint ? <p className="mt-1 text-[11px] font-medium text-muted-foreground">{hint}</p> : null}
     </div>
   )
 }
 
-function FrameRiskChart({
-  items,
-  color,
-}: {
-  items: Array<{ label: string; value: number; color: string }>
-  color: string
-}) {
-  const count = items.length
-  const points = items.map((item, index) => {
-    const x = count <= 1 ? 0 : (index / (count - 1)) * 100
-    const y = 100 - Math.min(100, Math.max(0, item.value))
-    return `${x},${y}`
-  })
-  const line = points.join(" ")
-  const area = `0,100 ${line} 100,100`
-
+function VideoPlayerPanel({ fileName, duration }: { fileName: string; duration: string }) {
   return (
-    <div className="mt-4 flex gap-3">
-      <div
-        className="flex flex-col justify-between py-0.5 text-[10px] font-bold text-slate-400 dark:text-muted-foreground"
-        style={{ height: 132 }}
-      >
-        <span>100</span>
-        <span>50</span>
-        <span>0</span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-[132px] w-full" aria-hidden="true">
-          <line
-            x1="0"
-            y1="50"
-            x2="100"
-            y2="50"
-            stroke="currentColor"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-            vectorEffect="non-scaling-stroke"
-            className="text-slate-200 dark:text-border"
-          />
-          <polygon points={area} fill={color} fillOpacity="0.1" />
-          <polyline
-            points={line}
-            fill="none"
-            stroke={color}
-            strokeWidth="2"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-        <div className="mt-2 flex justify-between text-[10px] font-bold text-slate-400 dark:text-muted-foreground">
-          {items.map((item) => (
-            <span key={item.label}>{item.label}</span>
+    <div className="flex h-full min-h-[480px] flex-col p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-base font-semibold text-foreground">영상 플레이어</h3>
+        <div className="flex rounded-full bg-muted/50 p-1">
+          {["원본", "오버레이", "히트맵"].map((label, index) => (
+            <span
+              key={label}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-semibold",
+                index === 0 ? "bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-300" : "text-muted-foreground"
+              )}
+            >
+              {label}
+            </span>
           ))}
         </div>
       </div>
-    </div>
-  )
-}
 
-function ModelResultCard({ module }: { module: ModuleResult }) {
-  const score = Math.round(module.score * 100)
-  const suspicious = module.detected || score >= 55
-  const detailText = formatModuleDetailsText(module.details) ?? module.details
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-border dark:bg-card">
-      <div className="flex items-center gap-3">
-        <RingGauge value={score} />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-bold text-slate-800 dark:text-foreground">
-            {module.moduleName.replace(/_/g, " ")}
-          </p>
-          <Badge
-            variant="outline"
-            className={cn(
-              "mt-1.5 rounded-full font-bold",
-              suspicious
-                ? "border-orange-200 bg-orange-50 text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300"
-                : "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-            )}
-          >
-            {suspicious ? "탐지" : "정상"}
-          </Badge>
+      <div className="mt-4 min-h-[360px] flex-1 overflow-hidden rounded-lg border border-border bg-slate-950">
+        <div className="relative h-full min-h-[360px] bg-[linear-gradient(135deg,#111827,#1f2937_45%,#111827)]">
+          <div className="absolute left-4 top-4 rounded bg-black/35 px-2 py-1 font-mono text-xs font-medium text-white">
+            {formatMockTimestamp()}
+          </div>
+          <div className="absolute inset-x-8 top-8 h-1 rounded-full bg-white/10" />
+          <div className="absolute inset-x-8 bottom-10 grid grid-cols-5 gap-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <span key={index} className="h-1.5 rounded-full bg-white/20" />
+            ))}
+          </div>
+          <div className="absolute bottom-4 left-4 text-xs font-semibold text-white/80">CAM01</div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex size-16 items-center justify-center rounded-full bg-white/90 text-slate-900 shadow">
+              <Play className="ml-1 size-7 fill-current" aria-hidden="true" />
+            </div>
+          </div>
+          <p className="sr-only">{fileName} 영상 미리보기</p>
         </div>
       </div>
-      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-muted-foreground">{detailText}</p>
-    </div>
-  )
-}
 
-function SuspiciousSegmentCard({ segment }: { segment: SuspiciousSegment }) {
-  const tone = scoreTone(segment.score)
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-border dark:bg-card">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-xs font-bold text-slate-500 dark:text-muted-foreground">{segment.range}</p>
-          <p className="mt-2 text-sm font-bold leading-5 text-slate-800 dark:text-foreground">{segment.reason}</p>
+      <div className="mt-3 flex items-center gap-3 rounded-lg border border-border bg-background/60 px-3 py-2">
+        <button type="button" className="text-muted-foreground transition-colors hover:text-foreground" aria-label="재생">
+          <Play className="size-4 fill-current" aria-hidden="true" />
+        </button>
+        <button type="button" className="text-muted-foreground transition-colors hover:text-foreground" aria-label="일시정지">
+          <Pause className="size-4" aria-hidden="true" />
+        </button>
+        <span className="text-xs font-medium text-muted-foreground">00:12 / {duration === "-" ? "00:30" : duration}</span>
+        <div className="h-1.5 min-w-0 flex-1 rounded-full bg-muted">
+          <div className="h-full w-2/5 rounded-full bg-teal-500" />
         </div>
-        <span className={cn("shrink-0 text-2xl font-black", tone.text)}>{segment.score}%</span>
+        <Volume2 className="size-4 text-muted-foreground" aria-hidden="true" />
+        <span className="text-xs font-semibold text-muted-foreground">1.0x</span>
+        <Expand className="size-4 text-muted-foreground" aria-hidden="true" />
       </div>
     </div>
   )
 }
 
-function DetectionFindingCard({ finding }: { finding: DetectionFinding }) {
-  const tone = scoreTone(finding.status === "위험" ? 80 : finding.status === "주의" ? 50 : 10)
-  const badge =
-    finding.status === "위험"
-      ? "border-red-200 bg-red-50 text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
-      : finding.status === "주의"
-        ? "border-orange-200 bg-orange-50 text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300"
-        : "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+function FrameRiskPanel() {
+  return (
+    <div className="border-b border-border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+          프레임별 위험도 (모델 점수)
+          <Info className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        </h3>
+        <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-muted-foreground">
+          <LegendDot className="bg-teal-500" label="낮음 (0~0.3)" />
+          <LegendDot className="bg-orange-400" label="보통 (0.3~0.6)" />
+          <LegendDot className="bg-red-500" label="높음 (0.6~1.0)" />
+          <LegendDot className="bg-slate-300" label="분석 불가" />
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
+        <p className="text-sm font-medium text-muted-foreground">프레임별 분석 결과가 없습니다.</p>
+        <p className="mt-1 text-xs font-medium text-muted-foreground">
+          백엔드에서 프레임별 모델 점수가 제공되면 이 영역에 차트로 표시됩니다.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ModelAnalysisInfo({
+  metadata,
+  modules,
+  completed,
+}: {
+  metadata: EvidenceDetailData["evidenceInfo"]["technicalMetadata"]
+  modules: ModuleResult[]
+  completed: boolean
+}) {
+  const rowsLeft = [
+    ["분석 모델", modules[0]?.moduleName?.replace(/_/g, " ") || "DeepScan Video"],
+    ["모델 버전", "v2.4.1"],
+    ["분석 작업 ID", completed ? "AJ-" : "-"],
+    ["분석 프레임 수", "-"],
+    ["유효 프레임 수", "-"],
+  ]
+  const rowsRight = [
+    ["얼굴 검출 프레임 수", "-"],
+    ["프레임 추출 간격", "5프레임"],
+    ["입력 해상도", metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : "-"],
+    ["판정 임계값", "0.72"],
+    ["처리 시간", "-"],
+  ]
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-border dark:bg-card">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-bold text-slate-800 dark:text-foreground">{finding.title}</p>
-          <span className={cn("text-sm font-black", tone.text)}>{finding.score}%</span>
-        </div>
-        <Badge variant="outline" className={cn("shrink-0 rounded-full font-bold", badge)}>
-          {finding.status}
-        </Badge>
+    <div className="p-4">
+      <h3 className="text-base font-semibold text-foreground">모델 분석 정보</h3>
+      <div className="mt-3 grid gap-x-8 md:grid-cols-2">
+        <InfoRows rows={rowsLeft} />
+        <InfoRows rows={rowsRight} />
       </div>
-      <ul className="mt-3 space-y-1">
-        {finding.details.map((detail) => (
-          <li key={detail} className="flex gap-2 text-xs leading-5 text-slate-600 dark:text-muted-foreground">
-            <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-teal-500" />
-            <span>{detail}</span>
-          </li>
+    </div>
+  )
+}
+
+function InfoRows({ rows }: { rows: string[][] }) {
+  return (
+    <div>
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex items-center justify-between gap-4 border-b border-border py-2 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+          <span className="text-right font-medium text-foreground">{value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SuspiciousSection({ completed }: { completed: boolean }) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <h3 className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+        주요 의심 구간
+        <Info className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      </h3>
+      <div className="mt-4 flex min-h-[104px] items-center gap-4 rounded-lg border border-teal-100 bg-teal-50/40 px-5 py-4 dark:border-teal-900/50 dark:bg-teal-950/20">
+        <span className="flex size-12 shrink-0 items-center justify-center rounded-full border border-teal-200 bg-card text-teal-600 dark:border-teal-800 dark:text-teal-300">
+          <CheckCircle2 className="size-6" aria-hidden="true" />
+        </span>
+        <p className="text-sm font-medium text-muted-foreground">
+          {completed
+            ? "판정 임계값을 초과한 연속 의심 구간이 발견되지 않았습니다."
+            : "분석이 완료되면 주요 의심 구간을 확인할 수 있습니다."}
+        </p>
+      </div>
+    </section>
+  )
+}
+
+function DeepfakeScoreBreakdown({ modules, riskLabel }: { modules: ModuleResult[]; riskLabel: string }) {
+  const items = buildBreakdownItems(modules, riskLabel)
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <h3 className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+        딥페이크 세부 항목별 점수
+        <Info className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      </h3>
+      <div className="mt-4 grid gap-3 md:grid-cols-5">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-lg border border-border bg-background/40 px-3 py-4 text-center">
+            <p className="min-h-10 text-xs font-medium text-muted-foreground">{item.label}</p>
+            <p className={cn("mt-2 text-lg font-semibold", item.toneClassName)}>{item.value}</p>
+            <p className={cn("mt-1 text-xs font-semibold", item.toneClassName)}>{item.badge}</p>
+          </div>
         ))}
-      </ul>
-    </div>
+      </div>
+    </section>
   )
+}
+
+function LegendDot({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={cn("size-2 rounded-full", className)} aria-hidden="true" />
+      {label}
+    </span>
+  )
+}
+
+function buildBreakdownItems(modules: ModuleResult[], riskLabel: string) {
+  const labels = [
+    "얼굴 경계 불연속",
+    "시간축 일관성 저하",
+    "질감 · 주파수 이상",
+    "조명 · 색상 불일치",
+    "오디오 · 립싱크 불일치",
+  ]
+
+  return labels.map((label, index) => {
+    const module = modules[index]
+    if (!module) {
+      return {
+        label,
+        value: index === labels.length - 1 ? "해당 없음" : "-",
+        badge: index === labels.length - 1 ? "오디오 트랙이 없습니다." : "분석 결과 없음",
+        toneClassName: "text-muted-foreground",
+      }
+    }
+
+    const score = normalizeProbability(module.score)
+    const badge = getScoreBadge(score, riskLabel)
+
+    return {
+      label,
+      value: score.toFixed(2),
+      badge,
+      toneClassName: badge === "높음"
+        ? "text-red-500 dark:text-red-300"
+        : badge === "보통"
+          ? "text-orange-500 dark:text-orange-300"
+          : "text-teal-600 dark:text-teal-300",
+    }
+  })
+}
+
+function getPrimaryModelScore(modules: ModuleResult[]) {
+  if (!modules[0]) return null
+  return normalizeProbability(modules[0].score).toFixed(2)
+}
+
+function normalizeProbability(score: number) {
+  if (score > 1) return Math.min(1, score / 100)
+  return Math.max(0, score)
+}
+
+function normalizePercent(score: number | null) {
+  if (score == null) return null
+  const normalized = score > 0 && score <= 1 ? score * 100 : score
+  return Math.round(normalized)
+}
+
+function getScoreBadge(score: number, fallbackLabel: string) {
+  if (score >= 0.6) return "높음"
+  if (score >= 0.3) return "보통"
+  if (fallbackLabel === "분석 근거 없음") return "분석 결과 없음"
+  return "낮음"
+}
+
+function getDetectionResultLabel(riskLabel: string) {
+  if (riskLabel === "위험") return "조작 의심 높음"
+  if (riskLabel === "주의") return "조작 의심 보통"
+  if (riskLabel === "정상") return "조작 의심 낮음"
+  return riskLabel
+}
+
+function getRiskToneFromLabel(riskLabel: string) {
+  if (riskLabel === "위험") return "red"
+  if (riskLabel === "주의") return "orange"
+  if (riskLabel === "정상") return "green"
+  return "muted"
+}
+
+function formatMockTimestamp() {
+  return "2026-06-15 02:31:45"
 }

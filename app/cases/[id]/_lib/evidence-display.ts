@@ -4,9 +4,12 @@ import { getAnalysisStatusLabel, getRiskLabel, getRiskTone } from "@/lib/status-
 
 export type CaseRiskTone = "green" | "orange" | "red"
 
-export function getCaseRiskTone(score: number, failed: boolean): CaseRiskTone {
-  if (failed) return "red"
-  const tone = getRiskTone(score)
+export function getCaseRiskTone(data: EvidenceDetailData): CaseRiskTone {
+  const { analysisInfo } = data
+
+  if (analysisInfo.status === "FAILED") return "red"
+
+  const tone = getRiskToneFromAnalysis(data)
   if (tone === "danger") return "red"
   if (tone === "caution") return "orange"
   return "green"
@@ -43,12 +46,37 @@ export function getDisplayRiskLabel(data: EvidenceDetailData): string {
   const { analysisInfo } = data
 
   if (analysisInfo.status === "FAILED") return "분석 실패"
-  if (analysisInfo.summary?.trim()) return analysisInfo.summary.trim()
   if (analysisInfo.status !== "COMPLETED") {
     return getAnalysisStatusLabel(analysisInfo.status)
   }
+  const riskLevelLabel = getRiskLevelLabel(analysisInfo.riskLevel)
+  if (riskLevelLabel) return riskLevelLabel
 
-  return getRiskLabel(analysisInfo.riskScore ?? 0)
+  if (analysisInfo.riskScore == null) return "분석 근거 없음"
+
+  return getRiskLabel(normalizeScore(analysisInfo.riskScore))
+}
+
+function getRiskToneFromAnalysis(data: EvidenceDetailData) {
+  const { analysisInfo } = data
+
+  if (analysisInfo.riskLevel === "HIGH") return "danger"
+  if (analysisInfo.riskLevel === "MEDIUM") return "caution"
+  if (analysisInfo.riskLevel === "LOW") return "normal"
+
+  return getRiskTone(normalizeScore(analysisInfo.riskScore ?? 0))
+}
+
+function getRiskLevelLabel(riskLevel: EvidenceDetailData["analysisInfo"]["riskLevel"]) {
+  if (riskLevel === "HIGH") return "위험"
+  if (riskLevel === "MEDIUM") return "주의"
+  if (riskLevel === "LOW") return "정상"
+  return null
+}
+
+function normalizeScore(score: number) {
+  if (score > 0 && score <= 1) return Math.round(score * 100)
+  return score
 }
 
 export function getSummaryPlaceholder(status: AnalysisStatus): string {
@@ -56,28 +84,6 @@ export function getSummaryPlaceholder(status: AnalysisStatus): string {
   if (status === "PROCESSING") return "분석이 진행 중입니다."
   if (status === "FAILED") return "분석에 실패했습니다."
   return "분석 근거 없음"
-}
-
-export function getModuleSummaryValues(data: EvidenceDetailData, riskLabel: string) {
-  const { analysisInfo } = data
-  const pendingMessage = getAnalysisStatusLabel(analysisInfo.status)
-
-  if (analysisInfo.status !== "COMPLETED") {
-    return {
-      deepfake: pendingMessage,
-      frame: pendingMessage,
-      quality: pendingMessage,
-    }
-  }
-
-  const frameModule = analysisInfo.moduleResults.find((module) => /frame/i.test(module.moduleName))
-
-  return {
-    deepfake: riskLabel,
-    frame: frameModule ? `${Math.round(frameModule.score * 100)}%` : "분석 근거 없음",
-    quality:
-      analysisInfo.confidenceScore != null ? `${analysisInfo.confidenceScore}%` : "분석 근거 없음",
-  }
 }
 
 export function buildProgressSteps(data: EvidenceDetailData) {
