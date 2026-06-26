@@ -315,8 +315,8 @@ function buildBreakdownItems(modules: ModuleResult[], riskLabel: string) {
   ]
 
   return labels.map((label, index) => {
-    const module = modules[index]
-    if (!module) {
+    const resultModule = modules[index]
+    if (!resultModule) {
       return {
         label,
         value: index === labels.length - 1 ? "해당 없음" : "-",
@@ -325,7 +325,7 @@ function buildBreakdownItems(modules: ModuleResult[], riskLabel: string) {
       }
     }
 
-    const score = normalizeProbability(module.score)
+    const score = normalizeProbability(resultModule.score)
     const badge = getScoreBadge(score, riskLabel)
 
     return {

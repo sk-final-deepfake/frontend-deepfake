@@ -6,18 +6,18 @@ import { decodeRouteParam } from "@/lib/route-params"
 export type TechnicalMetadata = {
   // Common
   extractionStatus: string
-  
+
   // Video
   width?: number
   height?: number
   durationSec?: number
   fps?: number
   codec?: string
-  
+
   // Audio
   sampleRate?: number
   channels?: number
-  
+
   // Image
   deviceInfo?: string
   capturedAt?: string
@@ -32,6 +32,12 @@ export type EvidenceInfo = {
   uploadedAt: string
   mediaType: string // Added mediaType
   fileType?: string
+  previewUrl?: string | null
+  videoUrl?: string | null
+  fileUrl?: string | null
+  streamUrl?: string | null
+  overlayVideoUrl?: string | null
+  heatmapImageUrl?: string | null
   technicalMetadata: TechnicalMetadata
 }
 
@@ -47,7 +53,23 @@ export type ModuleResult = {
   moduleName: string
   detected: boolean
   score: number
+  deepfakeScore?: number | null
   details: string
+}
+
+export type FrameScore = {
+  timeSec?: number | null
+  timestamp?: string | null
+  score: number
+}
+
+export type RepresentativeFrame = {
+  timeSec?: number | null
+  timestamp?: string | null
+  frameNumber?: number | null
+  score?: number | null
+  imageUrl?: string | null
+  heatmapUrl?: string | null
 }
 
 export type AnalysisInfo = {
@@ -59,6 +81,10 @@ export type AnalysisInfo = {
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | null
   summary: string
   moduleResults: ModuleResult[]
+  frameScores?: FrameScore[] | null
+  representativeFrames?: RepresentativeFrame[] | null
+  overlayVideoUrl?: string | null
+  heatmapImageUrl?: string | null
 }
 
 export type CocLog = {

@@ -11,8 +11,8 @@ import { cn } from "@/lib/utils"
 const defaultNavItems = [
   { key: "dashboard", label: "대시보드", href: "/main" },
   { key: "analysis", label: "분석요청", href: "/main#new-analysis" },
-  { key: "history", label: "분석이력", href: "/mypage" },
   { key: "compare", label: "비교검증", href: "/compare" },
+  { key: "history", label: "분석이력", href: "/mypage" },
 ]
 
 const adminNavItems = [

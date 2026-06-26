@@ -15,6 +15,7 @@ import {
 } from "@/lib/evidence-api"
 import { features } from "@/lib/features"
 import { formatDateTime, formatFileSize } from "@/lib/formatters"
+import { buildCaseDetailPath } from "@/lib/route-params"
 
 type AnalysisStep = "upload" | "analyzing" | "cancelled"
 
@@ -231,7 +232,7 @@ export function AnalysisRequestFlow() {
         setProgress(100)
         const firstEvidenceId = evidenceIds[0]
         if (firstEvidenceId) {
-          window.setTimeout(() => router.push(buildCaseDetailHref(caseName, firstEvidenceId)), 350)
+          window.setTimeout(() => router.push(buildCaseDetailPath(caseName, firstEvidenceId)), 350)
         } else {
           setStep("upload")
           setUploadMessage({

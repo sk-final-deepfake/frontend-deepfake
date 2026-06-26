@@ -16,7 +16,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
-import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
+import { formatDateTime, formatDateTimeWithSeconds, formatDuration, formatFileSize } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
 type MetadataReportTabProps = {
@@ -160,7 +160,7 @@ export function MetadataReportTab({
             rows={[
               ["파일명", evidenceInfo.fileName],
               ["파일 유형", evidenceInfo.fileType || "VIDEO"],
-              ["파일 크기", evidenceInfo.fileSizeText || "확인되지 않음"],
+              ["파일 크기", formatFileSize(evidenceInfo.fileSize, { zeroLabel: "확인되지 않음" })],
               ["재생 시간", metadata.durationSec != null ? formatDuration(metadata.durationSec) : "확인되지 않음"],
               ["해상도", formatResolution(data)],
               ["프레임레이트", metadata.fps != null ? `${metadata.fps} fps` : "확인되지 않음"],

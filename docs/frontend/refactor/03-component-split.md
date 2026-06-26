@@ -6,7 +6,7 @@
 ## 목표
 
 500줄을 넘는 거대 파일을 **route의 `_components/` + `_hooks/`로 분리**한다.
-**UI/동작은 그대로**, `npm run build` 통과. 한 파일씩.
+**UI/동작은 그대로**, `pnpm build` 통과. 한 파일씩.
 
 ## 절대 금지
 
@@ -70,7 +70,7 @@ app/compare/_components/compare-result-panel.tsx
 
 1. **순수 표현 컴포넌트부터** 잘라낸다(props만 받는 것). 로직 적어 안전.
 2. props/타입을 그대로 유지(export 시그니처 불변).
-3. 한 파일 분리 → `npm run build` → 다음.
+3. 한 파일 분리 → `pnpm build` → 다음.
 4. import 경로만 바뀌고 렌더 결과는 동일해야 함.
 
 ## 주의 / 함정
@@ -84,11 +84,11 @@ app/compare/_components/compare-result-panel.tsx
 
 - 대상 파일 각각 **500줄 이하**.
 - `page.tsx`는 데이터 로딩 + 조립만.
-- UI/동작 변화 없음, `npm run build` 통과.
+- UI/동작 변화 없음, `pnpm build` 통과.
 - 새로 생긴 `tsc` 에러 없음.
 
 ## 최종 보고
 
 - 분리한 파일 트리
 - 각 파일 줄 수(전/후)
-- `npm run build` 결과, `git status --short`
+- `pnpm build` 결과, `git status --short`
