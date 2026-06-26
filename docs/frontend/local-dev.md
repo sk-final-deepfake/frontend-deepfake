@@ -4,13 +4,13 @@
 
 ```bash
 # 의존성 설치
-pnpm install        # 또는 npm install
+pnpm install
 
 # 개발 서버 (http://localhost:3000)
-pnpm dev            # 또는 npm run dev
+pnpm dev
 
 # 프로덕션 빌드 검증
-npm run build
+pnpm build
 ```
 
 백엔드는 로컬에서 `http://localhost:8080` 기준으로 동작한다고 가정한다.

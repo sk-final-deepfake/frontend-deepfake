@@ -302,4 +302,4 @@ app/cases/[id]/_components/summary-tab.tsx
 - 폰트가 작고 과하게 굵지 않다.
 - real 모드에서 가짜 분석 결과를 만들지 않는다.
 - 실제 데이터가 없을 때는 상태 UI로 표시한다.
-- `npm run build`가 통과한다.
+- `pnpm build`가 통과한다.

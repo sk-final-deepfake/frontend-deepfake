@@ -55,7 +55,7 @@ docs/FORENSIC_CASE_ANALYSIS_UX_POLICY.md
 ```text
 [x] 업로드 완료 후 화면에서 "분석 완료"로 오해되는 문구가 없는지 확인
 [x] 분석 요청 성공 후 기록은 남고, 새 사건 시작 시 화면만 비워지는지 확인
-[x] npm run build 통과
+[x] pnpm build 통과
 ```
 
 ## 2단계: 사건명 필수 UX 적용
@@ -99,7 +99,7 @@ AnalysisService.startAnalysis(...)에서 사건명 정책 변경
 [x] API 직접 호출로 사건명 없이 업로드하면 400
 [x] 사건명 입력 후 여러 파일 업로드 가능
 [x] sh gradlew test 통과
-[x] npm run build 통과
+[x] pnpm build 통과
 ```
 
 ## 3단계: 새 사건 / 기존 사건 탭 분리
@@ -140,7 +140,7 @@ AnalysisService.startAnalysis(...)에서 사건명 정책 변경
 [ ] 새 사건 탭에서 새 caseName으로 업로드 가능
 [ ] 기존 사건 탭에서 선택한 사건으로 업로드 가능
 [ ] 마이페이지 사건 목록에서 같은 사건으로 묶이는지 확인
-[ ] npm run build 통과
+[ ] pnpm build 통과
 ```
 
 ## 4단계: 사건 상세 페이지 안정화
@@ -224,7 +224,7 @@ PDF 생성 API를 이 단계에서 구현하지 않음
 ```text
 [x] 분석 미완료 증거 상세도 화면이 깨지지 않음
 [x] 분석 완료 증거 상세에서 분석 결과가 표시됨
-[x] npm run build 통과
+[x] pnpm build 통과
 ```
 
 ## 6단계: 원본 증거 삭제 요청 UX

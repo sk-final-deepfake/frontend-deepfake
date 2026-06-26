@@ -192,4 +192,4 @@ app/cases/[id]/_lib/evidence-display.ts
 - 탭은 파란색 active 스타일이고 클릭 시 흔들리지 않는다.
 - 분석 요약 탭은 카드가 너무 난잡하게 흩어지지 않는다.
 - API 호출, 상태 소유, mock/real 정책은 변경하지 않는다.
-- `npm run build`가 통과한다.
+- `pnpm build`가 통과한다.

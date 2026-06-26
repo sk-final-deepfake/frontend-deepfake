@@ -96,7 +96,7 @@ export function fetchFoo(): Promise<Foo> {
 ## 11. 작업/PR 규칙
 
 - **한 PR에 목적 하나** (구조 변경 + 기능 + 포맷팅 섞지 않기)
-- 올리기 전 **`npm run build` 통과** 확인
+- 올리기 전 **`pnpm build` 통과** 확인
 - 임시 파일(`tmp-*.mp4` 등) 커밋 금지
 - `main`은 **자동 배포** → 올리기 전 로그인/업로드 스모크 테스트
 - 공유 브랜치 `git push --force` / 히스토리 재작성 금지
@@ -111,4 +111,4 @@ export function fetchFoo(): Promise<Foo> {
 - [ ] loading/empty/error/권한없음 처리했는가?
 - [ ] 밝은 색에 `dark:` 변형을 넣었는가? 디자인 토큰을 썼는가?
 - [ ] 토큰/비밀값을 storage·로그에 노출하지 않는가?
-- [ ] `npm run build` 통과하는가?
+- [ ] `pnpm build` 통과하는가?

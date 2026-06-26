@@ -6,7 +6,7 @@
 ## 목표
 
 이미 만들어 둔 공통 유틸 파일들을 **실제 화면에 배선**해서 중복 포맷터/라벨/에러처리를 제거한다.
-**한 파일씩 바꾸고 매번 `npm run build` 확인.** UI는 바꾸지 않는다.
+**한 파일씩 바꾸고 매번 `pnpm build` 확인.** UI는 바꾸지 않는다.
 
 ## 절대 금지
 
@@ -49,7 +49,7 @@ grep -rn "instanceof ApiError" app components --include="*.tsx"
 
 각 단계마다:
 ```bash
-npm run build   # 통과 확인
+pnpm build   # 통과 확인
 ```
 
 ## 주의 / 함정
@@ -63,11 +63,11 @@ npm run build   # 통과 확인
 
 - 중복 포맷터/라벨/에러처리 함수가 화면에서 제거되고 `lib/*`에서 import.
 - `process.env.NEXT_PUBLIC_*` 직접 읽기 0 (전부 `features`).
-- `npm run build` 통과, UI/값 변화 없음.
+- `pnpm build` 통과, UI/값 변화 없음.
 - 새로 생긴 `tsc` 에러 없음. (기존: toast 계열, `upload-panel.tsx(99,29)` flatMap)
 
 ## 최종 보고
 
 - 바꾼 파일 목록 / 제거한 중복 함수
-- `npm run build` 결과
+- `pnpm build` 결과
 - `git status --short`

@@ -68,31 +68,30 @@ type UploadPanelProps = {
 }
 
 function buildMetadataItems(fileStates: FileUploadState[]): MetadataDisplayItem[] {
-  return fileStates.flatMap((state, index) => {
+  const items: MetadataDisplayItem[] = []
+
+  fileStates.forEach((state, index) => {
     if (state.status === "pending" || state.status === "uploading") {
-      return [
-        {
-          id: `pending-${fileFingerprint(state.file)}-${index}`,
-          phase: "pending" as const,
-          fileName: state.file.name,
-          fileSize: state.file.size,
-        },
-      ]
+      items.push({
+        id: `pending-${fileFingerprint(state.file)}-${index}`,
+        phase: "pending",
+        fileName: state.file.name,
+        fileSize: state.file.size,
+      })
+      return
     }
 
     if (state.result) {
-      return [
-        {
-          id: `uploaded-${state.result.evidenceId}`,
-          phase: "uploaded" as const,
-          upload: state.result,
-          analysisStatus: state.analysisStatus ?? state.result.analysisStatus,
-        },
-      ]
+      items.push({
+        id: `uploaded-${state.result.evidenceId}`,
+        phase: "uploaded",
+        upload: state.result,
+        analysisStatus: state.analysisStatus ?? state.result.analysisStatus,
+      })
     }
-
-    return []
   })
+
+  return items
 }
 
 function dedupeResultsByHash(results: UploadResult[]): UploadResult[] {

@@ -12,7 +12,7 @@ import {
   Volume2,
 } from "lucide-react"
 
-import type { EvidenceDetailData, ModuleResult } from "@/lib/api/evidence-detail"
+import type { EvidenceDetailData, FrameScore, ModuleResult, RepresentativeFrame } from "@/lib/api/evidence-detail"
 import { formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -28,71 +28,105 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const { evidenceInfo, analysisInfo } = data
   const metadata = evidenceInfo.technicalMetadata
 
-  // 실데이터에서 가져올 수 있는 값은 derive, 없는 부분은 데모용 mock.
-  const modelScore = getPrimaryModelScore(analysisInfo.moduleResults) ?? 0.82
-  const confidence = normalizePercent(analysisInfo.confidenceScore) ?? 94
-  const quality = Math.min(100, confidence + 1)
+  const modelScore = getPrimaryModelScore(analysisInfo.moduleResults)
+  const confidence = normalizePercent(analysisInfo.confidenceScore)
+  const quality = confidence == null ? null : Math.min(100, confidence + 1)
   const duration = formatDuration(metadata.durationSec)
   const verdict = getVerdict(modelScore)
-  const summary =
-    analysisInfo.summary?.trim() ||
-    "해당 구간에서 얼굴 경계의 비자연스러운 경계선, 피부 질감의 불일치, 조명 반응의 불균일성, 시간축 일관성 저하가 복합적으로 감지되었습니다. 특히 00:09~00:18 구간은 연속된 프레임에서 높은 점수가 지속되어 조작 의심이 높습니다."
+  const summary = analysisInfo.summary?.trim() || "AI 탐지 근거가 아직 제공되지 않았습니다."
+  const videoUrl = getPlayableVideoUrl(data)
+  const overlayVideoUrl = analysisInfo.overlayVideoUrl ?? evidenceInfo.overlayVideoUrl ?? null
+  const heatmapImageUrl = analysisInfo.heatmapImageUrl ?? evidenceInfo.heatmapImageUrl ?? null
 
   return (
     <div className="space-y-4">
       <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} quality={quality} />
 
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <VideoPlayerCard duration={duration} />
-        <ModelInfoSidebar />
+        <VideoPlayerCard
+          duration={duration}
+          videoUrl={videoUrl}
+          overlayVideoUrl={overlayVideoUrl}
+          heatmapImageUrl={heatmapImageUrl}
+        />
+        <ModelInfoSidebar data={data} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <FrameRiskGraph score={modelScore} />
-        <ReasoningNote summary={summary} />
-        <RepresentativeFrames />
-        <PerItemScores modules={analysisInfo.moduleResults} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(280px,1fr)]">
+        <div className="min-w-0 space-y-4">
+          <FrameRiskGraph frameScores={analysisInfo.frameScores ?? []} />
+          <RepresentativeFrames frames={analysisInfo.representativeFrames ?? []} />
+        </div>
+        <div className="min-w-0 space-y-4">
+          <ReasoningNote summary={summary} />
+          <PerItemScores modules={analysisInfo.moduleResults} />
+        </div>
       </div>
     </div>
   )
 }
 
-function VideoPlayerCard({ duration }: { duration: string }) {
+function VideoPlayerCard({
+  duration,
+  videoUrl,
+  overlayVideoUrl,
+  heatmapImageUrl,
+}: {
+  duration: string
+  videoUrl: string | null
+  overlayVideoUrl: string | null
+  heatmapImageUrl: string | null
+}) {
   const [view, setView] = useState<ViewMode>("original")
+  const canShowOverlay = Boolean(overlayVideoUrl)
+  const canShowHeatmap = Boolean(heatmapImageUrl)
 
   return (
     <section className="rounded-xl border border-border bg-card p-3 shadow-sm">
       <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-        {/* 베이스 영상(플레이스홀더) */}
-        <div className="absolute inset-0 bg-[linear-gradient(105deg,#1f2937_0%,#334155_30%,#475569_55%,#1e293b_100%)]" />
-        <div className="absolute inset-y-0 left-1/2 w-px bg-white/10" />
+        {videoUrl ? (
+          <video
+            src={view === "overlay" && overlayVideoUrl ? overlayVideoUrl : videoUrl}
+            className="absolute inset-0 size-full object-cover"
+            controls
+            playsInline
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/70 px-6 text-center">
+            <p className="text-sm font-semibold text-foreground">영상 URL이 없습니다.</p>
+            <p className="mt-2 text-xs font-medium leading-5 text-muted-foreground">
+              백엔드에서 재생 가능한 videoUrl 또는 streamUrl이 제공되면 이 영역에 실제 영상이 표시됩니다.
+            </p>
+          </div>
+        )}
 
-        {/* 오버레이: 의심 영역 박스 */}
-        {view === "overlay" ? (
-          <div className="absolute left-[46%] top-[24%] h-[40%] w-[14%] rounded border-2 border-red-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" />
+        {view === "heatmap" && heatmapImageUrl ? (
+          <img
+            src={heatmapImageUrl}
+            alt=""
+            className="absolute inset-0 size-full object-cover opacity-70 mix-blend-screen"
+          />
         ) : null}
 
-        {/* 히트맵 */}
-        {view === "heatmap" ? (
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_52%_42%,rgba(239,68,68,0.85)_0%,rgba(249,115,22,0.5)_18%,rgba(37,99,235,0.35)_40%,transparent_62%)] mix-blend-screen" />
-        ) : null}
-
-        {/* 보기 전환 토글 (상단 오른쪽) */}
         <div className="absolute right-3 top-3 flex rounded-full bg-black/45 p-1 backdrop-blur-sm">
           {(
             [
-              ["original", "원본"],
-              ["overlay", "오버레이"],
-              ["heatmap", "히트맵"],
+              ["original", "원본", true],
+              ["overlay", "오버레이", canShowOverlay],
+              ["heatmap", "히트맵", canShowHeatmap],
             ] as const
-          ).map(([mode, label]) => (
+          ).map(([mode, label, enabled]) => (
             <button
               key={mode}
               type="button"
-              onClick={() => setView(mode)}
+              onClick={() => {
+                if (enabled) setView(mode)
+              }}
+              disabled={!enabled}
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-semibold transition-colors",
-                view === mode ? "bg-teal-500 text-white" : "text-white/80 hover:text-white"
+                view === mode ? "bg-emerald-500 text-white" : "text-white/80 hover:text-white",
+                !enabled && "cursor-not-allowed text-white/35 hover:text-white/35"
               )}
             >
               {label}
@@ -100,27 +134,32 @@ function VideoPlayerCard({ duration }: { duration: string }) {
           ))}
         </div>
 
-        {/* 촬영 시각 / 카메라 ID */}
         <div className="absolute left-4 top-4 rounded bg-black/55 px-2 py-1 text-xs font-semibold text-white">
           2026-06-15 02:31:45
         </div>
         <div className="absolute bottom-14 left-4 text-sm font-black tracking-wide text-white">CAM01</div>
 
-        {/* 하단 컨트롤 */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/30">
-            <div className="h-full w-[40%] rounded-full bg-teal-400" />
+        {!videoUrl ? (
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/30">
+              <div className="h-full w-[40%] rounded-full bg-emerald-400" />
+            </div>
+            <div className="mt-2 flex items-center gap-3 text-white">
+              <Play className="size-4 fill-current" aria-hidden="true" />
+              <Pause className="size-4" aria-hidden="true" />
+              <span className="text-xs font-semibold">00:12 / {duration === "-" ? "00:03.000" : duration}</span>
+              <Volume2 className="ml-auto size-4" aria-hidden="true" />
+              <span className="text-xs font-semibold">1.0x</span>
+              <Maximize2 className="size-4" aria-hidden="true" />
+            </div>
           </div>
-          <div className="mt-2 flex items-center gap-3 text-white">
-            <Play className="size-4 fill-current" aria-hidden="true" />
-            <Pause className="size-4" aria-hidden="true" />
-            <span className="text-xs font-semibold">00:12 / {duration === "-" ? "00:03.000" : duration}</span>
-            <Volume2 className="ml-auto size-4" aria-hidden="true" />
-            <span className="text-xs font-semibold">1.0x</span>
-            <Maximize2 className="size-4" aria-hidden="true" />
-          </div>
-        </div>
+        ) : null}
       </div>
+      {!canShowOverlay || !canShowHeatmap ? (
+        <p className="mt-2 text-xs font-medium text-muted-foreground">
+          오버레이와 히트맵은 AI 산출물이 제공될 때 활성화됩니다.
+        </p>
+      ) : null}
     </section>
   )
 }
@@ -132,17 +171,23 @@ function SummaryCards({
   quality,
 }: {
   verdict: { label: string; tone: Tone }
-  modelScore: number
-  confidence: number
-  quality: number
+  modelScore: number | null
+  confidence: number | null
+  quality: number | null
 }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       <SummaryCard title="자동 탐지 결과" value={verdict.label} tone={verdict.tone} icon />
-      <SummaryCard title="모델 점수" value={modelScore.toFixed(2)} sub="0~1 (높을수록 의심 ↑)" tone={toneByScore(modelScore)} emphasize />
+      <SummaryCard
+        title="모델 점수"
+        value={formatNullable(modelScore, (value) => value.toFixed(2))}
+        sub="0~1 (높을수록 의심 ↑)"
+        tone={modelScore == null ? "neutral" : toneByScore(modelScore)}
+        emphasize={modelScore != null && modelScore >= THRESHOLD}
+      />
       <SummaryCard title="판정 임계값" value={THRESHOLD.toFixed(2)} sub="기준값 초과 시 의심" tone="neutral" />
-      <SummaryCard title="분석 신뢰도" value={`${confidence}%`} tone="teal" />
-      <SummaryCard title="품질 점수" value={`${quality} / 100`} tone="blue" />
+      <SummaryCard title="분석 신뢰도" value={formatNullable(confidence, (value) => `${value}%`)} tone="green" />
+      <SummaryCard title="품질 점수" value={formatNullable(quality, (value) => `${value} / 100`)} tone="green" />
     </div>
   )
 }
@@ -165,7 +210,7 @@ function SummaryCard({
   return (
     <section
       className={cn(
-        "flex min-h-[148px] flex-col items-center justify-center rounded-xl border bg-card p-4 text-center shadow-sm",
+        "flex min-h-[148px] flex-col rounded-xl border bg-card p-4 text-center shadow-sm",
         emphasize ? "border-red-200 dark:border-red-900/50" : "border-border"
       )}
     >
@@ -173,60 +218,70 @@ function SummaryCard({
         {title}
         <Info className="size-3 text-muted-foreground/60" aria-hidden="true" />
       </p>
-      <p className={cn("mt-3 flex items-center justify-center gap-1 font-black", TONE_TEXT[tone], icon ? "text-xl" : "text-[2rem] leading-none")}>
-        {icon ? <AlertTriangle className="size-5 shrink-0" aria-hidden="true" /> : null}
-        {value}
-      </p>
-      {sub ? <p className="mt-2 text-[11px] font-semibold text-muted-foreground">{sub}</p> : null}
+      <div className="flex flex-1 items-center justify-center">
+        <p className={cn("flex items-center justify-center gap-1 font-black", TONE_TEXT[tone], icon ? "text-xl" : "text-[2rem] leading-none")}>
+          {icon ? <AlertTriangle className="size-5 shrink-0" aria-hidden="true" /> : null}
+          {value}
+        </p>
+      </div>
+      <p className="min-h-[16px] text-[11px] font-semibold text-muted-foreground">{sub ?? ""}</p>
     </section>
   )
 }
 
-function FrameRiskGraph({ score }: { score: number }) {
-  const bars = buildRiskBars(score)
+function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
+  const bars = buildRiskBars(frameScores)
 
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-base font-black text-foreground">프레임별 위험도 그래프</h3>
         <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-muted-foreground">
-          <LegendDot className="bg-teal-500" label="낮음 (0~0.3)" />
+          <LegendDot className="bg-emerald-500" label="낮음 (0~0.3)" />
           <LegendDot className="bg-amber-400" label="보통 (0.3~0.6)" />
           <LegendDot className="bg-red-500" label="높음 (0.6~1.0)" />
           <LegendDot className="bg-slate-300" label="분석 불가" />
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-[30px_minmax(0,1fr)] gap-2">
-        <div className="flex h-40 flex-col justify-between pt-1 text-[11px] font-medium text-muted-foreground">
-          <span>1.0</span>
-          <span>0.5</span>
-          <span>0</span>
-        </div>
-        <div className="relative h-40">
-          <div className="absolute inset-x-0 top-[28%] border-t border-dashed border-red-400">
-            <span className="absolute -top-4 right-0 text-[11px] font-bold text-red-500">임계값 0.72</span>
+      {bars.length > 0 ? (
+        <>
+          <div className="mt-4 grid grid-cols-[30px_minmax(0,1fr)] gap-2">
+            <div className="flex h-40 flex-col justify-between pt-1 text-[11px] font-medium text-muted-foreground">
+              <span>1.0</span>
+              <span>0.5</span>
+              <span>0</span>
+            </div>
+            <div className="relative h-40">
+              <div className="absolute inset-x-0 top-[28%] border-t border-dashed border-red-400">
+                <span className="absolute -top-4 right-0 text-[11px] font-bold text-red-500">임계값 0.72</span>
+              </div>
+              <div className="absolute inset-x-0 bottom-0 flex h-full items-end gap-[3px]">
+                {bars.map((bar, index) => (
+                  <span
+                    key={`${bar.time}-${index}`}
+                    className={cn("flex-1 rounded-none", bar.className)}
+                    style={{ height: `${bar.height}%` }}
+                    aria-hidden="true"
+                  />
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="absolute inset-x-0 bottom-0 flex h-full items-end gap-[3px]">
-            {bars.map((bar, index) => (
-              <span
-                key={index}
-                className={cn("flex-1", bar.className)}
-                style={{ height: `${bar.height}%` }}
-                aria-hidden="true"
-              />
-            ))}
+          <div className="ml-[38px] mt-2 flex justify-between text-[11px] font-medium text-muted-foreground">
+            <span>{formatFrameTime(frameScores[0])}</span>
+            <span>{formatFrameTime(frameScores[Math.floor(frameScores.length / 4)])}</span>
+            <span>{formatFrameTime(frameScores[Math.floor(frameScores.length / 2)])}</span>
+            <span>{formatFrameTime(frameScores[Math.floor((frameScores.length * 3) / 4)])}</span>
+            <span>{formatFrameTime(frameScores[frameScores.length - 1])}</span>
           </div>
-        </div>
-      </div>
-      <div className="ml-[38px] mt-2 grid grid-cols-6 text-[11px] font-medium text-muted-foreground">
-        <span>00:00</span>
-        <span>00:05</span>
-        <span>00:10</span>
-        <span>00:15</span>
-        <span>00:20</span>
-        <span className="text-right">00:30</span>
-      </div>
+        </>
+      ) : (
+        <EmptyState
+          title="프레임별 분석 결과가 없습니다."
+          description="백엔드에서 프레임별 모델 점수가 제공되면 이 영역에 차트로 표시됩니다."
+        />
+      )}
     </section>
   )
 }
@@ -250,43 +305,77 @@ function ReasoningNote({ summary }: { summary: string }) {
   )
 }
 
-function RepresentativeFrames() {
-  const frames = [
-    { time: "00:12.240", frame: "프레임 367", score: "0.98" },
-    { time: "00:13.080", frame: "프레임 389", score: "0.97" },
-    { time: "00:14.320", frame: "프레임 427", score: "0.96" },
-    { time: "00:16.880", frame: "프레임 499", score: "0.93" },
-  ]
-
+function RepresentativeFrames({ frames }: { frames: RepresentativeFrame[] }) {
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <h3 className="text-base font-black text-foreground">대표 프레임 <span className="text-sm font-semibold text-muted-foreground">(의심 구간)</span></h3>
       <p className="mt-1 text-xs font-semibold text-muted-foreground">모델 점수가 높았던 주요 의심 프레임입니다.</p>
-      <div className="mt-4 flex items-center gap-2">
-        <ChevronLeft className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {frames.map((frame) => (
-            <article key={frame.time} className="min-w-0 rounded-lg border border-border bg-background/40 p-2">
-              <p className="truncate text-[11px] font-semibold text-muted-foreground">
-                {frame.time} <span className="text-muted-foreground/70">({frame.frame})</span>
-              </p>
-              <div className="mt-2 grid grid-cols-2 gap-1.5">
-                <div className="aspect-square rounded-md bg-[linear-gradient(135deg,#1e293b,#64748b_55%,#0f172a)]" />
-                <div className="aspect-square rounded-md bg-[radial-gradient(circle_at_50%_44%,#ef4444_0%,#f97316_22%,#1e40af_60%,#312e81_100%)]" />
-              </div>
-              <p className="mt-2 text-xs font-bold text-foreground">점수 {frame.score}</p>
-            </article>
-          ))}
-        </div>
-        <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      </div>
-      <button
-        type="button"
-        className="mx-auto mt-4 flex h-9 items-center rounded-md border border-border px-4 text-xs font-semibold text-muted-foreground hover:bg-muted/40"
-      >
-        전체 프레임 보기
-      </button>
+      {frames.length > 0 ? (
+        <>
+          <div className="mt-4 flex items-center gap-2">
+            <ChevronLeft className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {frames.map((frame, index) => (
+                <article key={`${formatFrameTime(frame)}-${index}`} className="min-w-0 rounded-lg border border-border bg-background/40 p-2">
+                  <p className="truncate text-[11px] font-semibold text-muted-foreground">
+                    {formatFrameTime(frame)}
+                    {frame.frameNumber != null ? (
+                      <span className="text-muted-foreground/70"> (프레임 {frame.frameNumber})</span>
+                    ) : null}
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <FrameImage src={frame.imageUrl} label="대표 프레임 이미지" />
+                    <FrameImage src={frame.heatmapUrl} label="AI 히트맵 이미지" />
+                  </div>
+                  <p className="mt-2 text-xs font-bold text-foreground">
+                    점수 {frame.score == null ? "-" : normalizeProbability(frame.score).toFixed(2)}
+                  </p>
+                </article>
+              ))}
+            </div>
+            <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </div>
+          <button
+            type="button"
+            className="mx-auto mt-4 flex h-9 items-center rounded-md border border-border px-4 text-xs font-semibold text-muted-foreground hover:bg-muted/40"
+          >
+            전체 프레임 보기
+          </button>
+        </>
+      ) : (
+        <EmptyState
+          title="대표 프레임 결과가 없습니다."
+          description="AI가 대표 프레임 이미지나 히트맵을 제공하면 이 영역에 표시됩니다."
+        />
+      )}
     </section>
+  )
+}
+
+function FrameImage({ src, label }: { src?: string | null; label: string }) {
+  if (!src) {
+    return (
+      <div className="flex aspect-square items-center justify-center rounded-md border border-dashed border-border bg-muted/35 px-2 text-center text-[10px] font-semibold text-muted-foreground">
+        이미지 없음
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      alt={label}
+      className="aspect-square rounded-md object-cover"
+    />
+  )
+}
+
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="mt-4 flex min-h-[140px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="mt-2 text-xs font-medium leading-5 text-muted-foreground">{description}</p>
+    </div>
   )
 }
 
@@ -299,35 +388,46 @@ function PerItemScores({ modules }: { modules: ModuleResult[] }) {
         탐지 항목별 점수
         <Info className="size-3.5 text-muted-foreground/60" aria-hidden="true" />
       </h3>
-      <div className="mt-4 space-y-3">
-        {rows.map((row) => (
-          <div key={row.label} className="grid grid-cols-[110px_minmax(0,1fr)_auto] items-center gap-3 text-xs">
-            <span className="font-medium text-muted-foreground">{row.label}</span>
-            <div className="h-2 rounded-full bg-muted">
-              <div className={cn("h-full rounded-full", TONE_BAR[row.tone])} style={{ width: `${row.value * 100}%` }} />
+      {rows.length > 0 ? (
+        <div className="mt-4 space-y-3">
+          {rows.map((row) => (
+            <div key={row.label} className="grid grid-cols-[110px_minmax(0,1fr)_auto] items-center gap-3 text-xs">
+              <span className="font-medium text-muted-foreground">{row.label}</span>
+              <div className="h-2 rounded-full bg-muted">
+                <div className={cn("h-full rounded-full", TONE_BAR[row.tone])} style={{ width: `${row.value * 100}%` }} />
+              </div>
+              <span className="flex items-center justify-end gap-2">
+                <span className="font-bold text-foreground">{row.value.toFixed(2)}</span>
+                <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", TONE_BADGE[row.tone])}>{row.level}</span>
+              </span>
             </div>
-            <span className="flex items-center justify-end gap-2">
-              <span className="font-bold text-foreground">{row.value.toFixed(2)}</span>
-              <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", TONE_BADGE[row.tone])}>{row.level}</span>
-            </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="탐지 항목별 점수가 없습니다."
+          description="AI 모듈별 점수가 제공되면 항목별 막대 점수로 표시됩니다."
+        />
+      )}
     </section>
   )
 }
 
-function ModelInfoSidebar() {
+function ModelInfoSidebar({ data }: { data: EvidenceDetailData }) {
+  const { evidenceInfo, analysisInfo } = data
+  const metadata = evidenceInfo.technicalMetadata
+  const primaryModule = analysisInfo.moduleResults[0]
+  const frameCount = analysisInfo.frameScores?.length
   const rows: Array<[string, string]> = [
-    ["분석 모델", "DeepScan Video"],
+    ["분석 모델", primaryModule?.moduleName || "deepfake"],
     ["모델 버전", "v2.4.1"],
     ["모델 유형", "Video Deepfake Detection"],
-    ["입력 해상도", "224 × 224"],
-    ["분석 프레임 수", "936"],
-    ["유효 프레임 수", "902"],
-    ["얼굴 검출 프레임 수", "888"],
-    ["프레임 추출 간격", "5프레임"],
-    ["처리 시간", "2분 12초"],
+    ["입력 해상도", metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : "-"],
+    ["분석 프레임 수", frameCount ? String(frameCount) : "-"],
+    ["유효 프레임 수", "-"],
+    ["얼굴 검출 프레임 수", "-"],
+    ["프레임 추출 간격", "-"],
+    ["처리 시간", "-"],
     ["판정 임계값", THRESHOLD.toFixed(2)],
   ]
 
@@ -355,81 +455,86 @@ function LegendDot({ className, label }: { className: string; label: string }) {
   )
 }
 
-// ---- tone helpers ----
-type Tone = "red" | "amber" | "teal" | "blue" | "neutral"
+// ---- tone helpers (초록/주황/빨강 3색 + 중립) ----
+type Tone = "red" | "amber" | "green" | "neutral"
 
 const TONE_TEXT: Record<Tone, string> = {
   red: "text-red-500",
   amber: "text-amber-500",
-  teal: "text-teal-600 dark:text-teal-400",
-  blue: "text-blue-600 dark:text-blue-400",
+  green: "text-emerald-600 dark:text-emerald-400",
   neutral: "text-foreground",
 }
 
 const TONE_BAR: Record<Tone, string> = {
   red: "bg-red-500",
   amber: "bg-amber-400",
-  teal: "bg-teal-500",
-  blue: "bg-blue-500",
+  green: "bg-emerald-500",
   neutral: "bg-slate-400",
 }
 
 const TONE_BADGE: Record<Tone, string> = {
   red: "bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300",
   amber: "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300",
-  teal: "bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-300",
-  blue: "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300",
+  green: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300",
   neutral: "bg-muted text-muted-foreground",
 }
 
-function getVerdict(score: number): { label: string; tone: Tone } {
-  if (score >= 0.7) return { label: "조작 의심 높음", tone: "red" }
-  if (score >= 0.4) return { label: "조작 의심 보통", tone: "amber" }
-  return { label: "정상", tone: "teal" }
+function getVerdict(score: number | null): { label: string; tone: Tone } {
+  if (score == null) return { label: "분석 근거 없음", tone: "neutral" }
+  if (score >= 0.7) return { label: "위험", tone: "red" }
+  if (score >= 0.4) return { label: "주의", tone: "amber" }
+  return { label: "정상", tone: "green" }
 }
 
 function toneByScore(score: number): Tone {
   if (score >= 0.6) return "red"
   if (score >= 0.3) return "amber"
-  return "teal"
+  return "green"
 }
 
 function levelByScore(score: number): { level: string; tone: Tone } {
   if (score >= 0.6) return { level: "높음", tone: "red" }
   if (score >= 0.3) return { level: "보통", tone: "amber" }
-  return { level: "낮음", tone: "teal" }
+  return { level: "낮음", tone: "green" }
 }
 
-function buildRiskBars(score: number) {
-  const peak = Math.max(0.5, score)
-  return Array.from({ length: 36 }).map((_, index) => {
-    const center = 13 // 00:09~00:18 구간(약 13번째 막대)에 집중
-    const distance = Math.abs(index - center)
-    const base = Math.max(0.1, peak - distance * 0.05)
-    const height = Math.min(96, Math.max(10, base * 100))
-    const className = base >= 0.6 ? "bg-red-500" : base >= 0.3 ? "bg-amber-400" : "bg-teal-500"
-    return { height, className }
-  })
+function buildRiskBars(frameScores: FrameScore[]) {
+  return frameScores
+    .filter((frame) => typeof frame.score === "number")
+    .map((frame) => {
+      const score = normalizeProbability(frame.score)
+      const height = Math.min(96, Math.max(8, score * 100))
+      const className = score >= 0.6 ? "bg-red-500" : score >= 0.3 ? "bg-amber-400" : "bg-emerald-500"
+      return { time: formatFrameTime(frame), height, className }
+    })
 }
 
 function buildScoreRows(modules: ModuleResult[]) {
-  const scores = modules.map((item) => normalizeProbability(item.score))
-  // 스펙 항목 + 실데이터 있으면 우선 사용
-  const defaults: Array<{ label: string; value: number }> = [
-    { label: "얼굴 경계 불연속", value: scores[0] ?? 0.99 },
-    { label: "시간축 일관성 저하", value: scores[1] ?? 0.74 },
-    { label: "압축 아티팩트", value: scores[2] ?? 0.61 },
-    { label: "조명·색상 불일치", value: scores[3] ?? 0.35 },
-    { label: "오디오·립싱크 불일치", value: scores[4] ?? 0.08 },
-    { label: "메타데이터 기반 이상", value: scores[5] ?? 0.03 },
-  ]
-  return defaults.map((row) => ({ ...row, ...levelByScore(row.value) }))
+  return modules
+    .map((item) => ({ item, score: getModuleScore(item) }))
+    .filter((row): row is { item: ModuleResult; score: number } => row.score != null)
+    .map(({ item, score }) => {
+      const value = normalizeProbability(score)
+      return {
+        label: getModuleLabel(item.moduleName),
+        value,
+        ...levelByScore(value),
+      }
+    })
 }
 
 function getPrimaryModelScore(modules: ModuleResult[]) {
-  const primary = modules.find((module) => typeof module.score === "number")
-  if (!primary) return null
-  return normalizeProbability(primary.score)
+  const primary =
+    modules.find((module) => module.moduleName.toLowerCase().includes("deepfake") && getModuleScore(module) != null) ??
+    modules.find((module) => getModuleScore(module) != null)
+  const score = primary ? getModuleScore(primary) : null
+  return score == null ? null : normalizeProbability(score)
+}
+
+function getModuleScore(module: ModuleResult) {
+  if (typeof module.deepfakeScore === "number") return module.deepfakeScore
+  if (typeof module.score === "number") return module.score
+  return null
 }
 
 function normalizePercent(value: number | null) {
@@ -440,4 +545,34 @@ function normalizePercent(value: number | null) {
 function normalizeProbability(value: number) {
   if (value > 1) return Math.min(1, value / 100)
   return Math.max(0, value)
+}
+
+function formatNullable(value: number | null, formatter: (value: number) => string) {
+  return value == null ? "-" : formatter(value)
+}
+
+function getPlayableVideoUrl(data: EvidenceDetailData) {
+  const evidence = data.evidenceInfo
+  return evidence.videoUrl ?? evidence.streamUrl ?? evidence.fileUrl ?? evidence.previewUrl ?? null
+}
+
+function formatFrameTime(frame?: Pick<FrameScore, "timeSec" | "timestamp"> | Pick<RepresentativeFrame, "timeSec" | "timestamp">) {
+  if (!frame) return "-"
+  if (frame.timestamp) return frame.timestamp
+  if (frame.timeSec == null) return "-"
+
+  const minutes = Math.floor(frame.timeSec / 60)
+  const seconds = Math.floor(frame.timeSec % 60)
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+}
+
+function getModuleLabel(moduleName: string) {
+  const normalizedName = moduleName.toLowerCase()
+  if (normalizedName.includes("lip") || normalizedName.includes("audio")) return "오디오·립싱크 불일치"
+  if (normalizedName.includes("frame") || normalizedName.includes("temporal")) return "시간축 일관성 저하"
+  if (normalizedName.includes("compress") || normalizedName.includes("artifact")) return "압축 아티팩트"
+  if (normalizedName.includes("light") || normalizedName.includes("color")) return "조명·색상 불일치"
+  if (normalizedName.includes("meta")) return "메타데이터 기반 이상"
+  if (normalizedName.includes("face") || normalizedName.includes("deepfake")) return "얼굴 경계 불연속"
+  return moduleName
 }

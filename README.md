@@ -18,11 +18,11 @@
 ## 실행 방법
 
 ```bash
-# 1) 의존성 설치 (pnpm 권장 — pnpm-lock.yaml 포함)
-pnpm install        # 또는 npm install
+# 1) 의존성 설치
+pnpm install
 
 # 2) 개발 서버 실행
-pnpm dev            # 또는 npm run dev
+pnpm dev
 ```
 
 실행 후 브라우저에서 다음 경로로 접근할 수 있습니다. (`/` 접속 시 `/main`으로 이동)

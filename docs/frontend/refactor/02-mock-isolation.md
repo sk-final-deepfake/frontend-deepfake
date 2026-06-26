@@ -59,7 +59,7 @@ import { features } from "@/lib/features"
 if (features.mockApi) { /* mock */ } else { /* real */ }
 ```
 
-각 단계 후 `npm run build`.
+각 단계 후 `pnpm build`.
 
 ## 주의 / 함정
 
@@ -72,10 +72,10 @@ if (features.mockApi) { /* mock */ } else { /* real */ }
 - real 모드에서 sample 결과가 진짜 결과처럼 보이지 않는다.
 - mock 모드와 real 모드가 코드상 명확히 구분(`features.mockApi` 게이트).
 - 결과 없음/대기/AI 연동 전 상태 UI가 명확.
-- `npm run build` 통과, mock 모드도 정상.
+- `pnpm build` 통과, mock 모드도 정상.
 
 ## 최종 보고
 
 - 격리한 mock 파일 / 제거한 real-모드 더미
 - real vs mock 분기 위치
-- `npm run build` 결과, `git status --short`
+- `pnpm build` 결과, `git status --short`
