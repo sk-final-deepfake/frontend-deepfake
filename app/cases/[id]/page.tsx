@@ -14,8 +14,6 @@ import {
 
 import { CaseHero } from "./_components/case-hero"
 import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
-import { EvidenceDrawer } from "./_components/evidence-drawer"
-import { EvidenceSelector } from "./_components/evidence-selector"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
 import { MetadataReportTab } from "./_components/metadata-report-tab"
@@ -42,7 +40,7 @@ import {
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
-import { decodeRouteParam } from "@/lib/route-params"
+import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { cn } from "@/lib/utils"
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -190,6 +188,11 @@ export default function CaseDetailPage() {
     }
   }
 
+  function selectEvidence(evidenceId: number) {
+    setSelectedEvidenceId(evidenceId)
+    router.replace(buildCaseDetailPath(caseId, evidenceId), { scroll: false })
+  }
+
   return (
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
       <SiteHeader />
@@ -206,20 +209,6 @@ export default function CaseDetailPage() {
             <CaseHero data={caseData} getStatusLabel={getCaseStatusLabel} normalizeStatus={normalizeStatus} />
 
             <div className="relative">
-              {/* 증거 파일: 2개 이상일 때만 왼쪽 hover 드로어로 (1개면 숨김) */}
-              {caseData.evidences.length > 1 ? (
-                <EvidenceDrawer count={caseData.evidences.length}>
-                  <EvidenceSelector
-                    evidences={caseData.evidences}
-                    selectedEvidenceId={selectedEvidenceId}
-                    onSelect={setSelectedEvidenceId}
-                    getStatusLabel={getCaseStatusLabel}
-                    normalizeStatus={normalizeStatus}
-                  />
-                </EvidenceDrawer>
-              ) : null}
-
-              {/* 결과: 전체 폭 (드로어는 오버레이라 폭에 영향 없음) */}
               <div className="min-w-0">
                 {detailLoading ? (
                   <LoadingCard label="선택한 증거의 분석 상세를 불러오는 중입니다..." />
@@ -232,6 +221,9 @@ export default function CaseDetailPage() {
                 ) : evidenceDetail ? (
                   <EvidenceWorkspace
                     data={evidenceDetail}
+                    evidences={caseData.evidences}
+                    selectedEvidenceId={selectedEvidenceId}
+                    onSelectEvidence={selectEvidence}
                     copied={copied}
                     onCopyHash={() => copyHash(evidenceDetail.integrityInfo.originalHash)}
                   />
@@ -307,10 +299,16 @@ const TAB_VALUES = ["summary", "deepfake", "integrity", "report"]
 
 function EvidenceWorkspace({
   data,
+  evidences,
+  selectedEvidenceId,
+  onSelectEvidence,
   copied,
   onCopyHash,
 }: {
   data: EvidenceDetailData
+  evidences: CaseEvidenceSummary[]
+  selectedEvidenceId: number | null
+  onSelectEvidence: (evidenceId: number) => void
   copied: boolean
   onCopyHash: () => void
 }) {
@@ -342,6 +340,9 @@ function EvidenceWorkspace({
         statusLabel={getStatusLabel(analysisInfo.status)}
         riskBadgeClassName={riskClassName.badge}
         riskTextClassName={riskClassName.text}
+        evidences={evidences}
+        selectedEvidenceId={selectedEvidenceId}
+        onSelectEvidence={onSelectEvidence}
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">

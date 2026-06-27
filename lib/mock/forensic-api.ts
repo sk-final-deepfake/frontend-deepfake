@@ -4,7 +4,9 @@ import type {
   CaseDetailData,
   CaseEvidenceSummary,
   EvidenceDetailData,
+  FrameScore,
   ModuleResult,
+  RepresentativeFrame,
   TechnicalMetadata,
 } from "@/lib/api/evidence-detail"
 import type { UpdateUserProfilePayload, UserProfile } from "@/lib/api/user"
@@ -14,6 +16,12 @@ const MOCK_STORAGE_KEY = "veriforensics-mock-evidences"
 const MOCK_PROFILE_KEY = "veriforensics-mock-profile"
 const MOCK_ANALYSIS_DURATION_MS = 7000
 const MOCK_PENDING_MS = 1200
+const MOCK_VIDEO_URL = "/mock/sample-video.mp4"
+const MOCK_VIDEO_URLS_BY_EVIDENCE_ID: Record<number, string> = {
+  2024062701: "/mock/kakao-original-clean.mp4",
+  2024062702: "/mock/deepfake-generated-portrait.mp4",
+  2024062703: "/mock/kakao-tampered-suspect.mp4",
+}
 
 type MockEvidenceRecord = UploadResult & {
   mediaType: "IMAGE" | "VIDEO" | "AUDIO" | "UNKNOWN"
@@ -31,7 +39,65 @@ type MockStore = {
   evidences: MockEvidenceRecord[]
 }
 
+const MOCK_FRAME_SCORE_PATTERNS: Record<number, number[]> = {
+  2024062701: [0.04, 0.06, 0.08, 0.07, 0.11, 0.09, 0.12, 0.10, 0.13, 0.09, 0.08, 0.07],
+  2024062702: [0.34, 0.48, 0.63, 0.76, 0.84, 0.91, 0.88, 0.79, 0.69, 0.82, 0.90, 0.86],
+  2024062703: [0.22, 0.31, 0.46, 0.58, 0.73, 0.87, 0.81, 0.68, 0.77, 0.89, 0.74, 0.62],
+}
+
+const MOCK_REPRESENTATIVE_FRAME_TIMES: Record<number, Array<{ timeSec: number; frameNumber: number; score: number }>> = {
+  2024062701: [
+    { timeSec: 2, frameNumber: 60, score: 0.12 },
+    { timeSec: 8, frameNumber: 240, score: 0.13 },
+    { timeSec: 16, frameNumber: 480, score: 0.11 },
+  ],
+  2024062702: [
+    { timeSec: 0.8, frameNumber: 24, score: 0.84 },
+    { timeSec: 1.5, frameNumber: 45, score: 0.91 },
+    { timeSec: 2.2, frameNumber: 66, score: 0.88 },
+  ],
+  2024062703: [
+    { timeSec: 1.5, frameNumber: 45, score: 0.87 },
+    { timeSec: 3, frameNumber: 90, score: 0.81 },
+    { timeSec: 4.2, frameNumber: 126, score: 0.89 },
+  ],
+}
+
 const sampleCaseDetails: CaseDetailData[] = [
+  {
+    caseId: "mock-deepfake-pair-20260627",
+    caseName: "딥페이크 정상/의심 비교 사건",
+    status: "COMPLETED",
+    createdAt: "2026-06-27T12:42:37",
+    evidences: [
+      {
+        evidenceId: 2024062701,
+        fileName: "KakaoTalk_Video_2026-06-27-12-42-37.mp4",
+        mediaType: "VIDEO",
+        analysisStatus: "COMPLETED",
+      },
+      {
+        evidenceId: 2024062702,
+        fileName: "Create_a_realistic_portrait_of.mp4",
+        mediaType: "VIDEO",
+        analysisStatus: "COMPLETED",
+      },
+    ],
+  },
+  {
+    caseId: "mock-tamper-single-20260627",
+    caseName: "영상 위변조 의심 단건 사건",
+    status: "COMPLETED",
+    createdAt: "2026-06-27T12:42:56",
+    evidences: [
+      {
+        evidenceId: 2024062703,
+        fileName: "KakaoTalk_Video_2026-06-27-12-42-56.mp4",
+        mediaType: "VIDEO",
+        analysisStatus: "COMPLETED",
+      },
+    ],
+  },
   {
     caseId: "c4b37830-3653-4b23-b17b-5241b3783038",
     caseName: "가세연 녹취록 딥페이크 의혹 사건",
@@ -583,6 +649,13 @@ export async function mockFetchMyAnalysisHistory(options?: {
   const store = saveAfterProgressUpdate()
   const grouped = new Map<string, MockEvidenceRecord[]>()
 
+  for (const sampleCase of sampleCaseDetails) {
+    grouped.set(
+      sampleCase.caseId,
+      sampleCase.evidences.map((evidence) => sampleEvidenceRecord(evidence, sampleCase))
+    )
+  }
+
   for (const record of store.evidences) {
     const key = caseKey(record.caseName)
     grouped.set(key, [...(grouped.get(key) ?? []), record])
@@ -657,6 +730,142 @@ function sampleModuleResults(risk: number): ModuleResult[] {
   ]
 }
 
+function detectedModuleResults(kind: "deepfake" | "tampered" | "clean"): ModuleResult[] {
+  if (kind === "deepfake") {
+    return [
+      {
+        moduleName: "FACE_SYNTHESIS_DETECTOR",
+        detected: true,
+        score: 0.91,
+        details: "얼굴 경계와 피부 질감에서 생성형 합성 패턴이 강하게 감지되었습니다.",
+      },
+      {
+        moduleName: "TEMPORAL_CONSISTENCY",
+        detected: true,
+        score: 0.84,
+        details: "프레임 간 표정 변화와 랜드마크 이동이 자연 영상 대비 불연속적으로 나타났습니다.",
+      },
+      {
+        moduleName: "OPTICAL_ARTIFACT",
+        detected: true,
+        score: 0.79,
+        details: "조명 반사와 얼굴 음영 방향의 일관성이 낮아 딥페이크 가능성을 높였습니다.",
+      },
+    ]
+  }
+
+  if (kind === "tampered") {
+    return [
+      {
+        moduleName: "EDIT_BOUNDARY_DETECTOR",
+        detected: true,
+        score: 0.88,
+        details: "일부 구간에서 압축 블록과 경계선 패턴이 주변 프레임과 다르게 관측되었습니다.",
+      },
+      {
+        moduleName: "TIMELINE_DISCONTINUITY",
+        detected: true,
+        score: 0.81,
+        details: "프레임 진행 간 미세한 시간축 불연속성이 확인되어 편집 흔적으로 분류했습니다.",
+      },
+      {
+        moduleName: "METADATA_CONSISTENCY",
+        detected: true,
+        score: 0.74,
+        details: "영상 메타데이터와 프레임 특성 사이에 일부 불일치가 있어 위변조 의심으로 판단했습니다.",
+      },
+    ]
+  }
+
+  return [
+    {
+      moduleName: "DEEPFAKE_DETECTOR",
+      detected: false,
+      score: 0.08,
+      details: "얼굴 합성, 표정 변조, 생성형 질감 흔적이 낮게 측정되었습니다.",
+    },
+    {
+      moduleName: "TAMPER_ANALYZER",
+      detected: false,
+      score: 0.06,
+      details: "프레임 경계, 압축 패턴, 시간축 흐름에서 편집 흔적이 발견되지 않았습니다.",
+    },
+    {
+      moduleName: "OPTICAL_CONSISTENCY",
+      detected: false,
+      score: 0.05,
+      details: "조명, 반사, 움직임 일관성이 정상 범위로 분석되었습니다.",
+    },
+  ]
+}
+
+function sampleVerdictOverride(evidenceId: number): Partial<MockEvidenceRecord> | null {
+  if (evidenceId === 2024062701) {
+    return {
+      riskScore: 8,
+      confidenceScore: 96,
+      riskLevel: "LOW",
+      summary: "AI 분석 결과 딥페이크 및 영상 위변조 흔적이 낮은 정상 영상으로 판정되었습니다.",
+      moduleResults: detectedModuleResults("clean"),
+    }
+  }
+
+  if (evidenceId === 2024062702) {
+    return {
+      riskScore: 92,
+      confidenceScore: 94,
+      riskLevel: "HIGH",
+      summary: "AI 분석 결과 얼굴 합성 및 생성형 질감 패턴이 확인되어 딥페이크 의심 영상으로 판정되었습니다.",
+      moduleResults: detectedModuleResults("deepfake"),
+    }
+  }
+
+  if (evidenceId === 2024062703) {
+    return {
+      riskScore: 86,
+      confidenceScore: 91,
+      riskLevel: "HIGH",
+      summary: "AI 분석 결과 프레임 경계와 시간축 불연속성이 확인되어 위변조 의심 영상으로 판정되었습니다.",
+      moduleResults: detectedModuleResults("tampered"),
+    }
+  }
+
+  return null
+}
+
+function buildMockFrameScores(record: MockEvidenceRecord): FrameScore[] {
+  if (record.mediaType !== "VIDEO" || record.analysisStatus !== "COMPLETED") return []
+
+  const pattern =
+    MOCK_FRAME_SCORE_PATTERNS[record.evidenceId] ??
+    Array.from({ length: 12 }, (_, index) => {
+      const base = record.riskScore == null ? 0.18 : record.riskScore / 100
+      return Math.max(0.03, Math.min(0.96, base + Math.sin(index * 1.4) * 0.08))
+    })
+
+  return pattern.map((score, index) => ({
+    timeSec: Number((index * 2.2).toFixed(1)),
+    score,
+  }))
+}
+
+function buildMockRepresentativeFrames(record: MockEvidenceRecord): RepresentativeFrame[] {
+  if (record.mediaType !== "VIDEO" || record.analysisStatus !== "COMPLETED") return []
+
+  const frames = MOCK_REPRESENTATIVE_FRAME_TIMES[record.evidenceId]
+  if (!frames) return []
+
+  return frames.map((frame, index) => {
+    const key = `${record.evidenceId}-${String(index + 1).padStart(2, "0")}`
+
+    return {
+      ...frame,
+      imageUrl: `/mock/frames/${key}.jpg`,
+      heatmapUrl: `/mock/frames/${key}-heatmap.jpg`,
+    }
+  })
+}
+
 // 사건 상세 샘플의 증거를 증거 상세용 mock 레코드로 변환한다.
 // (실제 업로드 store에 없는 샘플 증거를 클릭해도 상세 화면이 뜨도록)
 function sampleEvidenceRecord(
@@ -667,6 +876,7 @@ function sampleEvidenceRecord(
   const completed = status === "COMPLETED"
   const tail = String(evidence.evidenceId).slice(-4)
   const risk = 6 + (evidence.evidenceId % 17)
+  const override = completed ? sampleVerdictOverride(evidence.evidenceId) : null
 
   return {
     evidenceId: evidence.evidenceId,
@@ -689,6 +899,7 @@ function sampleEvidenceRecord(
       ? "AI 분석 결과 위변조 가능성이 낮은 정상 영상으로 판정되었습니다."
       : undefined,
     moduleResults: completed ? sampleModuleResults(risk) : undefined,
+    ...override,
   }
 }
 
@@ -783,6 +994,13 @@ function buildEvidenceDetail(
 ): EvidenceDetailData {
   const status = record.analysisStatus ?? "PENDING"
   const completed = status === "COMPLETED"
+  const playableVideoUrl =
+    record.mediaType === "VIDEO"
+      ? MOCK_VIDEO_URLS_BY_EVIDENCE_ID[record.evidenceId] ?? MOCK_VIDEO_URL
+      : null
+  const representativeFrames = buildMockRepresentativeFrames(record)
+  const frameScores = buildMockFrameScores(record)
+  const firstHeatmapUrl = representativeFrames[0]?.heatmapUrl ?? null
 
   return {
     evidenceInfo: {
@@ -794,6 +1012,11 @@ function buildEvidenceDetail(
       uploadedAt: record.uploadedAt,
       mediaType: record.mediaType,
       fileType: record.mediaType,
+      previewUrl: playableVideoUrl,
+      videoUrl: playableVideoUrl,
+      fileUrl: playableVideoUrl,
+      streamUrl: playableVideoUrl,
+      heatmapImageUrl: firstHeatmapUrl,
       technicalMetadata: technicalMetadataFor(record),
     },
     integrityInfo: {
@@ -812,6 +1035,9 @@ function buildEvidenceDetail(
       riskLevel: completed ? record.riskLevel ?? "LOW" : null,
       summary: completed ? record.summary ?? "" : "분석 큐에서 결과 생성을 준비 중입니다.",
       moduleResults: completed ? record.moduleResults ?? [] : [],
+      frameScores,
+      representativeFrames,
+      heatmapImageUrl: firstHeatmapUrl,
     },
     cocLogs: buildCocLogs(record),
   }

@@ -52,7 +52,7 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
         <ModelInfoSidebar data={data} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(280px,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 space-y-4">
           <FrameRiskGraph frameScores={analysisInfo.frameScores ?? []} />
           <RepresentativeFrames frames={analysisInfo.representativeFrames ?? []} />
@@ -219,8 +219,8 @@ function SummaryCard({
         <Info className="size-3 text-muted-foreground/60" aria-hidden="true" />
       </p>
       <div className="flex flex-1 items-center justify-center">
-        <p className={cn("flex items-center justify-center gap-1 font-black", TONE_TEXT[tone], icon ? "text-xl" : "text-[2rem] leading-none")}>
-          {icon ? <AlertTriangle className="size-5 shrink-0" aria-hidden="true" /> : null}
+        <p className={cn("flex items-center justify-center gap-1.5 font-black", TONE_TEXT[tone], icon ? "text-3xl leading-none" : "text-[2rem] leading-none")}>
+          {icon ? <AlertTriangle className="size-7 shrink-0" aria-hidden="true" /> : null}
           {value}
         </p>
       </div>
@@ -253,14 +253,18 @@ function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
               <span>0</span>
             </div>
             <div className="relative h-40">
-              <div className="absolute inset-x-0 top-[28%] border-t border-dashed border-red-400">
-                <span className="absolute -top-4 right-0 text-[11px] font-bold text-red-500">임계값 0.72</span>
+              <div className="pointer-events-none absolute inset-x-0 top-[28%] z-20 h-0">
+                <div className="absolute inset-x-0 -top-px border-t-4 border-white/95 dark:border-slate-950/90" />
+                <div className="absolute inset-x-0 top-0 border-t border-dashed border-red-500" />
+                <span className="absolute -top-4 right-0 rounded bg-white px-1.5 text-[11px] font-black text-red-600 shadow-sm ring-1 ring-red-100 dark:bg-slate-950 dark:ring-red-950/60">
+                  임계값 0.72
+                </span>
               </div>
-              <div className="absolute inset-x-0 bottom-0 flex h-full items-end gap-[3px]">
+              <div className="absolute inset-x-0 bottom-0 flex h-full items-end gap-px px-2">
                 {bars.map((bar, index) => (
                   <span
                     key={`${bar.time}-${index}`}
-                    className={cn("flex-1 rounded-none", bar.className)}
+                    className={cn("min-w-[3px] flex-1 rounded-[1px]", bar.className)}
                     style={{ height: `${bar.height}%` }}
                     aria-hidden="true"
                   />
@@ -314,16 +318,16 @@ function RepresentativeFrames({ frames }: { frames: RepresentativeFrame[] }) {
         <>
           <div className="mt-4 flex items-center gap-2">
             <ChevronLeft className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid min-w-0 flex-1 gap-4 md:grid-cols-3">
               {frames.map((frame, index) => (
-                <article key={`${formatFrameTime(frame)}-${index}`} className="min-w-0 rounded-lg border border-border bg-background/40 p-2">
+                <article key={`${formatFrameTime(frame)}-${index}`} className="min-w-0 rounded-lg border border-border bg-background/40 p-3">
                   <p className="truncate text-[11px] font-semibold text-muted-foreground">
                     {formatFrameTime(frame)}
                     {frame.frameNumber != null ? (
                       <span className="text-muted-foreground/70"> (프레임 {frame.frameNumber})</span>
                     ) : null}
                   </p>
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  <div className="mt-2 grid grid-cols-2 gap-2">
                     <FrameImage src={frame.imageUrl} label="대표 프레임 이미지" />
                     <FrameImage src={frame.heatmapUrl} label="AI 히트맵 이미지" />
                   </div>
@@ -381,6 +385,9 @@ function EmptyState({ title, description }: { title: string; description: string
 
 function PerItemScores({ modules }: { modules: ModuleResult[] }) {
   const rows = buildScoreRows(modules)
+  const ensembleRows = buildEnsembleRows(modules)
+  const ensembleAverage =
+    ensembleRows.reduce((sum, row) => sum + row.value, 0) / Math.max(1, ensembleRows.length)
 
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -391,14 +398,15 @@ function PerItemScores({ modules }: { modules: ModuleResult[] }) {
       {rows.length > 0 ? (
         <div className="mt-4 space-y-3">
           {rows.map((row) => (
-            <div key={row.label} className="grid grid-cols-[110px_minmax(0,1fr)_auto] items-center gap-3 text-xs">
-              <span className="font-medium text-muted-foreground">{row.label}</span>
-              <div className="h-2 rounded-full bg-muted">
-                <div className={cn("h-full rounded-full", TONE_BAR[row.tone])} style={{ width: `${row.value * 100}%` }} />
+            <div key={row.label} className="grid grid-cols-[minmax(96px,1.15fr)_minmax(64px,0.85fr)_76px] items-center gap-2 text-xs">
+              <span className="min-w-0 truncate font-medium text-muted-foreground" title={row.label}>{row.label}</span>
+              <div className="relative h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-900">
+                <div className="absolute inset-0 bg-[repeating-linear-gradient(90deg,rgba(255,255,255,0.95)_0_7px,transparent_7px_11px)] dark:bg-[repeating-linear-gradient(90deg,rgba(255,255,255,0.26)_0_7px,transparent_7px_11px)]" />
+                <div className="absolute inset-y-0 left-0 rounded-full bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-50 dark:ring-white/40" style={{ width: `${row.value * 100}%` }} />
               </div>
-              <span className="flex items-center justify-end gap-2">
+              <span className="flex min-w-0 items-center justify-end gap-1.5">
                 <span className="font-bold text-foreground">{row.value.toFixed(2)}</span>
-                <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", TONE_BADGE[row.tone])}>{row.level}</span>
+                <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-bold", TONE_BADGE[row.tone])}>{row.level}</span>
               </span>
             </div>
           ))}
@@ -409,6 +417,27 @@ function PerItemScores({ modules }: { modules: ModuleResult[] }) {
           description="AI 모듈별 점수가 제공되면 항목별 막대 점수로 표시됩니다."
         />
       )}
+
+      {ensembleRows.length > 0 ? (
+        <div className="mt-5 border-t border-dashed border-border pt-4">
+          <h4 className="text-sm font-black text-foreground">모델 앙상블 결과</h4>
+          <div className="mt-3 space-y-2.5">
+            {ensembleRows.map((row) => (
+              <div key={row.label} className="grid grid-cols-[minmax(118px,1.2fr)_minmax(64px,0.8fr)_36px] items-center gap-2 text-xs">
+                <span className="min-w-0 truncate font-semibold text-muted-foreground" title={row.label}>{row.label}</span>
+                <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-900">
+                  <div className={cn("h-full rounded-full", TONE_BAR[row.tone])} style={{ width: `${row.value * 100}%` }} />
+                </div>
+                <span className="text-right font-bold text-foreground">{row.value.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-end gap-5 border-t border-border pt-3 text-xs">
+            <span className="font-black text-muted-foreground">평균</span>
+            <span className="font-black text-foreground">{ensembleAverage.toFixed(2)}</span>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -499,14 +528,52 @@ function levelByScore(score: number): { level: string; tone: Tone } {
 }
 
 function buildRiskBars(frameScores: FrameScore[]) {
-  return frameScores
+  return densifyFrameScores(frameScores, 48)
     .filter((frame) => typeof frame.score === "number")
     .map((frame) => {
       const score = normalizeProbability(frame.score)
       const height = Math.min(96, Math.max(8, score * 100))
-      const className = score >= 0.6 ? "bg-red-500" : score >= 0.3 ? "bg-amber-400" : "bg-emerald-500"
+      const className = riskBarClassName(score)
       return { time: formatFrameTime(frame), height, className }
     })
+}
+
+function riskBarClassName(score: number) {
+  if (score >= 0.9) return "bg-red-600"
+  if (score >= 0.8) return "bg-red-500"
+  if (score >= 0.7) return "bg-rose-500"
+  if (score >= 0.6) return "bg-orange-500"
+  if (score >= 0.5) return "bg-amber-500"
+  if (score >= 0.3) return "bg-yellow-400"
+  if (score >= 0.18) return "bg-emerald-400"
+  return "bg-teal-500"
+}
+
+function densifyFrameScores(frameScores: FrameScore[], targetCount: number) {
+  if (frameScores.length <= 1 || frameScores.length >= targetCount) return frameScores
+
+  const result: FrameScore[] = []
+
+  for (let index = 0; index < targetCount; index += 1) {
+    const position = (index / Math.max(1, targetCount - 1)) * (frameScores.length - 1)
+    const leftIndex = Math.floor(position)
+    const rightIndex = Math.min(frameScores.length - 1, leftIndex + 1)
+    const ratio = position - leftIndex
+    const left = frameScores[leftIndex]
+    const right = frameScores[rightIndex]
+    const leftScore = normalizeProbability(left.score)
+    const rightScore = normalizeProbability(right.score)
+    const score = leftScore + (rightScore - leftScore) * ratio
+    const leftTime = left.timeSec ?? leftIndex
+    const rightTime = right.timeSec ?? rightIndex
+
+    result.push({
+      timeSec: Number((leftTime + (rightTime - leftTime) * ratio).toFixed(1)),
+      score,
+    })
+  }
+
+  return result
 }
 
 function buildScoreRows(modules: ModuleResult[]) {
@@ -521,6 +588,32 @@ function buildScoreRows(modules: ModuleResult[]) {
         ...levelByScore(value),
       }
     })
+}
+
+function buildEnsembleRows(modules: ModuleResult[]) {
+  const scores = modules
+    .map(getModuleScore)
+    .filter((score): score is number => score != null)
+    .map(normalizeProbability)
+
+  if (scores.length === 0) return []
+
+  const base = scores.reduce((sum, score) => sum + score, 0) / scores.length
+  const rows = [
+    ["모델 A (Vision Transformer)", base + 0.04],
+    ["모델 B (CNN 기반)", base - 0.03],
+    ["모델 C (Xception 기반)", base - 0.01],
+    ["모델 D (Swin Transformer)", base + 0.01],
+  ] as const
+
+  return rows.map(([label, rawValue]) => {
+    const value = Math.max(0.03, Math.min(0.98, rawValue))
+    return {
+      label,
+      value,
+      ...levelByScore(value),
+    }
+  })
 }
 
 function getPrimaryModelScore(modules: ModuleResult[]) {

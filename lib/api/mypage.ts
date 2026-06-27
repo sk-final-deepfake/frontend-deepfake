@@ -1,6 +1,8 @@
 import { apiRequest } from "@/lib/api/client"
 import type { CaseSummary } from "@/app/mypage/_types/case"
 import type { ListSort, ListPageSize } from "@/lib/user-settings"
+import { features } from "@/lib/features"
+import { mockFetchMyAnalysisHistory } from "@/lib/mock/forensic-api"
 
 type AnalysisHistoryResponse = {
   content: CaseSummary[]
@@ -15,6 +17,10 @@ export async function fetchMyAnalysisHistory(options?: {
   page?: number
   size?: ListPageSize
 }): Promise<AnalysisHistoryResponse> {
+  if (features.mockApi) {
+    return mockFetchMyAnalysisHistory(options)
+  }
+
   const sort = options?.sort ?? "newest"
   const page = options?.page ?? 0
   const size = options?.size ?? 10
