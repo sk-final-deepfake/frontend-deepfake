@@ -15,7 +15,12 @@ export type LoginResponse = {
   userId: number
   loginId: string
   name: string
-  role: "ROLE_USER" | "ROLE_ADMIN"
+  role:
+    | "ROLE_USER"
+    | "ROLE_ADMIN"
+    | "ROLE_REVIEWER"
+    | "ROLE_INVESTIGATOR"
+    | "ROLE_ORG_ADMIN"
 }
 
 export async function login(request: LoginRequest): Promise<LoginResponse> {

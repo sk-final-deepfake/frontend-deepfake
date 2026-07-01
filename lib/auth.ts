@@ -1,6 +1,16 @@
 import { API_BASE_URL } from "@/lib/api/config"
 
-export type AuthRole = "user" | "admin"
+export type AuthRole =
+  | "user"
+  | "admin"
+  | "REVIEWER"
+  | "INVESTIGATOR"
+  | "ORG_ADMIN"
+  | "ROLE_REVIEWER"
+  | "ROLE_INVESTIGATOR"
+  | "ROLE_ORG_ADMIN"
+  | "ROLE_USER"
+  | "ROLE_ADMIN"
 
 export type AuthSession = {
   role: AuthRole
@@ -21,7 +31,18 @@ let authBootstrapped = false
 let bootstrapPromise: Promise<void> | null = null
 
 export function mapBackendRole(role: string): AuthRole {
-  return role === "ROLE_ADMIN" ? "admin" : "user"
+  if (role === "ROLE_ADMIN") return "admin"
+  if (
+    role === "ROLE_REVIEWER" ||
+    role === "ROLE_INVESTIGATOR" ||
+    role === "ROLE_ORG_ADMIN" ||
+    role === "REVIEWER" ||
+    role === "INVESTIGATOR" ||
+    role === "ORG_ADMIN"
+  ) {
+    return role
+  }
+  return "user"
 }
 
 function purgeLegacySessionStorage() {

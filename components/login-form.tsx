@@ -80,7 +80,7 @@ export function LoginForm() {
           <Lock className="size-3" aria-hidden="true" />
           내부망 전용
         </Badge>
-        <CardTitle className="text-xl">VeriForensics 로그인</CardTitle>
+        <CardTitle className="text-xl">ForenShield AI 로그인</CardTitle>
         <CardDescription>
           수사관 계정으로 로그인하여 포렌식 분석 시스템에 접속합니다.
         </CardDescription>

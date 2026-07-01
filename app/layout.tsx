@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'VeriForensics — 딥페이크 · 위변조 분석 플랫폼',
+  title: 'ForenShield AI — 딥페이크 · 위변조 분석 플랫폼',
   description:
     '음성·영상·이미지의 딥페이크 및 위변조를 분석하는 포렌식 보조 시스템',
   generator: 'v0.app',

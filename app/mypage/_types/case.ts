@@ -7,5 +7,7 @@ export interface CaseSummary {
   createdAt: string
   evidenceCount: number
   representativeFileName?: string
+  representativeEvidenceId?: number | null
+  representativeEvidenceLabel?: string | null
   riskScore?: number | null
 }

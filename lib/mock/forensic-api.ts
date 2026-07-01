@@ -1,9 +1,12 @@
 import type { CaseSummary, CaseStatus } from "@/app/mypage/_types/case"
 import type { AnalysisStatus, EvidenceStatsResponse, MediaMetadata, UploadResult } from "@/lib/evidence-api"
 import type {
+  AnalysisType,
   CaseDetailData,
   CaseEvidenceSummary,
   EvidenceDetailData,
+  EvidenceLifecycleStatus,
+  EvidenceRole,
   FrameScore,
   ModuleResult,
   RepresentativeFrame,
@@ -22,9 +25,33 @@ const MOCK_VIDEO_URLS_BY_EVIDENCE_ID: Record<number, string> = {
   2024062702: "/mock/deepfake-generated-portrait.mp4",
   2024062703: "/mock/kakao-tampered-suspect.mp4",
 }
+const uploadedMediaUrls = new Map<number, string>()
+
+function rememberUploadedMediaUrl(evidenceId: number, file: File) {
+  if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return
+
+  const previousUrl = uploadedMediaUrls.get(evidenceId)
+  if (previousUrl) {
+    URL.revokeObjectURL(previousUrl)
+  }
+
+  uploadedMediaUrls.set(evidenceId, URL.createObjectURL(file))
+}
+
+function getUploadedMediaUrl(evidenceId: number) {
+  return uploadedMediaUrls.get(evidenceId) ?? null
+}
 
 type MockEvidenceRecord = UploadResult & {
+  caseId?: string | null
+  displayLabel?: string | null
+  originalFileName?: string | null
   mediaType: "IMAGE" | "VIDEO" | "AUDIO" | "UNKNOWN"
+  lifecycleStatus?: EvidenceLifecycleStatus
+  role?: EvidenceRole
+  replacementEvidenceId?: number | null
+  excludedReason?: string | null
+  analysisType?: AnalysisType
   analysisRequestedAt?: string
   analysisCompletedAt?: string
   analysisProgress?: number
@@ -35,7 +62,15 @@ type MockEvidenceRecord = UploadResult & {
   moduleResults?: ModuleResult[]
 }
 
+type MockCaseRecord = {
+  caseId: string
+  caseName: string
+  createdAt: string
+  representativeEvidenceId?: number | null
+}
+
 type MockStore = {
+  cases: MockCaseRecord[]
   evidences: MockEvidenceRecord[]
 }
 
@@ -69,6 +104,7 @@ const sampleCaseDetails: CaseDetailData[] = [
     caseName: "딥페이크 정상/의심 비교 사건",
     status: "COMPLETED",
     createdAt: "2026-06-27T12:42:37",
+    representativeEvidenceId: 2024062702,
     evidences: [
       {
         evidenceId: 2024062701,
@@ -89,6 +125,7 @@ const sampleCaseDetails: CaseDetailData[] = [
     caseName: "영상 위변조 의심 단건 사건",
     status: "COMPLETED",
     createdAt: "2026-06-27T12:42:56",
+    representativeEvidenceId: 2024062703,
     evidences: [
       {
         evidenceId: 2024062703,
@@ -103,6 +140,7 @@ const sampleCaseDetails: CaseDetailData[] = [
     caseName: "가세연 녹취록 딥페이크 의혹 사건",
     status: "PROCESSING",
     createdAt: "2026-06-18T14:30:00",
+    representativeEvidenceId: 20240187,
     evidences: [
       {
         evidenceId: 20240187,
@@ -123,6 +161,7 @@ const sampleCaseDetails: CaseDetailData[] = [
     caseName: "CCTV 영상 위변조 검증 요청",
     status: "COMPLETED",
     createdAt: "2026-06-15T09:12:00",
+    representativeEvidenceId: 20240185,
     evidences: [
       {
         evidenceId: 20240185,
@@ -149,6 +188,7 @@ const sampleCaseDetails: CaseDetailData[] = [
     caseName: "음성 메일 증거 분석",
     status: "PROCESSING",
     createdAt: "2026-06-17T11:45:00",
+    representativeEvidenceId: 20240182,
     evidences: [
       {
         evidenceId: 20240182,
@@ -163,6 +203,7 @@ const sampleCaseDetails: CaseDetailData[] = [
     caseName: "인터뷰 클립 진위 확인",
     status: "FAILED",
     createdAt: "2026-06-10T16:20:00",
+    representativeEvidenceId: 20240181,
     evidences: [
       {
         evidenceId: 20240181,
@@ -185,7 +226,7 @@ function delay(ms = 350) {
 }
 
 function emptyStore(): MockStore {
-  return { evidences: [] }
+  return { cases: [], evidences: [] }
 }
 
 function readStore(): MockStore {
@@ -197,8 +238,12 @@ function readStore(): MockStore {
   try {
     const parsed = JSON.parse(raw) as MockStore
     if (!parsed || !Array.isArray(parsed.evidences)) return emptyStore()
+    const evidences = parsed.evidences.map((item) =>
+      normalizeEvidenceRecord(updateAnalysisProgress(item))
+    )
     return {
-      evidences: parsed.evidences.map(updateAnalysisProgress),
+      cases: Array.isArray(parsed.cases) ? parsed.cases : inferCasesFromEvidences(evidences),
+      evidences,
     }
   } catch {
     return emptyStore()
@@ -207,7 +252,108 @@ function readStore(): MockStore {
 
 function writeStore(store: MockStore) {
   if (typeof window === "undefined") return
-  localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(store))
+  localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify({
+    cases: store.cases,
+    evidences: store.evidences.map(normalizeEvidenceRecord),
+  }))
+}
+
+function normalizeEvidenceRecord(record: MockEvidenceRecord): MockEvidenceRecord {
+  return {
+    ...record,
+    caseId: record.caseId ?? caseKey(record.caseName),
+    displayLabel: record.displayLabel ?? null,
+    originalFileName: record.originalFileName ?? record.fileName,
+    lifecycleStatus: record.lifecycleStatus ?? "ACTIVE",
+    role: record.role ?? "SUPPLEMENT",
+    replacementEvidenceId: record.replacementEvidenceId ?? null,
+    excludedReason: record.excludedReason ?? null,
+  }
+}
+
+function inferCasesFromEvidences(evidences: MockEvidenceRecord[]): MockCaseRecord[] {
+  const cases = new Map<string, MockCaseRecord>()
+
+  for (const evidence of evidences) {
+    const caseId = evidence.caseId ?? caseKey(evidence.caseName)
+    if (cases.has(caseId)) continue
+
+    cases.set(caseId, {
+      caseId,
+      caseName: evidence.caseName || "미분류 사건",
+      createdAt: evidence.uploadedAt,
+      representativeEvidenceId: evidence.evidenceId,
+    })
+  }
+
+  return Array.from(cases.values())
+}
+
+function sampleCaseRecord(sampleCase: CaseDetailData): MockCaseRecord {
+  return {
+    caseId: sampleCase.caseId,
+    caseName: sampleCase.caseName,
+    createdAt: sampleCase.createdAt,
+    representativeEvidenceId:
+      sampleCase.representativeEvidenceId ?? sampleCase.evidences[0]?.evidenceId ?? null,
+  }
+}
+
+function findSampleCase(caseId: string) {
+  return sampleCaseDetails.find((item) => item.caseId === caseId)
+}
+
+function findCaseRecord(store: MockStore, caseId: string): MockCaseRecord | undefined {
+  return store.cases.find((item) => item.caseId === caseId) ?? (
+    findSampleCase(caseId) ? sampleCaseRecord(findSampleCase(caseId)!) : undefined
+  )
+}
+
+function evidenceCaseId(record: MockEvidenceRecord) {
+  return record.caseId ?? caseKey(record.caseName)
+}
+
+function displayLabelForIndex(index: number) {
+  return `증거 ${index + 1}`
+}
+
+function nextEvidenceDisplayLabel(store: MockStore, caseId: string) {
+  const storedCount = store.evidences.filter((item) => evidenceCaseId(item) === caseId).length
+  const sampleCount = storedCount > 0 ? 0 : findSampleCase(caseId)?.evidences.length ?? 0
+  return displayLabelForIndex(storedCount + sampleCount)
+}
+
+function createCaseId(caseName: string) {
+  const trimmed = caseName.trim() || "미분류 사건"
+  const slug = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 28) || "case"
+
+  return `mock-case-${Date.now().toString(36)}-${slug}`
+}
+
+function normalizeCaseNameForCompare(caseName: string) {
+  return caseName.trim().toLowerCase()
+}
+
+function materializeSampleCase(store: MockStore, caseId: string): MockStore {
+  const sampleCase = findSampleCase(caseId)
+  if (!sampleCase) return store
+  if (store.evidences.some((item) => evidenceCaseId(item) === caseId)) return store
+
+  return {
+    cases: store.cases.some((item) => item.caseId === caseId)
+      ? store.cases
+      : [sampleCaseRecord(sampleCase), ...store.cases],
+    evidences: [
+      ...sampleCase.evidences.map((evidence, index) =>
+        sampleEvidenceRecord(evidence, sampleCase, index)
+      ),
+      ...store.evidences,
+    ],
+  }
 }
 
 function saveAfterProgressUpdate() {
@@ -361,14 +507,36 @@ function buildAnalysisResult(record: MockEvidenceRecord) {
     riskScore,
     confidenceScore,
     riskLevel,
-    summary:
-      riskLevel === "HIGH"
-        ? "얼굴 경계부와 압축 노이즈 패턴에서 합성 가능성이 높은 흔적이 발견되었습니다."
-        : riskLevel === "MEDIUM"
-          ? "일부 프레임과 메타데이터에서 편집 가능성이 관찰되어 추가 검토가 권장됩니다."
-          : "주요 분석 모듈에서 위변조 정황이 낮게 판독되었습니다.",
+    summary: analysisSummaryForType(record.analysisType ?? "DEEPFAKE", riskLevel),
     moduleResults: moduleResultsFor(record.mediaType, riskScore),
   }
+}
+
+function analysisSummaryForType(
+  analysisType: AnalysisType,
+  riskLevel: MockEvidenceRecord["riskLevel"] = "LOW"
+) {
+  if (analysisType === "INTEGRITY") {
+    return riskLevel === "HIGH"
+      ? "해시, 메타데이터, 프레임 연속성 기준에서 원본성 훼손 가능성이 높게 관측되었습니다."
+      : riskLevel === "MEDIUM"
+        ? "일부 무결성 지표에서 추가 확인이 필요한 변화가 감지되었습니다."
+        : "등록 해시와 무결성 기록이 안정적으로 일치합니다."
+  }
+
+  if (analysisType === "COMPARE") {
+    return riskLevel === "HIGH"
+      ? "기준 증거와 비교 대상 증거 사이의 시각적/메타데이터 차이가 크게 확인되었습니다."
+      : riskLevel === "MEDIUM"
+        ? "기준 증거와 일부 구간 차이가 있어 검토가 필요합니다."
+        : "기준 증거와 비교 대상 증거의 핵심 지표가 대체로 일치합니다."
+  }
+
+  return riskLevel === "HIGH"
+    ? "얼굴 경계부와 생성형 질감 패턴에서 딥페이크 가능성이 높은 흔적이 발견되었습니다."
+    : riskLevel === "MEDIUM"
+      ? "일부 프레임에서 합성 가능성이 관찰되어 추가 검토가 권장됩니다."
+      : "주요 딥페이크 탐지 모듈에서 조작 정황이 낮게 판독되었습니다."
 }
 
 function moduleResultsFor(mediaType: MockEvidenceRecord["mediaType"], riskScore: number): ModuleResult[] {
@@ -445,6 +613,8 @@ function statusPriority(status?: AnalysisStatus): number {
 }
 
 function summarizeCaseStatus(records: MockEvidenceRecord[]): CaseStatus {
+  if (records.length === 0) return "PENDING"
+
   const statuses = records.map((record) => record.analysisStatus)
 
   // 사건 목록은 처리중 / 실패 / 완료 3개 상태만 노출한다.
@@ -480,15 +650,32 @@ export async function mockUploadEvidence(file: File, caseName?: string): Promise
   await delay()
 
   const store = readStore()
+  const normalizedCaseName = caseName?.trim() || "미분류 사건"
+  const targetCaseId = caseKey(normalizedCaseName)
+  const cases = store.cases.some((item) => item.caseId === targetCaseId)
+    ? store.cases
+    : [
+        {
+          caseId: targetCaseId,
+          caseName: normalizedCaseName,
+          createdAt: new Date().toISOString(),
+          representativeEvidenceId: null,
+        },
+        ...store.cases,
+      ]
   const hashValue = await sha256(file)
-  const existing = store.evidences.find((item) => item.hashValue === hashValue)
+  const existing = store.evidences.find(
+    (item) => item.hashValue === hashValue && evidenceCaseId(item) === targetCaseId
+  )
 
   if (existing) {
     const updated = {
       ...existing,
-      caseName: caseName?.trim() || existing.caseName,
+      caseId: targetCaseId,
+      caseName: normalizedCaseName || existing.caseName,
     }
     writeStore({
+      cases,
       evidences: store.evidences.map((item) =>
         item.evidenceId === existing.evidenceId ? updated : item
       ),
@@ -500,20 +687,285 @@ export async function mockUploadEvidence(file: File, caseName?: string): Promise
   const record: MockEvidenceRecord = {
     evidenceId: nextEvidenceId(store.evidences),
     fileName: file.name,
-    caseName: caseName?.trim() || null,
+    caseId: targetCaseId,
+    caseName: normalizedCaseName,
+    displayLabel: nextEvidenceDisplayLabel({ ...store, cases }, targetCaseId),
+    originalFileName: file.name,
     fileSize: file.size,
     hashAlgorithm: "SHA-256",
     hashValue,
     metadata: metadataFor(file, mediaType),
     uploadedAt: new Date().toISOString(),
     mediaType,
+    lifecycleStatus: "ACTIVE",
+    role: "SUPPLEMENT",
   }
 
+  const nextCases = cases.map((item) =>
+    item.caseId === targetCaseId && item.representativeEvidenceId == null
+      ? { ...item, representativeEvidenceId: record.evidenceId }
+      : item
+  )
+
   writeStore({
+    cases: nextCases,
     evidences: [record, ...store.evidences],
   })
 
   return record
+}
+
+export async function mockCreateCase(caseName: string): Promise<CaseDetailData> {
+  await delay(180)
+
+  const trimmed = caseName.trim()
+  if (!trimmed) throw new Error("사건명을 입력해 주세요.")
+
+  const store = readStore()
+  const normalizedName = normalizeCaseNameForCompare(trimmed)
+  const duplicated =
+    store.cases.some((item) => normalizeCaseNameForCompare(item.caseName) === normalizedName) ||
+    sampleCaseDetails.some((item) => normalizeCaseNameForCompare(item.caseName) === normalizedName)
+
+  if (duplicated) {
+    throw new Error("이미 등록된 사건명입니다. 다른 사건명을 입력해 주세요.")
+  }
+
+  const record: MockCaseRecord = {
+    caseId: createCaseId(trimmed),
+    caseName: trimmed,
+    createdAt: new Date().toISOString(),
+    representativeEvidenceId: null,
+  }
+
+  writeStore({
+    ...store,
+    cases: [record, ...store.cases],
+  })
+
+  return {
+    caseId: record.caseId,
+    caseName: record.caseName,
+    status: "PENDING",
+    createdAt: record.createdAt,
+    representativeEvidenceId: null,
+    evidences: [],
+  }
+}
+
+export async function mockUploadEvidenceToCase(caseId: string, file: File): Promise<UploadResult> {
+  await delay()
+
+  const store = materializeSampleCase(readStore(), caseId)
+  const targetCase = findCaseRecord(store, caseId)
+  if (!targetCase) throw new Error("mock 사건 데이터를 찾을 수 없습니다.")
+
+  const hashValue = await sha256(file)
+  const mediaType = mediaTypeFromFile(file)
+  const record: MockEvidenceRecord = {
+    evidenceId: nextEvidenceId(store.evidences),
+    fileName: file.name,
+    caseId,
+    caseName: targetCase.caseName,
+    displayLabel: nextEvidenceDisplayLabel(store, caseId),
+    originalFileName: file.name,
+    fileSize: file.size,
+    hashAlgorithm: "SHA-256",
+    hashValue,
+    metadata: metadataFor(file, mediaType),
+    uploadedAt: new Date().toISOString(),
+    mediaType,
+    lifecycleStatus: "ACTIVE",
+    role: "SUPPLEMENT",
+  }
+
+  const representativeRecord =
+    targetCase.representativeEvidenceId == null
+      ? null
+      : store.evidences.find((item) => item.evidenceId === targetCase.representativeEvidenceId)
+  const shouldSetRepresentative =
+    targetCase.representativeEvidenceId == null ||
+    (representativeRecord?.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"
+
+  const cases = store.cases.some((item) => item.caseId === caseId)
+    ? store.cases.map((item) =>
+        item.caseId === caseId && shouldSetRepresentative
+          ? { ...item, representativeEvidenceId: record.evidenceId }
+          : item
+      )
+    : [{ ...targetCase, representativeEvidenceId: record.evidenceId }, ...store.cases]
+
+  writeStore({
+    cases,
+    evidences: [record, ...store.evidences],
+  })
+  rememberUploadedMediaUrl(record.evidenceId, file)
+
+  return record
+}
+
+export async function mockMarkEvidenceExcluded(evidenceId: number, reason: string): Promise<void> {
+  await delay(160)
+
+  const store = readStore()
+  let nextStore = store
+  const target = store.evidences.find((item) => item.evidenceId === evidenceId)
+  if (!target) {
+    for (const sampleCase of sampleCaseDetails) {
+      if (sampleCase.evidences.some((item) => item.evidenceId === evidenceId)) {
+        nextStore = materializeSampleCase(store, sampleCase.caseId)
+        break
+      }
+    }
+  }
+
+  const targetRecord = nextStore.evidences.find((record) => record.evidenceId === evidenceId)
+  const targetCaseId = targetRecord ? evidenceCaseId(targetRecord) : null
+  const fallbackRepresentative =
+    targetCaseId == null
+      ? null
+      : nextStore.evidences.find(
+          (record) =>
+            evidenceCaseId(record) === targetCaseId &&
+            record.evidenceId !== evidenceId &&
+            (record.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
+        ) ?? null
+
+  writeStore({
+    ...nextStore,
+    cases: nextStore.cases.map((record) =>
+      targetCaseId != null &&
+      record.caseId === targetCaseId &&
+      record.representativeEvidenceId === evidenceId
+        ? { ...record, representativeEvidenceId: fallbackRepresentative?.evidenceId ?? null }
+        : record
+    ),
+    evidences: nextStore.evidences.map((record) =>
+      record.evidenceId === evidenceId
+        ? {
+            ...record,
+            lifecycleStatus: "EXCLUDED",
+            role: "SUPPLEMENT",
+            excludedReason: reason.trim() || "사용자 요청으로 사용 제외 처리되었습니다.",
+          }
+        : fallbackRepresentative && record.evidenceId === fallbackRepresentative.evidenceId
+          ? { ...record, role: "PRIMARY" }
+        : record
+    ),
+  })
+}
+
+export async function mockReplaceEvidence(
+  caseId: string,
+  oldEvidenceId: number,
+  file: File,
+  reason: string
+): Promise<UploadResult> {
+  await delay()
+
+  const store = materializeSampleCase(readStore(), caseId)
+  const targetCase = findCaseRecord(store, caseId)
+  if (!targetCase) throw new Error("mock 사건 데이터를 찾을 수 없습니다.")
+
+  const hashValue = await sha256(file)
+  const mediaType = mediaTypeFromFile(file)
+  const record: MockEvidenceRecord = {
+    evidenceId: nextEvidenceId(store.evidences),
+    fileName: file.name,
+    caseId,
+    caseName: targetCase.caseName,
+    displayLabel: nextEvidenceDisplayLabel(store, caseId),
+    originalFileName: file.name,
+    fileSize: file.size,
+    hashAlgorithm: "SHA-256",
+    hashValue,
+    metadata: metadataFor(file, mediaType),
+    uploadedAt: new Date().toISOString(),
+    mediaType,
+    lifecycleStatus: "ACTIVE",
+    role: "SUPPLEMENT",
+  }
+
+  const cases = store.cases.some((item) => item.caseId === caseId)
+    ? store.cases
+    : [targetCase, ...store.cases]
+
+  writeStore({
+    cases,
+    evidences: [
+      record,
+      ...store.evidences.map((item) =>
+        item.evidenceId === oldEvidenceId
+          ? {
+              ...item,
+              lifecycleStatus: "REPLACED" as const,
+              replacementEvidenceId: record.evidenceId,
+              excludedReason: reason.trim() || "새 증거로 대체 등록되었습니다.",
+            }
+          : item
+      ),
+    ],
+  })
+  rememberUploadedMediaUrl(record.evidenceId, file)
+
+  return record
+}
+
+export async function mockSetRepresentativeEvidence(caseId: string, evidenceId: number): Promise<void> {
+  await delay(140)
+
+  const store = materializeSampleCase(readStore(), caseId)
+  const targetCase = findCaseRecord(store, caseId)
+  if (!targetCase) throw new Error("mock 사건 데이터를 찾을 수 없습니다.")
+
+  writeStore({
+    cases: store.cases.some((item) => item.caseId === caseId)
+      ? store.cases.map((item) =>
+          item.caseId === caseId ? { ...item, representativeEvidenceId: evidenceId } : item
+        )
+      : [{ ...targetCase, representativeEvidenceId: evidenceId }, ...store.cases],
+    evidences: store.evidences.map((item) =>
+      evidenceCaseId(item) === caseId
+        ? { ...item, role: item.evidenceId === evidenceId ? "PRIMARY" : "SUPPLEMENT" }
+        : item
+    ),
+  })
+}
+
+export async function mockSetEvidenceRole(evidenceId: number, role: EvidenceRole): Promise<void> {
+  await delay(120)
+
+  const store = readStore()
+  writeStore({
+    ...store,
+    evidences: store.evidences.map((item) =>
+      item.evidenceId === evidenceId ? { ...item, role } : item
+    ),
+  })
+}
+
+export async function mockStartCaseAnalysis({
+  caseId,
+  analysisType,
+  evidenceIds,
+  baseEvidenceId,
+  targetEvidenceId,
+}: {
+  caseId: string
+  analysisType: AnalysisType
+  evidenceIds: number[]
+  baseEvidenceId?: number | null
+  targetEvidenceId?: number | null
+}) {
+  const ids =
+    analysisType === "COMPARE"
+      ? [baseEvidenceId, targetEvidenceId].filter((id): id is number => typeof id === "number")
+      : evidenceIds
+  const store = materializeSampleCase(readStore(), caseId)
+  writeStore(store)
+  const targetCase = findCaseRecord(store, caseId)
+
+  return mockStartEvidenceAnalysis(ids, targetCase?.caseName || "미분류 사건", analysisType)
 }
 
 export async function mockFetchEvidenceStats(): Promise<EvidenceStatsResponse> {
@@ -572,7 +1024,8 @@ export async function mockFetchAnalysisTrend(
 
 export async function mockStartEvidenceAnalysis(
   evidenceIds: number[],
-  caseName: string
+  caseName: string,
+  analysisType: AnalysisType = "DEEPFAKE"
 ) {
   await delay(260)
 
@@ -581,6 +1034,7 @@ export async function mockStartEvidenceAnalysis(
   const store = readStore()
   const evidences = store.evidences.map((record) => {
     if (!requestedIds.has(record.evidenceId)) return record
+    if ((record.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return record
 
     return {
       ...record,
@@ -588,16 +1042,17 @@ export async function mockStartEvidenceAnalysis(
       analysisRequestedAt: now,
       analysisCompletedAt: undefined,
       analysisStatus: "PENDING" as const,
+      analysisType,
       analysisProgress: 0,
       riskScore: undefined,
       confidenceScore: undefined,
       riskLevel: undefined,
-      summary: undefined,
+      summary: analysisSummaryForType(analysisType),
       moduleResults: undefined,
     }
   })
 
-  writeStore({ evidences })
+  writeStore({ ...store, evidences })
 
   return {
     success: true,
@@ -625,6 +1080,7 @@ export async function mockCancelAnalysis(evidenceId: number): Promise<void> {
 
   const store = readStore()
   writeStore({
+    ...store,
     evidences: store.evidences.map((record) => {
       if (record.evidenceId !== evidenceId) return record
 
@@ -648,31 +1104,48 @@ export async function mockFetchMyAnalysisHistory(options?: {
 
   const store = saveAfterProgressUpdate()
   const grouped = new Map<string, MockEvidenceRecord[]>()
+  const caseMeta = new Map<string, MockCaseRecord>()
 
-  for (const sampleCase of sampleCaseDetails) {
-    grouped.set(
-      sampleCase.caseId,
-      sampleCase.evidences.map((evidence) => sampleEvidenceRecord(evidence, sampleCase))
-    )
+  for (const storeCase of store.cases) {
+    caseMeta.set(storeCase.caseId, storeCase)
+    grouped.set(storeCase.caseId, [])
   }
 
   for (const record of store.evidences) {
-    const key = caseKey(record.caseName)
+    const key = evidenceCaseId(record)
     grouped.set(key, [...(grouped.get(key) ?? []), record])
   }
 
+  for (const sampleCase of sampleCaseDetails) {
+    if (grouped.has(sampleCase.caseId)) continue
+    caseMeta.set(sampleCase.caseId, sampleCaseRecord(sampleCase))
+    grouped.set(
+      sampleCase.caseId,
+      sampleCase.evidences.map((evidence, index) =>
+        sampleEvidenceRecord(evidence, sampleCase, index)
+      )
+    )
+  }
+
   const content: CaseSummary[] = Array.from(grouped.entries()).map(([id, records]) => {
+    const meta = caseMeta.get(id)
     const sorted = [...records].sort(
       (a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime()
     )
+    const representativeEvidence =
+      records.find((item) => item.evidenceId === meta?.representativeEvidenceId) ??
+      sorted.find((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE") ??
+      sorted[0]
 
     return {
       caseId: id,
-      caseName: sorted[0]?.caseName || "미분류 사건",
+      caseName: meta?.caseName || sorted[0]?.caseName || "미분류 사건",
       status: summarizeCaseStatus(records),
-      createdAt: sorted[0]?.uploadedAt ?? new Date().toISOString(),
+      createdAt: meta?.createdAt ?? sorted[0]?.uploadedAt ?? new Date().toISOString(),
       evidenceCount: records.length,
-      representativeFileName: sorted[0]?.fileName,
+      representativeFileName: representativeEvidence?.fileName,
+      representativeEvidenceId: representativeEvidence?.evidenceId ?? null,
+      representativeEvidenceLabel: representativeEvidence?.displayLabel ?? null,
       riskScore: maxRiskScore(records),
     }
   })
@@ -870,7 +1343,8 @@ function buildMockRepresentativeFrames(record: MockEvidenceRecord): Representati
 // (실제 업로드 store에 없는 샘플 증거를 클릭해도 상세 화면이 뜨도록)
 function sampleEvidenceRecord(
   evidence: CaseEvidenceSummary,
-  sampleCase: CaseDetailData
+  sampleCase: CaseDetailData,
+  index = sampleCase.evidences.findIndex((item) => item.evidenceId === evidence.evidenceId)
 ): MockEvidenceRecord {
   const status = (evidence.analysisStatus as AnalysisStatus) ?? "PENDING"
   const completed = status === "COMPLETED"
@@ -881,13 +1355,20 @@ function sampleEvidenceRecord(
   return {
     evidenceId: evidence.evidenceId,
     fileName: evidence.fileName,
+    caseId: sampleCase.caseId,
     caseName: sampleCase.caseName,
+    displayLabel: evidence.displayLabel ?? displayLabelForIndex(Math.max(0, index)),
+    originalFileName: evidence.originalFileName ?? evidence.fileName,
     fileSize: 120_000_000 + (evidence.evidenceId % 60) * 1_000_000,
     hashAlgorithm: "SHA-256",
     hashValue: `a3f2b8c1d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0${tail}`,
     metadata: null,
     uploadedAt: sampleCase.createdAt,
     mediaType: (evidence.mediaType as MockEvidenceRecord["mediaType"]) || "UNKNOWN",
+    lifecycleStatus: evidence.lifecycleStatus ?? "ACTIVE",
+    role: evidence.role ?? (sampleCase.representativeEvidenceId === evidence.evidenceId ? "PRIMARY" : "SUPPLEMENT"),
+    replacementEvidenceId: evidence.replacementEvidenceId ?? null,
+    excludedReason: evidence.excludedReason ?? null,
     analysisStatus: status,
     analysisRequestedAt: status === "PENDING" ? undefined : sampleCase.createdAt,
     analysisCompletedAt:
@@ -996,7 +1477,9 @@ function buildEvidenceDetail(
   const completed = status === "COMPLETED"
   const playableVideoUrl =
     record.mediaType === "VIDEO"
-      ? MOCK_VIDEO_URLS_BY_EVIDENCE_ID[record.evidenceId] ?? MOCK_VIDEO_URL
+      ? getUploadedMediaUrl(record.evidenceId) ??
+        MOCK_VIDEO_URLS_BY_EVIDENCE_ID[record.evidenceId] ??
+        MOCK_VIDEO_URL
       : null
   const representativeFrames = buildMockRepresentativeFrames(record)
   const frameScores = buildMockFrameScores(record)
@@ -1006,12 +1489,18 @@ function buildEvidenceDetail(
     evidenceInfo: {
       evidenceId: record.evidenceId,
       fileName: record.fileName,
+      displayLabel: record.displayLabel ?? null,
+      originalFileName: record.originalFileName ?? record.fileName,
       caseName: record.caseName || "미분류 사건",
       caseId,
       fileSize: record.fileSize,
       uploadedAt: record.uploadedAt,
       mediaType: record.mediaType,
       fileType: record.mediaType,
+      lifecycleStatus: record.lifecycleStatus ?? "ACTIVE",
+      role: record.role ?? "SUPPLEMENT",
+      replacementEvidenceId: record.replacementEvidenceId ?? null,
+      excludedReason: record.excludedReason ?? null,
       previewUrl: playableVideoUrl,
       videoUrl: playableVideoUrl,
       fileUrl: playableVideoUrl,
@@ -1071,11 +1560,30 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
   await delay(220)
 
   const store = saveAfterProgressUpdate()
-  const records = store.evidences.filter((record) => caseKey(record.caseName) === caseId)
+  const records = store.evidences.filter((record) => evidenceCaseId(record) === caseId)
+  const storedCase = store.cases.find((item) => item.caseId === caseId)
 
   if (records.length === 0) {
     const sampleCase = sampleCaseDetails.find((item) => item.caseId === caseId)
-    if (sampleCase) return sampleCase
+    if (sampleCase) {
+      const sampleRecords = sampleCase.evidences.map((evidence, index) =>
+        sampleEvidenceRecord(evidence, sampleCase, index)
+      )
+      return {
+        ...sampleCase,
+        evidences: sampleRecords.map((record, index) => mapRecordToCaseEvidence(record, index)),
+      }
+    }
+    if (storedCase) {
+      return {
+        caseId,
+        caseName: storedCase.caseName,
+        status: "PENDING",
+        createdAt: storedCase.createdAt,
+        representativeEvidenceId: storedCase.representativeEvidenceId ?? null,
+        evidences: [],
+      }
+    }
     throw new Error("mock 사건 데이터를 찾을 수 없습니다.")
   }
 
@@ -1084,19 +1592,45 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
   )
   const evidences: CaseEvidenceSummary[] = sorted
     .sort((a, b) => statusPriority(b.analysisStatus) - statusPriority(a.analysisStatus))
-    .map((record) => ({
-      evidenceId: record.evidenceId,
-      fileName: record.fileName,
-      mediaType: record.mediaType,
-      analysisStatus: record.analysisStatus ?? "PENDING",
-    }))
+    .map((record, index) => mapRecordToCaseEvidence(record, index))
 
   return {
     caseId,
-    caseName: sorted[0]?.caseName || "미분류 사건",
+    caseName: storedCase?.caseName || sorted[0]?.caseName || "미분류 사건",
     status: summarizeCaseStatus(records),
-    createdAt: sorted[0]?.uploadedAt ?? new Date().toISOString(),
+    createdAt: storedCase?.createdAt ?? sorted[0]?.uploadedAt ?? new Date().toISOString(),
+    representativeEvidenceId:
+      storedCase?.representativeEvidenceId ??
+      sorted.find((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE")?.evidenceId ??
+      sorted[0]?.evidenceId ??
+      null,
     evidences,
+  }
+}
+
+function mapRecordToCaseEvidence(record: MockEvidenceRecord, index: number): CaseEvidenceSummary {
+  const videoUrl =
+    record.mediaType === "VIDEO"
+      ? getUploadedMediaUrl(record.evidenceId) ??
+        MOCK_VIDEO_URLS_BY_EVIDENCE_ID[record.evidenceId] ??
+        MOCK_VIDEO_URL
+      : null
+
+  return {
+    evidenceId: record.evidenceId,
+    fileName: record.fileName,
+    displayLabel: record.displayLabel ?? displayLabelForIndex(index),
+    originalFileName: record.originalFileName ?? record.fileName,
+    mediaType: record.mediaType,
+    analysisStatus: record.analysisStatus ?? "PENDING",
+    analysisProgress: record.analysisProgress ?? null,
+    lifecycleStatus: record.lifecycleStatus ?? "ACTIVE",
+    role: record.role ?? "SUPPLEMENT",
+    replacementEvidenceId: record.replacementEvidenceId ?? null,
+    excludedReason: record.excludedReason ?? null,
+    previewUrl: videoUrl,
+    videoUrl,
+    fileUrl: videoUrl,
   }
 }
 

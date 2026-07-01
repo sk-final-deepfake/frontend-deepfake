@@ -10,9 +10,9 @@ import { cn } from "@/lib/utils"
 
 const defaultNavItems = [
   { key: "dashboard", label: "대시보드", href: "/main" },
-  { key: "analysis", label: "분석요청", href: "/main#new-analysis" },
+  { key: "cases", label: "사건 관리", href: "/mypage" },
   { key: "compare", label: "비교검증", href: "/compare" },
-  { key: "history", label: "분석이력", href: "/mypage" },
+  { key: "reports", label: "보고서", href: "/reports" },
 ]
 
 const adminNavItems = [
@@ -81,7 +81,7 @@ export function SiteHeader({
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-[#f8fbfd]/95 backdrop-blur-sm dark:border-border dark:bg-background/90">
-      <div className="mx-auto grid h-20 max-w-6xl grid-cols-[1fr_auto] items-center gap-4 px-4 sm:h-24 sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
+      <div className="mx-auto grid h-20 max-w-[1280px] grid-cols-[1fr_auto] items-center gap-4 px-4 sm:h-24 sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
         <Link
           href={brandHref}
           onClick={(event) => handleMainNavigation(event, brandHref)}
@@ -92,10 +92,10 @@ export function SiteHeader({
           </div>
           <div className="flex flex-col leading-tight">
             <span className="font-mono text-base font-bold tracking-tight text-slate-900 dark:text-foreground">
-              VeriForensics
+              ForenShield AI
             </span>
             <span className="mt-1 text-xs font-medium text-slate-500 dark:text-muted-foreground">
-              Digital Media Authentication
+              AI Forensic Evidence
             </span>
           </div>
         </Link>
@@ -105,14 +105,14 @@ export function SiteHeader({
             className={cn(
               "hidden items-center",
               variant === "admin" ? "md:flex" : "lg:flex",
-              variant === "admin" ? "gap-5" : "gap-8"
+              variant === "admin" ? "gap-5" : "gap-6"
             )}
             aria-label="주 메뉴"
           >
             {navItems.map((item) => {
               const isActive = activeKey === item.key
               const className = cn(
-                "font-semibold transition-colors hover:text-slate-950 dark:hover:text-foreground",
+                "whitespace-nowrap font-semibold transition-colors hover:text-slate-950 dark:hover:text-foreground",
                 variant === "admin" ? "text-sm" : "text-base",
                 isActive
                   ? "font-black text-slate-950 dark:text-foreground"
@@ -164,12 +164,12 @@ function getActiveNavKey(pathname: string, hash: string) {
   if (pathname.startsWith("/admin/invite-codes")) return "admin-invite-codes"
   if (pathname.startsWith("/admin/logs")) return "admin-logs"
   if (pathname.startsWith("/admin/profile")) return "admin-profile"
-  if (pathname === "/mypage") return "history"
-  if (pathname.startsWith("/cases") || pathname.startsWith("/evidences")) return "history"
-  if (pathname === "/compare") return "compare"
+  if (pathname === "/mypage") return "cases"
+  if (pathname.startsWith("/cases") || pathname.startsWith("/evidences")) return "cases"
+  if (pathname.startsWith("/compare")) return "compare"
+  if (pathname.startsWith("/reports")) return "reports"
   if (pathname !== "/main") return ""
   if (hash === "#new-analysis") return "analysis"
-  if (hash === "#compare") return "compare"
 
   return "dashboard"
 }

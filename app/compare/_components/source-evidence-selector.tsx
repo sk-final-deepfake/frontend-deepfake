@@ -69,7 +69,7 @@ export function SourceEvidenceSelector({
         </div>
       ) : null}
 
-      <div className="mt-7 grid gap-5 lg:grid-cols-[360px_1fr]">
+      <div className="mt-7 grid gap-5 lg:grid-cols-[320px_1fr]">
         <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-border dark:bg-muted/30">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-sm font-black text-slate-900 dark:text-foreground">

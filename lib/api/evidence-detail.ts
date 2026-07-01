@@ -3,6 +3,10 @@ import { features } from "@/lib/features"
 import { mockFetchCaseDetail, mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
 import { decodeRouteParam } from "@/lib/route-params"
 
+export type EvidenceLifecycleStatus = "ACTIVE" | "EXCLUDED" | "REPLACED"
+export type EvidenceRole = "PRIMARY" | "SUPPLEMENT"
+export type AnalysisType = "DEEPFAKE" | "INTEGRITY" | "COMPARE"
+
 export type TechnicalMetadata = {
   // Common
   extractionStatus: string
@@ -26,12 +30,18 @@ export type TechnicalMetadata = {
 export type EvidenceInfo = {
   evidenceId: number
   fileName: string
+  displayLabel?: string | null
+  originalFileName?: string | null
   caseName: string
   caseId?: string
   fileSize: number
   uploadedAt: string
   mediaType: string // Added mediaType
   fileType?: string
+  lifecycleStatus?: EvidenceLifecycleStatus
+  role?: EvidenceRole
+  replacementEvidenceId?: number | null
+  excludedReason?: string | null
   previewUrl?: string | null
   videoUrl?: string | null
   fileUrl?: string | null
@@ -106,8 +116,15 @@ export type EvidenceDetailData = {
 export type CaseEvidenceSummary = {
   evidenceId: number
   fileName: string
+  displayLabel?: string | null
+  originalFileName?: string | null
   mediaType: string
   analysisStatus: string
+  analysisProgress?: number | null
+  lifecycleStatus?: EvidenceLifecycleStatus
+  role?: EvidenceRole
+  replacementEvidenceId?: number | null
+  excludedReason?: string | null
   thumbnailUrl?: string | null
   previewUrl?: string | null
   videoUrl?: string | null
@@ -119,6 +136,7 @@ export type CaseDetailData = {
   caseName: string
   status: string
   createdAt: string
+  representativeEvidenceId?: number | null
   evidences: CaseEvidenceSummary[]
 }
 

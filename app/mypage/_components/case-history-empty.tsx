@@ -8,10 +8,10 @@ export function CaseHistoryEmpty() {
       </div>
       <div>
         <p className="text-sm font-medium text-foreground">
-          요청하신 분석 기록이 존재하지 않습니다
+          등록된 사건이 없습니다
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          메인 페이지에서 새 분석을 요청해 보세요.
+          사건 등록 버튼으로 새 사건을 먼저 만들어 주세요.
         </p>
       </div>
     </div>

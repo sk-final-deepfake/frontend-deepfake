@@ -300,8 +300,7 @@ export function CompareVerificationFlow() {
   })
 
   return (
-    <section className="mx-auto w-full max-w-5xl space-y-6">
-      <Breadcrumb />
+    <section className="w-full space-y-6">
       <StepIndicator currentStep={step} />
 
       {step === "source" ? (
@@ -345,16 +344,6 @@ export function CompareVerificationFlow() {
         <ResultStep result={compareResult} onReset={resetCompare} />
       )}
     </section>
-  )
-}
-
-function Breadcrumb() {
-  return (
-    <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-muted-foreground">
-      <span>메인</span>
-      <span className="text-slate-300 dark:text-muted-foreground">›</span>
-      <span className="text-slate-800 dark:text-foreground">비교 검증</span>
-    </div>
   )
 }
 

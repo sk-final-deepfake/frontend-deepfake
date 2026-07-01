@@ -1,6 +1,3 @@
-import { Copy } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
 import type { CaseDetailData } from "@/lib/api/evidence-detail"
 import { formatDateTime } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
@@ -8,48 +5,36 @@ import { cn } from "@/lib/utils"
 type CaseHeroProps = {
   data: CaseDetailData
   getStatusLabel: (status: string) => string
-  normalizeStatus: (status: string) => string
 }
 
-export function CaseHero({ data, getStatusLabel, normalizeStatus }: CaseHeroProps) {
-  const completed = data.evidences.filter((item) => normalizeStatus(item.analysisStatus) === "COMPLETED").length
-  const processing = data.evidences.filter((item) => normalizeStatus(item.analysisStatus) === "PROCESSING").length
-  const failed = data.evidences.filter((item) => normalizeStatus(item.analysisStatus) === "FAILED").length
-
+export function CaseHero({ data, getStatusLabel }: CaseHeroProps) {
   return (
-    <section className="py-1">
-      <div className="flex min-w-0 items-center gap-2">
+    <section className="flex flex-col gap-3 py-1 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0">
         <h1 className="truncate text-3xl font-black tracking-normal text-slate-950 sm:text-4xl dark:text-foreground">
           {data.caseName}
         </h1>
-        <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-slate-400">
-          <Copy className="size-4" />
-        </Button>
+        <p className="mt-2 text-sm font-bold text-muted-foreground">
+          {formatDateTime(data.createdAt)}
+        </p>
       </div>
-      <p className="mt-3 break-all font-mono text-sm font-bold text-slate-500 dark:text-muted-foreground">
-        {data.caseId}
-      </p>
-      <div className="mt-5 flex flex-wrap items-center gap-3 text-sm font-black">
-        <HeroChip label="생성일" value={formatDateTime(data.createdAt)} />
-        <HeroChip label="상태" value={getStatusLabel(data.status)} highlight />
-        <HeroChip label="총 증거 수" value={`${data.evidences.length}개`} />
-        <HeroChip label="완료" value={`${completed}개`} />
-        <HeroChip label="처리 중" value={`${processing}개`} />
-        <HeroChip label="실패" value={`${failed}개`} />
+      <div className="flex flex-wrap items-center gap-2 text-sm font-black">
+        <HeroChip value={getStatusLabel(data.status)} highlight />
+        <HeroChip value={`증거 ${data.evidences.length}개`} />
       </div>
     </section>
   )
 }
 
-function HeroChip({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function HeroChip({ value, highlight }: { value: string; highlight?: boolean }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
-        {label}
-      </span>
-      <span className={cn("text-foreground", highlight && "rounded-full bg-emerald-50 px-3 py-1 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300")}>
-        {value}
-      </span>
-    </div>
+    <span
+      className={cn(
+        "rounded-full bg-muted px-3 py-1 text-muted-foreground",
+        highlight && "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300"
+      )}
+    >
+      {value}
+    </span>
   )
 }

@@ -57,7 +57,7 @@ export function AdminShell({ children }: AdminShellProps) {
               <ShieldCheck className="size-5" />
             </div>
             <div>
-              <p className="text-sm font-bold tracking-tight text-slate-900">VeriForensics</p>
+              <p className="text-sm font-bold tracking-tight text-slate-900">ForenShield AI</p>
               <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">
                 ADMIN CONSOLE
               </p>
