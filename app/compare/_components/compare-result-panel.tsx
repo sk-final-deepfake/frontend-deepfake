@@ -47,7 +47,7 @@ export function CompareResultPanel({
           <p className="text-lg font-bold">{verdict.title}</p>
           <p className="mt-1 text-sm font-semibold opacity-80">{verdict.description}</p>
           <p className="mt-3 text-xs font-bold opacity-70">
-            Compare ID: {result.compareId} · 대상 파일: {result.candidateFileName}
+            Compare ID: {result.compareId} · 비교 대상 파일: {result.candidateFileName}
           </p>
         </div>
       </div>
@@ -76,10 +76,10 @@ export function CompareResultPanel({
                   항목
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-muted-foreground">
-                  원본
+                  기준 증거
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-muted-foreground">
-                  대상
+                  비교 대상
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-muted-foreground">
                   결과
@@ -158,8 +158,8 @@ function getCompareItemResultLabel(result: string) {
 function getVerdictDisplay(verdict: CompareVerdict, verdictLabel: string) {
   if (verdict === "ORIGINAL_MATCH") {
     return {
-      title: verdictLabel || "원본 일치",
-      description: "원본과 비교 대상 파일이 일치합니다.",
+      title: verdictLabel || "내용 기준 일치",
+      description: "기준 증거와 비교 대상 파일이 일치합니다.",
       containerClassName:
         "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300",
       icon: <CheckCircle2 className="mt-1 size-7 shrink-0" aria-hidden="true" />,
@@ -168,8 +168,8 @@ function getVerdictDisplay(verdict: CompareVerdict, verdictLabel: string) {
 
   if (verdict === "TAMPERED") {
     return {
-      title: verdictLabel || "위변조 감지",
-      description: "원본과 비교 대상 파일 사이에 불일치 항목이 확인되었습니다.",
+      title: verdictLabel || "내용 기준 차이 확인",
+      description: "기준 증거와 비교 대상 파일 사이에 차이 항목이 확인되었습니다.",
       containerClassName:
         "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300",
       icon: <AlertTriangle className="mt-1 size-7 shrink-0" aria-hidden="true" />,

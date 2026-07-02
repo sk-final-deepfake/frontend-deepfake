@@ -13,12 +13,14 @@ import {
 import { AdminPageHeader } from "@/app/admin/_components/admin-page-header";
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider";
 import type { CaseSummary } from "@/app/mypage/_types/case";
+import { ORG_TYPES, type OrgType } from "@/app/signup/organizationData";
 import { Button } from "@/components/ui/button";
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { mockAssignReviewerToCase } from "@/lib/mock/forensic-api";
 import { cn } from "@/lib/utils";
 import { mockUsers } from "@/lib/permissions";
+import { fetchDepartments } from "@/lib/signup-api";
 
 const reviewers = mockUsers.filter((user) => user.role === "REVIEWER");
 
@@ -51,20 +53,25 @@ const CASES_PER_PAGE = 10;
 type QueueTab = "REQUESTED" | "ASSIGNED" | "SUPPLEMENT_REQUESTED" | "COMPLETED";
 type RiskFilter = "ALL" | "HIGH" | "NORMAL";
 type SortMode = "DELAYED" | "REQUESTED_DESC" | "RISK_DESC";
+type OrganizationFilter = OrgType | "ALL";
 
 type QueueFilters = {
+    organizationType: OrganizationFilter;
+    department: string;
     risk: RiskFilter;
     delayedOnly: boolean;
 };
 
 const defaultFilters: QueueFilters = {
+    organizationType: "ALL",
+    department: "ALL",
     risk: "ALL",
     delayedOnly: false,
 };
 
 const sortLabels: Record<SortMode, string> = {
     DELAYED: "지연순",
-    REQUESTED_DESC: "대기 최신순",
+    REQUESTED_DESC: "요청 최신순",
     RISK_DESC: "위험도순",
 };
 
@@ -72,6 +79,20 @@ type ReviewerStat = (typeof reviewers)[number] & {
     assignedCount: number;
     delayedCount: number;
 };
+
+const orgTypeLabelMap = new Map<string, string>(
+    ORG_TYPES.map((organization) => [organization.value, organization.label]),
+);
+
+function uniqueSortedDepartments(departments: string[]) {
+    return Array.from(
+        new Set(
+            departments
+                .map((department) => department.trim())
+                .filter(Boolean),
+        ),
+    ).sort((first, second) => first.localeCompare(second, "ko"));
+}
 
 function formatCompactDateTime(value?: string | null) {
     if (!value) return "-";
@@ -100,14 +121,6 @@ function hasReviewStatus(caseItem: CaseSummary, statuses: readonly string[]) {
     return statuses.includes(String(caseItem.reviewStatus ?? "NONE"));
 }
 
-function isPendingAssignment(caseItem: CaseSummary) {
-    return (
-        hasReviewStatus(caseItem, [REQUESTED_REVIEW_STATUS]) ||
-        (caseItem.status === "COMPLETED" &&
-            String(caseItem.reviewStatus ?? "NONE") === "NONE")
-    );
-}
-
 function isCompletedReview(caseItem: CaseSummary) {
     return hasReviewStatus(caseItem, COMPLETED_REVIEW_STATUSES);
 }
@@ -117,17 +130,13 @@ function isSupplementRequestedReview(caseItem: CaseSummary) {
 }
 
 function isActiveReview(caseItem: CaseSummary) {
-    return isPendingAssignment(caseItem) || hasReviewStatus(caseItem, ACTIVE_REVIEW_STATUSES);
-}
-
-function getQueueStartedAt(caseItem: CaseSummary) {
-    return caseItem.reviewRequestedAt ?? caseItem.createdAt;
+    return hasReviewStatus(caseItem, ACTIVE_REVIEW_STATUSES);
 }
 
 function isDelayedReview(caseItem: CaseSummary) {
     return (
         isActiveReview(caseItem) &&
-        getRequestAgeHours(getQueueStartedAt(caseItem)) >= 24
+        getRequestAgeHours(caseItem.reviewRequestedAt) >= 24
     );
 }
 
@@ -151,13 +160,48 @@ function reviewerName(reviewerId?: string | null) {
 }
 
 function getOrganizationName(organizationId?: string | null) {
-    if (!organizationId) return mockUsers[0]?.organizationName ?? "소속 기관";
+    if (!organizationId) return "기관 미지정";
     return (
         mockUsers.find((user) => user.organizationId === organizationId)
-            ?.organizationName ??
-        mockUsers[0]?.organizationName ??
-        "소속 기관"
+            ?.organizationName ?? "기관 미지정"
     );
+}
+
+function getOrganizationTypeLabel(organizationType: OrganizationFilter) {
+    if (organizationType === "ALL") return "전체 기관";
+    return orgTypeLabelMap.get(organizationType) ?? "기관 미지정";
+}
+
+function getCaseOrganizationType(caseItem: CaseSummary): OrgType {
+    const normalizedId = (caseItem.organizationId ?? "").trim().toUpperCase();
+    if (orgTypeLabelMap.has(normalizedId)) return normalizedId as OrgType;
+
+    const organizationName = getOrganizationName(caseItem.organizationId);
+    const scope = `${caseItem.organizationId ?? ""} ${organizationName} ${
+        caseItem.department ?? ""
+    }`.toLowerCase();
+
+    if (scope.includes("검찰") || scope.includes("prosecution")) return "PROSECUTION";
+    if (scope.includes("국과수") || scope.includes("감정") || scope.includes("nfs")) return "NFS";
+    if (
+        scope.includes("공공") ||
+        scope.includes("감사") ||
+        scope.includes("보안") ||
+        scope.includes("public") ||
+        scope.includes("security")
+    ) {
+        return "PUBLIC_SECURITY";
+    }
+    if (
+        scope.includes("경찰") ||
+        scope.includes("police") ||
+        scope.includes("수사") ||
+        scope.includes("청")
+    ) {
+        return "POLICE";
+    }
+
+    return "ETC";
 }
 
 function getScopeLabel(caseItem: CaseSummary) {
@@ -168,9 +212,9 @@ function getScopeLabel(caseItem: CaseSummary) {
 
 function riskTextClass(caseItem: CaseSummary) {
     const score = normalizeRiskScore(caseItem.riskScore);
-    if (score != null && score >= 70) return "font-semibold text-slate-800";
+    if (score != null && score >= 70) return "font-bold text-red-600";
     if (score != null && score < 50) return "text-slate-500";
-    if (caseItem.aiResult === "위험") return "font-semibold text-slate-800";
+    if (caseItem.aiResult === "위험") return "font-bold text-red-600";
     return "font-semibold text-slate-800";
 }
 
@@ -187,6 +231,7 @@ export default function AdminReviewAssignmentPage() {
     );
     const [selectedReviewerId, setSelectedReviewerId] = useState("");
     const [loading, setLoading] = useState(true);
+    const [signupDepartments, setSignupDepartments] = useState<string[]>([]);
     const [processingCaseId, setProcessingCaseId] = useState<string | null>(null);
     const { toast } = useAdminToast();
 
@@ -218,37 +263,101 @@ export default function AdminReviewAssignmentPage() {
     }, [loadCases]);
 
     const reviewCases = useMemo(
-        () =>
-            cases.filter(
-                (item) =>
-                    isPendingAssignment(item) ||
-                    hasReviewStatus(item, REVIEW_QUEUE_STATUSES),
-            ),
+        () => cases.filter((item) => hasReviewStatus(item, REVIEW_QUEUE_STATUSES)),
         [cases],
     );
 
+    useEffect(() => {
+        let cancelled = false;
+        const organizationTypes =
+            filters.organizationType === "ALL"
+                ? ORG_TYPES.map((organization) => organization.value)
+                : [filters.organizationType];
+
+        Promise.all(organizationTypes.map((organizationType) => fetchDepartments(organizationType)))
+            .then((responses) => {
+                if (cancelled) return;
+                setSignupDepartments(
+                    uniqueSortedDepartments([
+                        ...responses.flatMap((response) => response.departments),
+                        "기타",
+                    ]),
+                );
+            })
+            .catch(() => {
+                if (!cancelled) setSignupDepartments([]);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [filters.organizationType]);
+
+    const fallbackDepartmentOptions = useMemo(() => {
+        const departments: string[] = [];
+
+        reviewCases.forEach((caseItem) => {
+            if (
+                filters.organizationType !== "ALL" &&
+                getCaseOrganizationType(caseItem) !== filters.organizationType
+            ) {
+                return;
+            }
+
+            if (caseItem.department) departments.push(caseItem.department);
+        });
+
+        return uniqueSortedDepartments(departments);
+    }, [filters.organizationType, reviewCases]);
+
+    const departmentOptions = useMemo(
+        () =>
+            signupDepartments.length > 0
+                ? signupDepartments
+                : fallbackDepartmentOptions,
+        [fallbackDepartmentOptions, signupDepartments],
+    );
+
+    const scopedReviewCases = useMemo(
+        () =>
+            reviewCases
+                .filter(
+                    (caseItem) =>
+                        filters.organizationType === "ALL" ||
+                        getCaseOrganizationType(caseItem) === filters.organizationType,
+                )
+                .filter(
+                    (caseItem) =>
+                        filters.department === "ALL" || caseItem.department === filters.department,
+                ),
+        [filters.department, filters.organizationType, reviewCases],
+    );
+
     const requestedCases = useMemo(
-        () => reviewCases.filter(isPendingAssignment),
-        [reviewCases],
+        () =>
+            scopedReviewCases.filter((caseItem) =>
+                hasReviewStatus(caseItem, [REQUESTED_REVIEW_STATUS]),
+            ),
+        [scopedReviewCases],
     );
     const assignedCases = useMemo(
         () =>
-            reviewCases.filter((caseItem) =>
+            scopedReviewCases.filter((caseItem) =>
                 hasReviewStatus(caseItem, [ASSIGNED_REVIEW_STATUS]),
             ),
-        [reviewCases],
+        [scopedReviewCases],
     );
     const supplementRequestedCases = useMemo(
-        () => reviewCases.filter(isSupplementRequestedReview),
-        [reviewCases],
+        () => scopedReviewCases.filter(isSupplementRequestedReview),
+        [scopedReviewCases],
     );
     const activeCases = useMemo(
-        () => reviewCases.filter(isActiveReview),
-        [reviewCases],
+        () => scopedReviewCases.filter(isActiveReview),
+        [scopedReviewCases],
     );
     const completedCases = useMemo(
-        () => reviewCases.filter(isCompletedReview),
-        [reviewCases],
+        () => scopedReviewCases.filter(isCompletedReview),
+        [scopedReviewCases],
     );
     const baseCases =
         activeTab === "REQUESTED"
@@ -329,21 +438,12 @@ export default function AdminReviewAssignmentPage() {
         ],
     );
 
-    const managementOrganization = getOrganizationName(
-        reviewCases[0]?.organizationId,
-    );
+    const scopeLabel = useMemo(() => {
+        const organizationLabel = getOrganizationTypeLabel(filters.organizationType);
 
-    const activeFilterCount = useMemo(() => {
-        let count = 0;
-        if (filters.risk !== "ALL") count += 1;
-        if (
-            activeTab !== "COMPLETED" &&
-            activeTab !== "SUPPLEMENT_REQUESTED" &&
-            filters.delayedOnly
-        )
-            count += 1;
-        return count;
-    }, [activeTab, filters]);
+        if (filters.department === "ALL") return organizationLabel;
+        return `${organizationLabel} · ${filters.department}`;
+    }, [filters.department, filters.organizationType]);
 
     const filteredCases = useMemo(() => {
         const normalizedQuery = query.trim().toLowerCase();
@@ -364,6 +464,7 @@ export default function AdminReviewAssignmentPage() {
                 return [
                     item.caseName,
                     item.caseId,
+                    getOrganizationName(item.organizationId),
                     item.department ?? "",
                     item.representativeFileName ?? "",
                     reviewerName(item.reviewerId),
@@ -382,8 +483,8 @@ export default function AdminReviewAssignmentPage() {
 
                 if (sortMode === "REQUESTED_DESC") {
                     return (
-                        new Date(getQueueStartedAt(second)).getTime() -
-                        new Date(getQueueStartedAt(first)).getTime()
+                        new Date(second.reviewRequestedAt ?? second.createdAt).getTime() -
+                        new Date(first.reviewRequestedAt ?? first.createdAt).getTime()
                     );
                 }
 
@@ -391,8 +492,8 @@ export default function AdminReviewAssignmentPage() {
                     Number(isDelayedReview(second)) - Number(isDelayedReview(first));
                 if (delayedGap !== 0) return delayedGap;
                 return (
-                    getRequestAgeHours(getQueueStartedAt(second)) -
-                    getRequestAgeHours(getQueueStartedAt(first))
+                    getRequestAgeHours(second.reviewRequestedAt) -
+                    getRequestAgeHours(first.reviewRequestedAt)
                 );
             });
     }, [activeTab, baseCases, filters, query, sortMode]);
@@ -522,7 +623,7 @@ export default function AdminReviewAssignmentPage() {
         <>
             <AdminPageHeader
                 title="검토 배정"
-                description="분석 완료 후 배정 대기 또는 검토 중인 사건의 담당 검토자를 지정합니다."
+                description="미배정 또는 검토 중인 사건의 담당 검토자를 지정합니다."
             />
 
             <div className="space-y-4 px-8 py-5">
@@ -540,16 +641,14 @@ export default function AdminReviewAssignmentPage() {
                             <span
                                 className={
                                     queueStats.delayed > 0
-                                        ? "font-semibold text-slate-700"
+                                        ? "font-semibold text-red-600"
                                         : undefined
                                 }
                             >
                 지연 위험 {queueStats.delayed}건
               </span>
                         </div>
-                        <p className="text-sm text-slate-500">
-                            관리 기관: {managementOrganization}
-                        </p>
+                        <p className="text-sm text-slate-500">현재 보기: {scopeLabel}</p>
                     </div>
                 </section>
 
@@ -619,13 +718,14 @@ export default function AdminReviewAssignmentPage() {
                                         onClick={() => setShowFilters((current) => !current)}
                                     >
                                         <SlidersHorizontal className="size-4" />
-                                        필터{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
+                                        필터
                                     </Button>
 
                                     {showFilters ? (
                                         <FilterPopover
                                             activeTab={activeTab}
                                             filters={filters}
+                                            departmentOptions={departmentOptions}
                                             onChangeFilters={setFilters}
                                             onReset={resetFilters}
                                         />
@@ -649,7 +749,7 @@ export default function AdminReviewAssignmentPage() {
                                     <tr>
                                         <th className="px-5 py-3">사건</th>
                                         <th className="w-24 px-5 py-3">위험도</th>
-                                        <th className="w-36 px-5 py-3">대기 시작</th>
+                                        <th className="w-36 px-5 py-3">요청일시</th>
                                         <th className="w-32 px-5 py-3">담당자</th>
                                         <th className="w-24 px-5 py-3 text-right">작업</th>
                                     </tr>
@@ -657,12 +757,14 @@ export default function AdminReviewAssignmentPage() {
                                     <tbody className="divide-y divide-slate-100">
                                     {paginatedCases.map((caseItem, index) => {
                                         const requestAgeHours = getRequestAgeHours(
-                                            getQueueStartedAt(caseItem),
+                                            caseItem.reviewRequestedAt,
                                         );
                                         const completed = isCompletedReview(caseItem);
                                         const supplementRequested =
                                             isSupplementRequestedReview(caseItem);
-                                        const actionLabel = isPendingAssignment(caseItem)
+                                        const actionLabel = hasReviewStatus(caseItem, [
+                                            REQUESTED_REVIEW_STATUS,
+                                        ])
                                             ? "배정"
                                             : "변경";
 
@@ -679,10 +781,7 @@ export default function AdminReviewAssignmentPage() {
                                                         {caseItem.caseName}
                                                     </p>
                                                     <p className="mt-1 truncate text-xs text-slate-500">
-                                                        {caseItem.caseId}
-                                                        {caseItem.department
-                                                            ? ` · ${caseItem.department}`
-                                                            : ""}
+                                                        {caseItem.caseId} · {getScopeLabel(caseItem)}
                                                     </p>
                                                 </td>
                                                 <td
@@ -696,11 +795,12 @@ export default function AdminReviewAssignmentPage() {
                                                 <td className="px-5 py-4 align-top text-slate-600">
                                                     <p>
                                                         {formatCompactDateTime(
-                                                            getQueueStartedAt(caseItem),
+                                                            caseItem.reviewRequestedAt ??
+                                                            caseItem.createdAt,
                                                         )}
                                                     </p>
                                                     {isDelayedReview(caseItem) ? (
-                                                        <p className="mt-1 text-xs font-semibold text-slate-500">
+                                                        <p className="mt-1 text-xs font-semibold text-red-600">
                                                             {requestAgeHours}시간 지연
                                                         </p>
                                                     ) : null}
@@ -808,17 +908,50 @@ export default function AdminReviewAssignmentPage() {
 function FilterPopover({
                            activeTab,
                            filters,
+                           departmentOptions,
                            onChangeFilters,
                            onReset,
                        }: {
     activeTab: QueueTab;
     filters: QueueFilters;
+    departmentOptions: string[];
     onChangeFilters: (filters: QueueFilters) => void;
     onReset: () => void;
 }) {
     return (
         <div className="absolute right-0 z-20 mt-2 w-[320px] max-w-[calc(100vw-3rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
             <div className="space-y-4">
+                <FilterSelect
+                    label="기관"
+                    value={filters.organizationType}
+                    options={[
+                        { value: "ALL", label: "전체 기관" },
+                        ...ORG_TYPES,
+                    ]}
+                    onChange={(value) =>
+                        onChangeFilters({
+                            ...filters,
+                            organizationType: value as OrganizationFilter,
+                            department: "ALL",
+                        })
+                    }
+                />
+
+                <FilterSelect
+                    label="부서"
+                    value={filters.department}
+                    options={[
+                        { value: "ALL", label: "전체 부서" },
+                        ...departmentOptions.map((department) => ({
+                            value: department,
+                            label: department,
+                        })),
+                    ]}
+                    onChange={(value) =>
+                        onChangeFilters({ ...filters, department: value })
+                    }
+                />
+
                 <FilterButtonGroup
                     label="위험도"
                     value={filters.risk}
@@ -844,7 +977,7 @@ function FilterPopover({
                                     delayedOnly: event.target.checked,
                                 })
                             }
-                            className="size-4 accent-slate-700"
+                            className="size-4 accent-teal-600"
                         />
                     </label>
                 ) : null}
@@ -856,6 +989,38 @@ function FilterPopover({
                 </Button>
             </div>
         </div>
+    );
+}
+
+function FilterSelect({
+                          label,
+                          value,
+                          options,
+                          onChange,
+                      }: {
+    label: string;
+    value: string;
+    options: Array<{ value: string; label: string }>;
+    onChange: (value: string) => void;
+}) {
+    return (
+        <label className="block">
+            <span className="text-xs font-semibold text-slate-500">{label}</span>
+            <div className="relative mt-2">
+                <select
+                    value={value}
+                    onChange={(event) => onChange(event.target.value)}
+                    className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white px-3 pr-8 text-sm text-slate-700 outline-none focus:border-slate-400"
+                >
+                    {options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                            {option.label}
+                        </option>
+                    ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            </div>
+        </label>
     );
 }
 
@@ -882,7 +1047,7 @@ function FilterButtonGroup({
                         className={cn(
                             "rounded-md border px-3 py-1.5 text-sm",
                             value === option.value
-                                ? "border-slate-900 bg-slate-900 text-white"
+                                ? "border-teal-600 bg-teal-600 text-white"
                                 : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
                         )}
                     >
@@ -1007,7 +1172,7 @@ function AssignmentModal({
                                             className={cn(
                                                 "w-full rounded-lg border px-4 py-3 text-left transition-colors",
                                                 selected
-                                                    ? "border-slate-900 bg-slate-50"
+                                                    ? "border-teal-600 bg-teal-50"
                                                     : "border-slate-200 bg-white hover:bg-slate-50",
                                                 current &&
                                                 "cursor-default bg-slate-50 text-slate-500 hover:bg-slate-50",
@@ -1028,7 +1193,7 @@ function AssignmentModal({
                             현재 담당자
                           </span>
                                                 ) : selected ? (
-                                                    <span className="shrink-0 text-sm font-semibold text-slate-900">
+                                                    <span className="shrink-0 text-sm font-semibold text-teal-700">
                             선택됨
                           </span>
                                                 ) : null}
@@ -1079,7 +1244,7 @@ function EmptyState({ activeTab }: { activeTab: QueueTab }) {
                     : "완료된 사건이 없습니다.";
     const description =
         activeTab === "REQUESTED"
-            ? "분석 완료 후 검토자 배정을 기다리는 사건이 이곳에 표시됩니다."
+            ? "담당자 배정이 필요한 사건이 생기면 이곳에 표시됩니다."
             : activeTab === "ASSIGNED"
                 ? "담당자가 배정되어 검토 중인 사건이 이곳에 표시됩니다."
                 : activeTab === "SUPPLEMENT_REQUESTED"

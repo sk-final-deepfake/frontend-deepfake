@@ -59,12 +59,12 @@ export function CompareFileUploader({
       <div className="mt-7 flex items-center gap-4 rounded-lg border border-teal-200 bg-teal-50/60 px-5 py-4 dark:border-teal-500/30 dark:bg-teal-500/10">
         <ShieldCheck className="size-5 shrink-0 text-teal-600 dark:text-teal-300" aria-hidden="true" />
         <div className="min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-muted-foreground">원본 기준 파일</p>
+          <p className="text-xs font-bold text-slate-500 dark:text-muted-foreground">기준 증거</p>
           <p className="mt-1 truncate text-base font-bold text-slate-900 dark:text-foreground">
-            {sourceEvidence.name}
+            {sourceEvidence.displayLabel}
           </p>
           <p className="mt-1 text-xs font-bold text-slate-500 dark:text-muted-foreground">
-            {sourceEvidence.id}
+            {formatEvidenceId(sourceEvidence.id)}
           </p>
         </div>
       </div>
@@ -136,7 +136,7 @@ export function CompareFileUploader({
 
       <div className="mt-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
         <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-        비교 파일은 복사본으로 처리되며 원본 파일은 변경되지 않습니다.
+        비교 대상 파일은 복사본으로 처리되며 기준 증거 파일은 변경되지 않습니다.
       </div>
 
       {compareError ? (
@@ -166,4 +166,8 @@ export function CompareFileUploader({
       </div>
     </div>
   )
+}
+
+function formatEvidenceId(evidenceId: number) {
+  return `EVD-${evidenceId}`
 }

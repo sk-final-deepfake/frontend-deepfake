@@ -159,6 +159,9 @@ export type CaseDetailData = {
   status: string
   createdAt: string
   representativeEvidenceId?: number | null
+  createdBy?: string | null
+  assigneeId?: string | null
+  reviewerId?: string | null
   evidences: CaseEvidenceSummary[]
 }
 

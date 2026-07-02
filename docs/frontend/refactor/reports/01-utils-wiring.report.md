@@ -94,12 +94,12 @@
 - PARTIAL - 상태/위험 라벨: 기준이 동일한 위험도/상태 라벨은 일부 배선했다. 다만 `PROCESSING`의 `처리 중` vs `분석 중`, `PENDING`의 `대기` vs `분석 대기`처럼 화면 문구가 다른 곳은 UI 값 보존을 위해 특수 분기를 유지했다.
 - PARTIAL - 화면 내 중복 포맷터 제거: 중복 계산 로직은 공통 유틸에 위임했다. 다만 기존 call site 이름과 표시 정책 보존을 위해 얇은 wrapper 함수는 일부 남아 있다.
 - OK - `process.env.NEXT_PUBLIC_*`: 앱/컴포넌트 직접 참조는 없다. 남은 직접 참조는 `lib/features.ts`와 API base URL을 만드는 `lib/api/config.ts`뿐이다.
-- OK - `npm run build`: 통과.
+- OK - `pnpm build`: 통과.
 - OK - 새로 생긴 tsc 에러: 없음. 남은 에러는 기존 toast 계열과 `components/upload-panel.tsx` flatMap 타입 에러다. 이번 import 추가로 flatMap 위치가 99에서 100으로 한 줄 밀렸다.
 
 ## 4. 검증 결과
 
-### `npm run build`
+### `pnpm build`
 
 - 결과: 통과
 - 마지막 실행 요약:
@@ -107,7 +107,7 @@
   - `Generating static pages ... (18/18)`
   - Next config상 type validation은 skip 상태다.
 
-### `npx tsc --noEmit --pretty false`
+### `pnpm exec tsc --noEmit --pretty false`
 
 - 결과: 실패
 - 새로 생긴 에러 여부: 없음으로 판단.

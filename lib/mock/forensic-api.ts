@@ -1036,6 +1036,9 @@ export async function mockCreateCase(caseName: string): Promise<CaseDetailData> 
     status: "PENDING",
     createdAt: record.createdAt,
     representativeEvidenceId: null,
+    createdBy: record.createdBy ?? null,
+    assigneeId: record.assigneeId ?? null,
+    reviewerId: record.reviewerId ?? null,
     evidences: [],
   }
 }
@@ -2036,6 +2039,7 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
       )
       return {
         ...sampleCase,
+        ...sampleCaseAccessFields(sampleCase.caseId),
         evidences: sampleRecords.map((record, index) => mapRecordToCaseEvidence(record, index)),
       }
     }
@@ -2046,6 +2050,9 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
         status: "PENDING",
         createdAt: storedCase.createdAt,
         representativeEvidenceId: storedCase.representativeEvidenceId ?? null,
+        createdBy: storedCase.createdBy ?? defaultCaseAccessFields().createdBy,
+        assigneeId: storedCase.assigneeId ?? defaultCaseAccessFields().assigneeId,
+        reviewerId: storedCase.reviewerId ?? null,
         evidences: [],
       }
     }
@@ -2058,6 +2065,7 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
   const evidences: CaseEvidenceSummary[] = sorted
     .sort((a, b) => statusPriority(b.analysisStatus) - statusPriority(a.analysisStatus))
     .map((record, index) => mapRecordToCaseEvidence(record, index))
+  const caseRecord = findCaseRecord(store, caseId)
 
   return {
     caseId,
@@ -2069,6 +2077,9 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
       sorted.find((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE")?.evidenceId ??
       sorted[0]?.evidenceId ??
       null,
+    createdBy: caseRecord?.createdBy ?? defaultCaseAccessFields().createdBy,
+    assigneeId: caseRecord?.assigneeId ?? defaultCaseAccessFields().assigneeId,
+    reviewerId: caseRecord?.reviewerId ?? null,
     evidences,
   }
 }

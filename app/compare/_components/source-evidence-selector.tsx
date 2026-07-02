@@ -1,8 +1,8 @@
 import {
   AlertTriangle,
+  ArrowRight,
   CalendarDays,
   Check,
-  ChevronDown,
   Files,
   FolderOpen,
   Play,
@@ -54,58 +54,77 @@ export function SourceEvidenceSelector({
   )
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm dark:border-border dark:bg-card">
-      <div>
-        <h1 className="text-xl font-bold text-slate-950 dark:text-foreground">원본 증거 선택</h1>
-        <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-muted-foreground">
-          사건을 먼저 선택한 뒤 비교 기준이 될 원본 파일을 선택하세요.
-        </p>
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
+      <div className="border-b border-slate-200 px-7 py-6 dark:border-border">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-slate-950 dark:text-foreground">기준 증거 선택</h1>
+            <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-muted-foreground">
+              사건에서 기준 증거를 확정한 뒤 비교 대상 파일을 업로드합니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-bold",
+                selectedCaseId
+                  ? "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300"
+                  : "bg-slate-100 text-slate-500 dark:bg-muted dark:text-muted-foreground"
+              )}
+            >
+              <FolderOpen className="size-3.5" aria-hidden="true" />
+              사건 {selectedCaseId ? "선택됨" : "대기"}
+            </span>
+            <span
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-bold",
+                selectedEvidence
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                  : "bg-slate-100 text-slate-500 dark:bg-muted dark:text-muted-foreground"
+              )}
+            >
+              <ShieldCheck className="size-3.5" aria-hidden="true" />
+              기준 증거 {selectedEvidence ? "확정 가능" : "대기"}
+            </span>
+          </div>
+        </div>
       </div>
 
       {sourceError ? (
-        <div className="mt-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+        <div className="mx-7 mt-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           {sourceError}
         </div>
       ) : null}
 
-      <div className="mt-7 grid gap-5 lg:grid-cols-[320px_1fr]">
-        <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-border dark:bg-muted/30">
+      <div className="grid lg:grid-cols-[340px_minmax(0,1fr)]">
+        <section className="border-b border-slate-200 bg-slate-50/70 px-5 py-5 lg:border-b-0 lg:border-r dark:border-border dark:bg-muted/20">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-foreground">
               <FolderOpen className="size-4 text-teal-600 dark:text-teal-300" aria-hidden="true" />
-              사건 목록
+              기준 사건
             </h2>
             <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">
               {cases.length}건
             </span>
           </div>
 
-          <div className="mt-4 flex gap-2">
-            <label className="relative block min-w-0 flex-1">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
-                aria-hidden="true"
-              />
-              <input
-                value={caseQuery}
-                onChange={(event) => onCaseQueryChange(event.target.value)}
-                placeholder="사건명 또는 번호 검색..."
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-3 text-xs font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-teal-300 focus:ring-4 focus:ring-teal-100 dark:border-border dark:bg-card dark:text-foreground dark:placeholder:text-muted-foreground"
-              />
-            </label>
-            <button
-              type="button"
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50/50 dark:border-border dark:bg-card dark:text-muted-foreground dark:hover:bg-muted"
-            >
-              최신순
-              <ChevronDown className="size-3.5" aria-hidden="true" />
-            </button>
-          </div>
+          <label className="relative mt-4 block">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+              aria-hidden="true"
+            />
+            <input
+              value={caseQuery}
+              onChange={(event) => onCaseQueryChange(event.target.value)}
+              placeholder="사건명 또는 번호 검색"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-3 text-xs font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-teal-300 focus:ring-4 focus:ring-teal-100 dark:border-border dark:bg-card dark:text-foreground dark:placeholder:text-muted-foreground"
+            />
+          </label>
 
-          <div className="mt-4 grid max-h-[430px] gap-2 overflow-y-auto pr-1">
+          <div className="mt-4 max-h-[520px] overflow-y-auto rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
             {isLoadingCases ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-xs font-bold text-slate-400 dark:border-border dark:bg-card dark:text-muted-foreground">
+              <div className="px-4 py-8 text-center text-xs font-bold text-slate-400 dark:text-muted-foreground">
                 사건 목록을 불러오는 중입니다.
               </div>
             ) : cases.length > 0 ? (
@@ -118,10 +137,10 @@ export function SourceEvidenceSelector({
                     type="button"
                     onClick={() => onSelectCase(sourceCase.id)}
                     className={cn(
-                      "rounded-lg border px-4 py-3 text-left transition-colors",
+                      "w-full border-l-4 border-b border-slate-100 px-3 py-3 text-left transition-colors last:border-b-0 dark:border-border",
                       isSelected
-                        ? "border-teal-500 bg-white ring-1 ring-teal-500 dark:border-teal-500/60 dark:bg-teal-500/10"
-                        : "border-slate-200 bg-white hover:border-teal-200 dark:border-border dark:bg-card dark:hover:bg-muted/30"
+                        ? "border-l-teal-600 bg-teal-50/70 dark:border-l-teal-400 dark:bg-teal-500/10"
+                        : "border-l-transparent bg-white hover:bg-slate-50 dark:bg-card dark:hover:bg-muted/30"
                     )}
                   >
                     <span className="flex items-start justify-between gap-3">
@@ -135,7 +154,7 @@ export function SourceEvidenceSelector({
                       </span>
                       <span
                         className={cn(
-                          "flex size-6 shrink-0 items-center justify-center rounded-full border",
+                          "flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors",
                           isSelected
                             ? "border-teal-600 bg-teal-600 text-white"
                             : "border-slate-200 text-transparent dark:border-border"
@@ -158,14 +177,14 @@ export function SourceEvidenceSelector({
                 )
               })
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-xs font-bold text-slate-400 dark:border-border dark:bg-card dark:text-muted-foreground">
+              <div className="px-4 py-8 text-center text-xs font-bold text-slate-400 dark:text-muted-foreground">
                 검색 결과가 없습니다.
               </div>
             )}
           </div>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
+        <section className="min-w-0 px-5 py-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-xs font-bold text-teal-700 dark:text-teal-300">
@@ -175,7 +194,7 @@ export function SourceEvidenceSelector({
                 {selectedCase.title}
               </h2>
               <p className="mt-2 text-xs font-bold text-slate-500 dark:text-muted-foreground">
-                {selectedCase.department} · 원본 후보 {selectedCase.evidences.length}개
+                {selectedCase.department} · 기준 후보 {selectedCase.evidences.length}개
               </p>
             </div>
             <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-emerald-50 px-3 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
@@ -184,22 +203,64 @@ export function SourceEvidenceSelector({
             </span>
           </div>
 
-          <label className="relative mt-5 block">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
-              aria-hidden="true"
-            />
-            <input
-              value={evidenceQuery}
-              onChange={(event) => onEvidenceQueryChange(event.target.value)}
-              placeholder="선택 사건 내 파일명 또는 ID 검색..."
-              className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50/70 pl-10 pr-3 text-sm font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-teal-300 focus:bg-white focus:ring-4 focus:ring-teal-100 dark:border-border dark:bg-muted/30 dark:text-foreground dark:placeholder:text-muted-foreground"
-            />
-          </label>
+          <div className="mt-5 rounded-lg border border-teal-200 bg-teal-50/60 p-4 dark:border-teal-500/30 dark:bg-teal-500/10">
+            {selectedEvidence ? (
+              <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
+                <EvidencePreview
+                  evidence={selectedEvidence}
+                  isSelected
+                  className="aspect-video w-full"
+                />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-teal-700 shadow-sm ring-1 ring-teal-100 dark:bg-background dark:text-teal-300 dark:ring-teal-500/30">
+                      <ShieldCheck className="size-3.5" aria-hidden="true" />
+                      기준 증거
+                    </span>
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                      선택됨
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs font-bold text-teal-700 dark:text-teal-300">
+                    {formatEvidenceId(selectedEvidence.id)}
+                  </p>
+                  <h3 className="mt-1 truncate text-lg font-bold text-slate-950 dark:text-foreground">
+                    {selectedEvidence.displayLabel}
+                  </h3>
+                </div>
+              </div>
+            ) : (
+              <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed border-teal-200 bg-white/60 text-sm font-bold text-slate-400 dark:border-teal-500/25 dark:bg-background/40 dark:text-muted-foreground">
+                기준 증거를 선택하세요.
+              </div>
+            )}
+          </div>
 
-          <div className="mt-4 grid gap-3">
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-foreground">
+              <Files className="size-4 text-teal-600 dark:text-teal-300" aria-hidden="true" />
+              증거 파일
+              <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">
+                {evidences.length}개
+              </span>
+            </h3>
+            <label className="relative block w-full sm:max-w-sm">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+                aria-hidden="true"
+              />
+              <input
+                value={evidenceQuery}
+                onChange={(event) => onEvidenceQueryChange(event.target.value)}
+                placeholder="증거 ID 검색"
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 pl-10 pr-3 text-xs font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-teal-300 focus:bg-white focus:ring-4 focus:ring-teal-100 dark:border-border dark:bg-muted/30 dark:text-foreground dark:placeholder:text-muted-foreground"
+              />
+            </label>
+          </div>
+
+          <div className="mt-3 max-h-[360px] overflow-y-auto rounded-lg border border-slate-200 dark:border-border">
             {isLoadingEvidences ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center text-sm font-bold text-slate-400 dark:border-border dark:bg-muted/30 dark:text-muted-foreground">
+              <div className="bg-slate-50/70 px-4 py-10 text-center text-sm font-bold text-slate-400 dark:bg-muted/30 dark:text-muted-foreground">
                 증거 목록을 불러오는 중입니다.
               </div>
             ) : evidences.length > 0 ? (
@@ -212,31 +273,34 @@ export function SourceEvidenceSelector({
                     type="button"
                     onClick={() => onSelectEvidence(evidence.id)}
                     className={cn(
-                      "relative grid min-h-[112px] grid-cols-[104px_1fr_auto] items-center gap-4 rounded-lg border p-3 text-left transition-colors max-sm:grid-cols-1",
+                      "grid w-full grid-cols-[84px_minmax(0,1fr)_36px] items-center gap-3 border-b border-slate-100 bg-white px-3 py-3 text-left transition-colors last:border-b-0 dark:border-border dark:bg-card max-sm:grid-cols-[72px_minmax(0,1fr)_32px]",
                       isSelected
-                        ? "border-teal-500 bg-teal-50/60 ring-1 ring-teal-500 dark:border-teal-500/60 dark:bg-teal-500/10"
-                        : "border-slate-200 bg-white hover:border-teal-200 hover:bg-slate-50/70 dark:border-border dark:bg-card dark:hover:bg-muted/30"
+                        ? "bg-teal-50/70 dark:bg-teal-500/10"
+                        : "hover:bg-slate-50/70 dark:hover:bg-muted/30"
                     )}
                   >
-                    <EvidencePreview evidence={evidence} isSelected={isSelected} />
+                    <EvidencePreview
+                      evidence={evidence}
+                      isSelected={isSelected}
+                      className="h-16 w-full"
+                    />
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-center gap-2 text-sm font-bold text-teal-700 dark:text-teal-300">
-                        {evidence.id}
+                        {formatEvidenceId(evidence.id)}
                         <ShieldCheck className="size-3.5 text-emerald-500" aria-hidden="true" />
                       </span>
                       <span className="mt-1 block truncate text-base font-bold text-slate-900 dark:text-foreground">
-                        {evidence.name}
+                        {evidence.displayLabel}
                       </span>
-                      <span className="mt-1 block text-xs font-bold text-slate-500 dark:text-muted-foreground">
-                        {evidence.dateLabel} · {evidence.sizeLabel} · {evidence.codecLabel}
-                      </span>
-                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-500 dark:bg-muted dark:text-muted-foreground">
-                        {getEvidenceMediaLabel(evidence)}
+                      <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-slate-500 dark:text-muted-foreground">
+                        <span>{evidence.dateLabel}</span>
+                        <span>{evidence.durationLabel}</span>
+                        <span>{evidence.sizeLabel}</span>
                       </span>
                     </span>
                     <span
                       className={cn(
-                        "flex size-7 shrink-0 items-center justify-center rounded-full border-2 justify-self-end max-sm:absolute max-sm:right-5 max-sm:top-5",
+                        "flex size-7 shrink-0 items-center justify-center rounded-full border-2 justify-self-end",
                         isSelected
                           ? "border-teal-600 bg-teal-600 text-white"
                           : "border-slate-200 text-transparent dark:border-border"
@@ -248,7 +312,7 @@ export function SourceEvidenceSelector({
                 )
               })
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center text-sm font-bold text-slate-400 dark:border-border dark:bg-muted/30 dark:text-muted-foreground">
+              <div className="bg-slate-50/70 px-4 py-10 text-center text-sm font-bold text-slate-400 dark:bg-muted/30 dark:text-muted-foreground">
                 선택한 사건에서 일치하는 증거가 없습니다.
               </div>
             )}
@@ -256,13 +320,15 @@ export function SourceEvidenceSelector({
         </section>
       </div>
 
-      <div className="mt-6 flex flex-col gap-4 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-border">
+      <div className="flex flex-col gap-4 border-t border-slate-200 bg-slate-50/70 px-7 py-5 sm:flex-row sm:items-center sm:justify-between dark:border-border dark:bg-muted/20">
         <div className="min-w-0">
           <p className="text-xs font-bold text-slate-400 dark:text-muted-foreground">
-            선택된 원본 증거
+            확정 기준
           </p>
           <p className="mt-1 truncate text-sm font-bold text-slate-900 dark:text-foreground">
-            {selectedEvidence ? `${selectedEvidence.id} · ${selectedEvidence.name}` : "원본 증거를 선택하세요"}
+            {selectedEvidence
+              ? `${formatEvidenceId(selectedEvidence.id)} · ${selectedEvidence.displayLabel}`
+              : "기준 증거를 선택하세요"}
           </p>
         </div>
         <Button
@@ -270,6 +336,7 @@ export function SourceEvidenceSelector({
           disabled={selectedEvidenceId === null}
           className="h-11 rounded-md bg-teal-600 px-6 text-sm font-bold hover:bg-teal-700 sm:w-auto"
         >
+          <ArrowRight className="size-4" aria-hidden="true" />
           다음: 비교 파일 업로드
         </Button>
       </div>
@@ -280,9 +347,11 @@ export function SourceEvidenceSelector({
 function EvidencePreview({
   evidence,
   isSelected,
+  className,
 }: {
   evidence: SourceEvidence
   isSelected: boolean
+  className?: string
 }) {
   const toneClassName = getEvidencePreviewTone(evidence.id)
   const mediaPreviewUrl = evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl
@@ -291,14 +360,15 @@ function EvidencePreview({
   return (
     <span
       className={cn(
-        "relative h-20 w-full min-w-0 overflow-hidden rounded-lg border bg-slate-950 shadow-sm",
+        "relative block min-w-0 overflow-hidden rounded-lg border bg-slate-950 shadow-sm",
+        className,
         isSelected ? "border-teal-400" : "border-slate-200 dark:border-border"
       )}
     >
       {thumbnailUrl ? (
         <img
           src={thumbnailUrl}
-          alt={`${evidence.name} 썸네일`}
+          alt={`${formatEvidenceId(evidence.id)} 썸네일`}
           className="absolute inset-0 size-full object-cover"
         />
       ) : mediaPreviewUrl ? (
@@ -308,7 +378,7 @@ function EvidencePreview({
           muted
           playsInline
           preload="metadata"
-          aria-label={`${evidence.name} 미리보기`}
+          aria-label={`${formatEvidenceId(evidence.id)} 미리보기`}
         />
       ) : (
         <span className={cn("absolute inset-0", toneClassName)} />
@@ -324,12 +394,8 @@ function EvidencePreview({
   )
 }
 
-function getEvidenceMediaLabel(evidence: SourceEvidence) {
-  if (evidence.thumbnailUrl || evidence.previewUrl || evidence.videoUrl || evidence.fileUrl) {
-    return "영상 썸네일"
-  }
-
-  return "영상 미리보기"
+function formatEvidenceId(evidenceId: number) {
+  return `EVD-${evidenceId}`
 }
 
 function getEvidencePreviewTone(evidenceId: number) {
