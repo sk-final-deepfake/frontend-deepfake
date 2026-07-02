@@ -2080,62 +2080,64 @@ function CaseWorkflowPanel({
       ) : null}
 
       <div className="mt-5">
-        {selectableAnalysisEvidences.length > 0 ? (
-          <div className="mb-3 flex justify-end">
-            <div className="flex flex-wrap items-center gap-2">
-              {selectedAnalysisCount > 0 ? (
-                <span className="rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground">
-                  {selectedAnalysisCount}개 선택
-                </span>
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 rounded-lg px-3 text-xs font-bold"
-                disabled={isWorking}
-                onClick={toggleAllSelectableAnalysis}
-              >
-                {allSelectableAnalysisSelected ? "선택 해제" : "전체 선택"}
-              </Button>
-              <Button
-                type="button"
-                className="h-9 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white hover:bg-emerald-700"
-                disabled={selectedAnalysisCount === 0 || isWorking}
-                onClick={() => void handleStartAnalysis()}
-              >
-                {isWorking ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
-                분석하기
-              </Button>
-            </div>
-          </div>
-        ) : null}
         {evidences.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border px-5 py-12 text-center text-sm font-bold text-muted-foreground">
             아직 등록된 증거가 없습니다. 증거 영상을 먼저 업로드하세요.
           </div>
         ) : (
           <>
-            <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-3">
-              {pagedEvidences.map((evidence) => (
-                <EvidenceStripCard
-                  key={evidence.evidenceId}
-                  evidence={evidence}
-                  active={selectedEvidenceId === evidence.evidenceId}
-                  representative={caseData.representativeEvidenceId === evidence.evidenceId}
-                  disabled={(evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
-                  analysisSelectable={!readOnly && isEvidenceSelectableForAnalysis(evidence)}
-                  analysisSelected={selectedAnalysisIdSet.has(evidence.evidenceId)}
-                  onToggleAnalysisSelect={() => toggleAnalysisEvidence(evidence.evidenceId)}
-                  onSelect={() => {
-                    if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return
-                    onSelectEvidence(evidence.evidenceId)
-                    setActionMode("idle")
-                    setMenuOpen(false)
-                    setEditCaseOpen(false)
-                    setDeleteConfirmOpen(false)
-                  }}
-                />
-              ))}
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="-mx-1 flex min-w-0 flex-1 gap-3 overflow-x-auto px-1 pb-3">
+                {pagedEvidences.map((evidence) => (
+                  <EvidenceStripCard
+                    key={evidence.evidenceId}
+                    evidence={evidence}
+                    active={selectedEvidenceId === evidence.evidenceId}
+                    representative={caseData.representativeEvidenceId === evidence.evidenceId}
+                    disabled={(evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
+                    analysisSelectable={!readOnly && isEvidenceSelectableForAnalysis(evidence)}
+                    analysisSelected={selectedAnalysisIdSet.has(evidence.evidenceId)}
+                    onToggleAnalysisSelect={() => toggleAnalysisEvidence(evidence.evidenceId)}
+                    onSelect={() => {
+                      if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return
+                      onSelectEvidence(evidence.evidenceId)
+                      setActionMode("idle")
+                      setMenuOpen(false)
+                      setEditCaseOpen(false)
+                      setDeleteConfirmOpen(false)
+                    }}
+                  />
+                ))}
+              </div>
+              {selectableAnalysisEvidences.length > 0 ? (
+                <div className="flex shrink-0 justify-end">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedAnalysisCount > 0 ? (
+                      <span className="rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground">
+                        {selectedAnalysisCount}개 선택
+                      </span>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-lg px-3 text-xs font-bold"
+                      disabled={isWorking}
+                      onClick={toggleAllSelectableAnalysis}
+                    >
+                      {allSelectableAnalysisSelected ? "선택 해제" : "전체 선택"}
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-9 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white hover:bg-emerald-700"
+                      disabled={selectedAnalysisCount === 0 || isWorking}
+                      onClick={() => void handleStartAnalysis()}
+                    >
+                      {isWorking ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+                      분석하기
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
             {evidencePageCount > 1 ? (
               <div className="mt-1 flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-muted-foreground">
