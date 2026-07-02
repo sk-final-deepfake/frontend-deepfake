@@ -37,8 +37,8 @@ export const roleLabelMap: Record<UserRole, string> = {
 }
 
 export const reviewStatusLabelMap: Record<ReviewStatus, string> = {
-  NONE: "검토 없음",
-  REVIEW_REQUESTED: "검토 요청됨",
+  NONE: "분석 후 배정",
+  REVIEW_REQUESTED: "배정 대기",
   REVIEW_ASSIGNED: "검토 중",
   REVIEW_COMPLETED: "검토 완료",
   REPORT_APPROVED: "보고서 승인 완료",
@@ -50,7 +50,7 @@ export const mockUsers: AppUser[] = [
     name: "김민희",
     organizationId: "org-police-seoul",
     organizationName: "서울경찰청",
-    department: "사이버수사팀",
+    department: "서울청 사이버수사팀",
     role: "INVESTIGATOR",
   },
   {
@@ -58,7 +58,191 @@ export const mockUsers: AppUser[] = [
     name: "박검토",
     organizationId: "org-police-seoul",
     organizationName: "서울경찰청",
-    department: "디지털포렌식팀",
+    department: "서울청 사이버수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-004",
+    name: "김검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "서울청 사이버수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-005",
+    name: "이검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "서울청 사이버수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-006",
+    name: "오검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "서울청 디지털포렌식팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-007",
+    name: "한검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "서울청 디지털포렌식팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-008",
+    name: "문검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "서울청 디지털포렌식팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-009",
+    name: "서검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "부산청 사이버범죄수사대",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-010",
+    name: "남검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "부산청 사이버범죄수사대",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-011",
+    name: "신검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "부산청 사이버범죄수사대",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-012",
+    name: "권검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "대구청 디지털증거분석팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-013",
+    name: "백검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "대구청 디지털증거분석팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-014",
+    name: "윤검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "대구청 디지털증거분석팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-015",
+    name: "임검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "인천청 지능범죄수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-016",
+    name: "장검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "인천청 지능범죄수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-017",
+    name: "조검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "인천청 지능범죄수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-018",
+    name: "최검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "경기남부청 사이버수사대",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-019",
+    name: "강검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "경기남부청 사이버수사대",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-020",
+    name: "배검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "경기남부청 사이버수사대",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-021",
+    name: "양검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "대전청 형사기동수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-022",
+    name: "송검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "대전청 형사기동수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-023",
+    name: "홍검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "대전청 형사기동수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-024",
+    name: "류검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "광주청 여성청소년수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-025",
+    name: "민검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "광주청 여성청소년수사팀",
+    role: "REVIEWER",
+  },
+  {
+    id: "user-026",
+    name: "진검토",
+    organizationId: "org-police-seoul",
+    organizationName: "서울경찰청",
+    department: "광주청 여성청소년수사팀",
     role: "REVIEWER",
   },
   {
@@ -166,7 +350,12 @@ export function canRequestReview(user: AppUser, caseItem: CaseAccessItem) {
 
 export function canAssignReviewer(user: AppUser, caseItem: CaseAccessItem) {
   if (!canViewCase(user, caseItem)) return false
-  return isOrgAdmin(user) && (caseItem.reviewStatus ?? "NONE") === "REVIEW_REQUESTED"
+  const reviewStatus = caseItem.reviewStatus ?? "NONE"
+  return (
+    isOrgAdmin(user) &&
+    caseItem.status === "COMPLETED" &&
+    (reviewStatus === "NONE" || reviewStatus === "REVIEW_REQUESTED")
+  )
 }
 
 export function canApproveReport(user: AppUser, caseItem: CaseAccessItem) {

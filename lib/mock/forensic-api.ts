@@ -18,6 +18,7 @@ import {
   canViewCase,
   getAppUserFromSession,
   getMockUserByRole,
+  mockUsers,
   type AiResult,
   type ReviewStatus,
 } from "@/lib/permissions"
@@ -236,6 +237,149 @@ const sampleCaseDetails: CaseDetailData[] = [
   },
 ]
 
+const REVIEW_QUEUE_SEED_COUNT = 50
+const REVIEW_QUEUE_DEPARTMENTS = [
+  "서울청 사이버수사팀",
+  "서울청 디지털포렌식팀",
+  "부산청 사이버범죄수사대",
+  "대구청 디지털증거분석팀",
+  "인천청 지능범죄수사팀",
+  "경기남부청 사이버수사대",
+  "대전청 형사기동수사팀",
+  "광주청 여성청소년수사팀",
+]
+const REVIEW_QUEUE_CASE_NAMES = [
+  "메신저 영상 위변조 의심 사건",
+  "CCTV 제출 영상 진위 확인",
+  "음성 통화 녹취 조작 의혹",
+  "SNS 게시 영상 딥페이크 검토",
+  "블랙박스 영상 원본성 확인",
+  "인터뷰 클립 합성 여부 검증",
+  "피해 신고 첨부 영상 분석",
+  "라이브 방송 캡처 조작 의혹",
+  "협박 메시지 음성 파일 검토",
+  "압수 휴대폰 영상 증거 분석",
+]
+const REVIEW_QUEUE_STATUS_PATTERN: ReviewStatus[] = [
+  "REVIEW_REQUESTED",
+  "REVIEW_ASSIGNED",
+  "REVIEW_ASSIGNED",
+  "REVIEW_COMPLETED",
+  "REVIEW_REQUESTED",
+  "REVIEW_ASSIGNED",
+  "REPORT_APPROVED",
+  "REVIEW_REQUESTED",
+  "REVIEW_ASSIGNED",
+  "REVIEW_COMPLETED",
+]
+
+function reviewersForDepartment(department: string) {
+  return mockUsers.filter((user) => user.role === "REVIEWER" && user.department === department)
+}
+
+function seedReviewerId(department: string, index: number, reviewStatus: ReviewStatus) {
+  if (
+    reviewStatus !== "REVIEW_ASSIGNED" &&
+    reviewStatus !== "REVIEW_COMPLETED" &&
+    reviewStatus !== "REPORT_APPROVED"
+  ) {
+    return null
+  }
+
+  const departmentReviewers = reviewersForDepartment(department)
+  return departmentReviewers[index % Math.max(1, departmentReviewers.length)]?.id ?? null
+}
+
+function seedReviewRequestedAt(index: number) {
+  const day = 27 - (index % 12)
+  const hour = 9 + (index % 9)
+  const minute = (index * 7) % 60
+  return `2026-06-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`
+}
+
+function seedRiskScore(index: number) {
+  return 22 + ((index * 13) % 73)
+}
+
+function seedAiResult(score: number): AiResult {
+  if (score >= 80) return "위험"
+  if (score >= 50) return "검토 필요"
+  return "낮음"
+}
+
+function reviewQueueSeedCases(): MockCaseRecord[] {
+  const investigator = getMockUserByRole("INVESTIGATOR")
+
+  return Array.from({ length: REVIEW_QUEUE_SEED_COUNT }, (_, index) => {
+    const sequence = index + 1
+    const department = REVIEW_QUEUE_DEPARTMENTS[index % REVIEW_QUEUE_DEPARTMENTS.length]
+    const reviewStatus = REVIEW_QUEUE_STATUS_PATTERN[index % REVIEW_QUEUE_STATUS_PATTERN.length]
+    const requestedAt = seedReviewRequestedAt(index)
+    const riskScore = seedRiskScore(index)
+
+    return {
+      caseId: `mock-review-queue-${String(sequence).padStart(3, "0")}`,
+      caseName: `${REVIEW_QUEUE_CASE_NAMES[index % REVIEW_QUEUE_CASE_NAMES.length]} #${String(sequence).padStart(2, "0")}`,
+      createdAt: requestedAt,
+      representativeEvidenceId: 20300000 + sequence,
+      organizationId: investigator.organizationId,
+      department,
+      createdBy: investigator.id,
+      assigneeId: investigator.id,
+      reviewerId: seedReviewerId(department, index, reviewStatus),
+      reviewStatus,
+      aiResult: seedAiResult(riskScore),
+      reviewRequestedAt: requestedAt,
+    }
+  })
+}
+
+function findReviewQueueSeedCase(caseId: string) {
+  return reviewQueueSeedCases().find((item) => item.caseId === caseId)
+}
+
+function reviewQueueSeedEvidenceRecord(seedCase: MockCaseRecord): MockEvidenceRecord {
+  const sequence = Number(seedCase.caseId.replace("mock-review-queue-", "")) || 1
+  const riskScore = seedRiskScore(sequence - 1)
+  const mediaType: MockEvidenceRecord["mediaType"] =
+    sequence % 7 === 0 ? "AUDIO" : sequence % 5 === 0 ? "IMAGE" : "VIDEO"
+  const extension = mediaType === "AUDIO" ? "wav" : mediaType === "IMAGE" ? "jpg" : "mp4"
+  const riskLevel: MockEvidenceRecord["riskLevel"] =
+    riskScore >= 80 ? "HIGH" : riskScore >= 50 ? "MEDIUM" : "LOW"
+
+  return {
+    evidenceId: seedCase.representativeEvidenceId ?? 20300000 + sequence,
+    fileName: `review_queue_${String(sequence).padStart(3, "0")}.${extension}`,
+    caseId: seedCase.caseId,
+    caseName: seedCase.caseName,
+    displayLabel: "대표 증거",
+    originalFileName: `review_queue_original_${String(sequence).padStart(3, "0")}.${extension}`,
+    fileSize: 28_000_000 + sequence * 840_000,
+    hashAlgorithm: "SHA-256",
+    hashValue: String(sequence.toString(16)).padStart(64, "0"),
+    metadata:
+      mediaType === "VIDEO"
+        ? { type: "video", codec: "h264", width: 1920, height: 1080, duration: 30 + sequence, fps: 29.97 }
+        : mediaType === "AUDIO"
+          ? { type: "audio", codec: "wav", duration: 45 + sequence, sampleRate: 44100, channels: 2 }
+          : { type: "image", codec: "jpeg", width: 1600, height: 900 },
+    uploadedAt: seedCase.createdAt,
+    mediaType,
+    lifecycleStatus: "ACTIVE",
+    role: "PRIMARY",
+    replacementEvidenceId: null,
+    excludedReason: null,
+    analysisStatus: "COMPLETED",
+    analysisRequestedAt: seedCase.createdAt,
+    analysisCompletedAt: seedCase.createdAt,
+    riskScore,
+    confidenceScore: 82 + (sequence % 15),
+    riskLevel,
+    summary: analysisSummaryForType("DEEPFAKE", riskLevel),
+    moduleResults: sampleModuleResults(riskScore),
+  }
+}
+
 function delay(ms = 350) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -399,7 +543,7 @@ function findSampleCase(caseId: string) {
 
 function findCaseRecord(store: MockStore, caseId: string): MockCaseRecord | undefined {
   return store.cases.find((item) => item.caseId === caseId) ?? (
-    findSampleCase(caseId) ? sampleCaseRecord(findSampleCase(caseId)!) : undefined
+    findSampleCase(caseId) ? sampleCaseRecord(findSampleCase(caseId)!) : findReviewQueueSeedCase(caseId)
   )
 }
 
@@ -447,6 +591,19 @@ function materializeSampleCase(store: MockStore, caseId: string): MockStore {
       ),
       ...store.evidences,
     ],
+  }
+}
+
+function materializeReviewQueueSeedCase(store: MockStore, caseId: string): MockStore {
+  const seedCase = findReviewQueueSeedCase(caseId)
+  if (!seedCase) return store
+  if (store.evidences.some((item) => evidenceCaseId(item) === caseId)) return store
+
+  return {
+    cases: store.cases.some((item) => item.caseId === caseId)
+      ? store.cases
+      : [seedCase, ...store.cases],
+    evidences: [reviewQueueSeedEvidenceRecord(seedCase), ...store.evidences],
   }
 }
 
@@ -753,6 +910,17 @@ function maxRiskScore(records: MockEvidenceRecord[]) {
   return Math.max(...scores)
 }
 
+function latestCompletedAnalysisAt(records: MockEvidenceRecord[]) {
+  const completedTimes = records
+    .map((record) => record.analysisCompletedAt)
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value).getTime())
+    .filter((time) => !Number.isNaN(time))
+
+  if (completedTimes.length === 0) return null
+  return new Date(Math.max(...completedTimes)).toISOString()
+}
+
 function findRecord(evidenceId: number): MockEvidenceRecord {
   const store = saveAfterProgressUpdate()
   const record = store.evidences.find((item) => item.evidenceId === evidenceId)
@@ -875,7 +1043,7 @@ export async function mockCreateCase(caseName: string): Promise<CaseDetailData> 
 export async function mockUploadEvidenceToCase(caseId: string, file: File): Promise<UploadResult> {
   await delay()
 
-  const store = materializeSampleCase(readStore(), caseId)
+  const store = materializeReviewQueueSeedCase(materializeSampleCase(readStore(), caseId), caseId)
   const targetCase = findCaseRecord(store, caseId)
   if (!targetCase) throw new Error("mock 사건 데이터를 찾을 수 없습니다.")
 
@@ -982,7 +1150,7 @@ export async function mockReplaceEvidence(
 ): Promise<UploadResult> {
   await delay()
 
-  const store = materializeSampleCase(readStore(), caseId)
+  const store = materializeReviewQueueSeedCase(materializeSampleCase(readStore(), caseId), caseId)
   const targetCase = findCaseRecord(store, caseId)
   if (!targetCase) throw new Error("mock 사건 데이터를 찾을 수 없습니다.")
 
@@ -1217,12 +1385,12 @@ export async function mockCancelAnalysis(evidenceId: number): Promise<void> {
 export async function mockAssignReviewerToCase(caseId: string, reviewerId: string): Promise<void> {
   await delay(180)
 
-  const reviewer = getMockUserByRole("REVIEWER")
-  if (reviewer.id !== reviewerId) {
+  const reviewer = mockUsers.find((user) => user.id === reviewerId && user.role === "REVIEWER")
+  if (!reviewer) {
     throw new Error("검토자 계정을 찾을 수 없습니다.")
   }
 
-  const store = materializeSampleCase(readStore(), caseId)
+  const store = materializeReviewQueueSeedCase(materializeSampleCase(readStore(), caseId), caseId)
   const targetCase = findCaseRecord(store, caseId)
   if (!targetCase) {
     throw new Error("검토 배정할 사건을 찾을 수 없습니다.")
@@ -1287,6 +1455,17 @@ export async function mockFetchMyAnalysisHistory(options?: {
     )
   }
 
+  for (const seedCase of reviewQueueSeedCases()) {
+    if (!caseMeta.has(seedCase.caseId)) {
+      caseMeta.set(seedCase.caseId, seedCase)
+    }
+
+    const records = grouped.get(seedCase.caseId)
+    if (!records || records.length === 0) {
+      grouped.set(seedCase.caseId, [reviewQueueSeedEvidenceRecord(seedCase)])
+    }
+  }
+
   const content: CaseSummary[] = Array.from(grouped.entries()).map(([id, records]) => {
     const meta = caseMeta.get(id)
     const sorted = [...records].sort(
@@ -1297,10 +1476,22 @@ export async function mockFetchMyAnalysisHistory(options?: {
       sorted.find((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE") ??
       sorted[0]
 
+    const caseStatus = summarizeCaseStatus(records)
+    const rawReviewStatus = meta?.reviewStatus ?? "NONE"
+    const reviewStatus =
+      caseStatus === "COMPLETED" && rawReviewStatus === "NONE"
+        ? "REVIEW_REQUESTED"
+        : rawReviewStatus
+    const reviewRequestedAt =
+      meta?.reviewRequestedAt ??
+      (reviewStatus === "REVIEW_REQUESTED"
+        ? latestCompletedAnalysisAt(records) ?? meta?.createdAt ?? sorted[0]?.uploadedAt ?? new Date().toISOString()
+        : null)
+
     return {
       caseId: id,
       caseName: meta?.caseName || sorted[0]?.caseName || "미분류 사건",
-      status: summarizeCaseStatus(records),
+      status: caseStatus,
       createdAt: meta?.createdAt ?? sorted[0]?.uploadedAt ?? new Date().toISOString(),
       evidenceCount: records.length,
       organizationId: meta?.organizationId ?? defaultCaseAccessFields().organizationId,
@@ -1308,9 +1499,9 @@ export async function mockFetchMyAnalysisHistory(options?: {
       createdBy: meta?.createdBy ?? defaultCaseAccessFields().createdBy,
       assigneeId: meta?.assigneeId ?? defaultCaseAccessFields().assigneeId,
       reviewerId: meta?.reviewerId ?? null,
-      reviewStatus: meta?.reviewStatus ?? "NONE",
+      reviewStatus,
       aiResult: meta?.aiResult ?? null,
-      reviewRequestedAt: meta?.reviewRequestedAt ?? null,
+      reviewRequestedAt,
       representativeFileName: representativeEvidence?.fileName,
       representativeEvidenceId: representativeEvidence?.evidenceId ?? null,
       representativeEvidenceLabel: representativeEvidence?.displayLabel ?? null,

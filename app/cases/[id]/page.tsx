@@ -307,7 +307,12 @@ export default function CaseDetailPage() {
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
       <SiteHeader />
 
-      <main className="mx-auto flex w-full max-w-[1280px] flex-col gap-5 px-5 py-7 sm:px-8 lg:px-10">
+      <main
+        className={cn(
+          "mx-auto flex w-full max-w-[1280px] flex-col gap-5 px-5 sm:px-8 lg:px-10",
+          showResultDashboard ? "py-4" : "py-7"
+        )}
+      >
         {caseLoading ? (
           <LoadingCard label="사건 상세 정보를 불러오는 중입니다..." />
         ) : error ? (
@@ -362,7 +367,7 @@ export default function CaseDetailPage() {
         ) : null}
       </main>
 
-      <SiteFooter />
+      {showResultDashboard ? null : <SiteFooter />}
     </div>
   )
 }
@@ -531,25 +536,16 @@ function CaseResultView({
   const modelSettings = buildModelAnalysisSettings(evidenceDetail, frameScores)
   const verdictToneStyles = {
     red: {
-      card: "border-red-100 bg-red-50/70 dark:border-red-900/40 dark:bg-red-950/20",
-      accent: "border-red-500",
-      text: "text-red-600",
+      badge: "bg-red-50 text-red-600 dark:bg-red-500/10",
       dot: "bg-red-500",
-      divider: "border-red-100 dark:border-red-900/40",
     },
     orange: {
-      card: "border-amber-100 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/20",
-      accent: "border-amber-500",
-      text: "text-amber-600",
+      badge: "bg-amber-50 text-amber-600 dark:bg-amber-500/10",
       dot: "bg-amber-500",
-      divider: "border-amber-100 dark:border-amber-900/40",
     },
     green: {
-      card: "border-emerald-100 bg-emerald-50/70 dark:border-emerald-900/40 dark:bg-emerald-950/20",
-      accent: "border-emerald-500",
-      text: "text-emerald-600",
+      badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10",
       dot: "bg-emerald-500",
-      divider: "border-emerald-100 dark:border-emerald-900/40",
     },
   }[riskTone]
 
@@ -578,9 +574,22 @@ function CaseResultView({
             증거 관리
           </Button>
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-bold tracking-normal text-slate-950 dark:text-foreground">
-              딥페이크 분석 결과
-            </h1>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h1 className="truncate text-2xl font-bold tracking-normal text-slate-950 dark:text-foreground">
+                딥페이크 분석 결과
+              </h1>
+              {evidenceDetail ? (
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-sm font-bold",
+                    verdictToneStyles.badge
+                  )}
+                >
+                  <span className={cn("size-2 rounded-full", verdictToneStyles.dot)} aria-hidden="true" />
+                  {resultVerdict} · {riskScoreLabel}
+                </span>
+              ) : null}
+            </div>
             <p className="mt-1 text-sm font-medium text-slate-500">
               {resultTitle} · 분석 완료 {formatDateTime(analyzedAt)}
             </p>
@@ -608,8 +617,8 @@ function CaseResultView({
         </Alert>
       ) : evidenceDetail ? (
         <>
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(380px,0.88fr)]">
-            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none dark:border-border dark:bg-card">
+          <div className="grid gap-6 lg:h-[calc(100vh-14.5rem)] lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:overflow-y-auto dark:border-border dark:bg-card">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-base font-bold text-slate-950 dark:text-foreground">증거 영상</h2>
@@ -661,57 +670,25 @@ function CaseResultView({
                   </div>
                 ) : null}
               </div>
-              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-500 dark:bg-background">
-                위험 신호가 높은 구간은 아래 분석 탭에서 시간과 대표 프레임으로 확인할 수 있습니다.
-              </p>
+              {frameScores.length > 0 ? (
+                <FrameRiskHeatStrip scores={frameScores} onSeek={seekResultVideo} />
+              ) : (
+                <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-500 dark:bg-background">
+                  위험 신호가 높은 구간은 분석 탭에서 시간과 대표 프레임으로 확인할 수 있습니다.
+                </p>
+              )}
+              <div className="mt-4 border-t border-slate-100 pt-3 dark:border-border">
+                <p className="text-[11px] font-bold text-slate-400">분석 유의사항</p>
+                <ul className="mt-1.5 space-y-1 text-xs font-medium leading-5 text-slate-500">
+                  <li>본 결과는 AI 기반 조작 의심 신호 분석이며, 조작 여부를 확정하지 않습니다.</li>
+                  <li>해상도, 압축률, 조명, 얼굴 가림, 빠른 움직임에 따라 분석 신뢰도가 달라질 수 있습니다.</li>
+                  <li>최종 판단은 원본 자료, 사건 맥락, 전문가 검토 결과와 함께 이루어져야 합니다.</li>
+                </ul>
+              </div>
             </section>
 
-            <aside>
-              <section
-                className={cn(
-                  "overflow-hidden rounded-xl border",
-                  verdictToneStyles.card
-                )}
-              >
-                <div className={cn("border-l-4 p-5", verdictToneStyles.accent)}>
-                  <div className="flex items-start justify-between gap-6">
-                    <div>
-                      <p className="text-xs font-bold text-slate-500">자동 탐지 결과</p>
-                      <p className={cn("mt-3 flex items-center gap-2 text-3xl font-bold", verdictToneStyles.text)}>
-                        <span className={cn("size-2.5 rounded-full", verdictToneStyles.dot)} aria-hidden="true" />
-                        {resultVerdict}
-                      </p>
-                      <div className="mt-3 max-w-96 space-y-1.5 text-sm font-semibold leading-6 text-slate-600 dark:text-muted-foreground">
-                        <p>AI 기반 조작 의심 신호 분석 결과입니다.</p>
-                        <p>본 결과는 확정 판정이 아니며, 전문가 검토가 필요합니다.</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-bold text-slate-500">위험 점수</p>
-                      <p className={cn("mt-3 whitespace-nowrap text-3xl font-bold", verdictToneStyles.text)}>
-                        {riskScoreLabel}
-                      </p>
-                    </div>
-                  </div>
-                  <div className={cn("mt-5 grid grid-cols-2 gap-4 border-t pt-4", verdictToneStyles.divider)}>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500">분석 신뢰도</p>
-                      <p className="mt-1 text-lg font-bold text-slate-950 dark:text-foreground">{confidenceScoreLabel}</p>
-                      <p className="mt-0.5 text-xs font-medium text-slate-500">유효 프레임 · 점수 일관성 기준</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500">품질 점수</p>
-                      <p className="mt-1 text-lg font-bold text-slate-950 dark:text-foreground">68 / 100</p>
-                      <p className="mt-0.5 text-xs font-medium text-slate-500">해상도 · 얼굴 검출 안정성 기준</p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </aside>
-          </div>
-
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
-            <div className="relative grid grid-cols-4 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
+            <section className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none lg:h-full dark:border-border dark:bg-card">
+            <div className="relative grid shrink-0 grid-cols-4 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
               {([
                 ["summary", "분석 요약"],
                 ["detection", "위험 신호"],
@@ -739,9 +716,24 @@ function CaseResultView({
                 }}
               />
             </div>
-            <div className="p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
               {resultTab === "summary" ? (
                 <div className="space-y-5">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <FrameMetricCard
+                      label="위험 점수"
+                      value={riskScoreLabel}
+                      sub={resultVerdict}
+                      tone={riskTone === "red" ? "danger" : "neutral"}
+                    />
+                    <FrameMetricCard
+                      label="분석 신뢰도"
+                      value={confidenceScoreLabel}
+                      sub="유효 프레임 · 점수 일관성 기준"
+                    />
+                    <FrameMetricCard label="품질 점수" value="68 / 100" sub="해상도 · 얼굴 검출 안정성 기준" />
+                  </div>
+
                   <section className="rounded-xl border border-slate-100 bg-slate-50/70 p-6 dark:border-border dark:bg-background">
                     <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">핵심 요약</h3>
                     <p className="mt-2 text-sm font-semibold text-slate-500">
@@ -814,7 +806,7 @@ function CaseResultView({
 
                   {frameScores.length > 0 ? (
                     <>
-                      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2">
                         <FrameMetricCard
                           label="최고 위험"
                           value={formatScoreOutOf100(peakFrame?.score)}
@@ -846,7 +838,6 @@ function CaseResultView({
 
                       <div className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
                         <MiniFrameRiskChart scores={frameScores} />
-                        <FrameRiskHeatStrip scores={frameScores} onSeek={seekResultVideo} />
                       </div>
 
                       <div className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
@@ -1025,8 +1016,7 @@ function CaseResultView({
               )}
             </div>
           </section>
-
-          <AnalysisNoticeCard />
+          </div>
         </>
       ) : (
         <EmptyEvidenceState />
@@ -1592,10 +1582,10 @@ function CaseWorkflowPanel({
     caseData.representativeEvidenceId ?? null
   )
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [commentsByEvidence, setCommentsByEvidence] = useState<Record<number, string>>({})
+  const [analystCommentsByEvidence, setAnalystCommentsByEvidence] = useState<Record<number, string>>({})
+  const [reviewCommentsByEvidence, setReviewCommentsByEvidence] = useState<Record<number, string>>({})
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
-  const [reviewNote, setReviewNote] = useState("")
   const [isWorking, setIsWorking] = useState(false)
   const [localAnalysisProgress, setLocalAnalysisProgress] = useState<Record<number, number>>({})
   const [evidencePage, setEvidencePage] = useState(1)
@@ -1643,7 +1633,13 @@ function CaseWorkflowPanel({
     selectedEvidence?.previewUrl ??
     null
   const selectedMetadata = evidenceDetail?.evidenceInfo.technicalMetadata ?? null
-  const selectedComment = selectedEvidence ? commentsByEvidence[selectedEvidence.evidenceId] ?? "" : ""
+  const selectedAnalystComment = selectedEvidence
+    ? analystCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
+    : ""
+  const selectedReviewComment = selectedEvidence
+    ? reviewCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
+    : ""
+  const isReviewerMode = readOnly
 
   useEffect(() => {
     if (message?.type !== "success") return
@@ -2252,32 +2248,68 @@ function CaseWorkflowPanel({
                 ) : null}
               </div>
             ) : (
-              <div className="mt-4 rounded-lg border border-border bg-card p-4">
-                <label
-                  htmlFor="caseEvidenceComment"
-                  className="flex items-center gap-2 text-sm font-bold text-foreground"
-                >
-                  <MessageSquareText className="size-4 text-teal-600" aria-hidden="true" />
-                  증거 코멘트
-                </label>
-                <textarea
-                  id="caseEvidenceComment"
-                  value={selectedComment}
-                  readOnly={readOnly}
-                  onChange={(event) =>
-                    readOnly
-                      ? undefined
-                      : setCommentsByEvidence((current) => ({
-                          ...current,
-                          [selectedEvidence.evidenceId]: event.target.value,
-                        }))
-                  }
-                  placeholder={readOnly ? "검토 의견은 아래 검토 패널에 입력하세요." : "증거 확인 내용이나 분석 요청 메모를 입력하세요."}
-                  className={cn(
-                    "mt-3 min-h-32 w-full resize-none rounded-lg border border-border bg-background px-3 py-3 text-sm font-medium leading-6 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-teal-300 focus:ring-4 focus:ring-teal-100",
-                    readOnly && "bg-muted/40 focus:border-border focus:ring-0"
-                  )}
-                />
+              <div className="mt-4 space-y-3 rounded-lg border border-border bg-card p-3">
+                <div>
+                  <label
+                    htmlFor="caseAnalystComment"
+                    className="flex items-center gap-2 text-sm font-bold text-foreground"
+                  >
+                    <MessageSquareText className="size-4 text-slate-500" aria-hidden="true" />
+                    분석관 코멘트
+                  </label>
+                  <textarea
+                    id="caseAnalystComment"
+                    value={selectedAnalystComment}
+                    readOnly={isReviewerMode}
+                    onChange={(event) => {
+                      if (isReviewerMode) return
+
+                      setAnalystCommentsByEvidence((current) => ({
+                        ...current,
+                        [selectedEvidence.evidenceId]: event.target.value,
+                      }))
+                    }}
+                    placeholder="증거 확인 내용이나 분석 요청 메모를 입력하세요."
+                    className="mt-2 h-[92px] w-full resize-none overflow-y-auto rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-slate-300 read-only:bg-muted/30"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="caseReviewerComment"
+                    className="flex items-center gap-2 text-sm font-bold text-foreground"
+                  >
+                    <MessageSquareText className="size-4 text-slate-500" aria-hidden="true" />
+                    검토자 코멘트
+                  </label>
+                  <textarea
+                    id="caseReviewerComment"
+                    value={selectedReviewComment}
+                    readOnly={!isReviewerMode}
+                    onChange={(event) => {
+                      if (!isReviewerMode) return
+
+                      setReviewCommentsByEvidence((current) => ({
+                        ...current,
+                        [selectedEvidence.evidenceId]: event.target.value,
+                      }))
+                    }}
+                    placeholder={
+                      isReviewerMode
+                        ? "검토 결과와 보완 요청 내용을 입력하세요."
+                        : "검토자가 작성한 의견이 여기에 표시됩니다."
+                    }
+                    className="mt-2 h-[92px] w-full resize-none overflow-y-auto rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-slate-300 read-only:bg-muted/30"
+                  />
+                </div>
+
+                {isReviewerMode ? (
+                  <ReviewerDecisionActions
+                    decision={reviewDecision}
+                    onApprove={() => handleReviewDecision("APPROVED")}
+                    onRevision={() => handleReviewDecision("REVISION")}
+                  />
+                ) : null}
               </div>
             )}
 
@@ -2289,29 +2321,20 @@ function CaseWorkflowPanel({
 
             <div className="mt-auto space-y-3 pt-4">
               {readOnly ? (
-                <>
-                  <ReviewerReviewPanel
-                    decision={reviewDecision}
-                    note={reviewNote}
-                    onNoteChange={setReviewNote}
-                    onApprove={() => handleReviewDecision("APPROVED")}
-                    onRevision={() => handleReviewDecision("REVISION")}
-                  />
-                  {selectedEvidence.analysisStatus === "COMPLETED" ? (
-                    <Button
-                      type="button"
-                      className="h-11 w-full bg-emerald-600 text-base font-bold text-white hover:bg-emerald-700"
-                      disabled={!selectedEvidenceActive}
-                      onClick={() => onViewResult(selectedEvidence.evidenceId)}
-                    >
-                      결과보기
-                    </Button>
-                  ) : (
-                    <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm font-bold text-muted-foreground">
-                      검토 가능한 분석 결과가 아직 없습니다.
-                    </div>
-                  )}
-                </>
+                selectedEvidence.analysisStatus === "COMPLETED" ? (
+                  <Button
+                    type="button"
+                    className="h-11 w-full bg-emerald-600 text-base font-bold text-white hover:bg-emerald-700"
+                    disabled={!selectedEvidenceActive}
+                    onClick={() => onViewResult(selectedEvidence.evidenceId)}
+                  >
+                    결과보기
+                  </Button>
+                ) : (
+                  <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm font-bold text-muted-foreground">
+                    검토 가능한 분석 결과가 아직 없습니다.
+                  </div>
+                )
               ) : selectedEvidence.analysisStatus === "COMPLETED" ? (
                 <Button
                   type="button"
@@ -2708,16 +2731,12 @@ function CaseMetadataRow({
   )
 }
 
-function ReviewerReviewPanel({
+function ReviewerDecisionActions({
   decision,
-  note,
-  onNoteChange,
   onApprove,
   onRevision,
 }: {
   decision: "PENDING" | "APPROVED" | "REVISION"
-  note: string
-  onNoteChange: (value: string) => void
   onApprove: () => void
   onRevision: () => void
 }) {
@@ -2731,27 +2750,15 @@ function ReviewerReviewPanel({
         : "bg-slate-100 text-slate-600"
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-bold text-foreground">검토 의견</h4>
-          <p className="mt-1 text-xs font-bold leading-5 text-muted-foreground">
-            분석 결과를 확인한 뒤 승인 또는 보완 요청을 남깁니다.
-          </p>
-        </div>
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <span className="text-xs font-bold text-muted-foreground">검토 상태</span>
         <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-bold", statusClassName)}>
           {statusLabel}
         </span>
       </div>
 
-      <textarea
-        value={note}
-        onChange={(event) => onNoteChange(event.target.value)}
-        placeholder="검토 의견을 입력하세요."
-        className="mt-3 min-h-24 w-full resize-none rounded-lg border border-border bg-background px-3 py-3 text-sm font-medium leading-6 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-teal-300 focus:ring-4 focus:ring-teal-100"
-      />
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <Button
           type="button"
           variant="outline"
@@ -3274,9 +3281,9 @@ function FrameRiskHeatStrip({
   const items = scores.slice(0, 60)
 
   return (
-    <div className="mt-4 border-t border-slate-100 pt-4 dark:border-border">
+    <div className="mt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-slate-400">타임라인 위험도 · 구간을 선택하면 영상이 이동합니다</p>
+        <p className="text-xs font-semibold text-slate-400">타임라인 위험도 · 구간을 누르면 해당 지점으로 이동합니다</p>
         <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-400">
           <span className="flex items-center gap-1">
             <span className="size-2 rounded-[3px] bg-slate-200 dark:bg-secondary" />
@@ -3296,8 +3303,8 @@ function FrameRiskHeatStrip({
           </span>
         </div>
       </div>
-      <div className="mt-2 pl-12 pr-4">
-        <div className="flex h-3.5 gap-0.5 overflow-hidden rounded-md">
+      <div className="mt-2">
+        <div className="flex h-4 gap-0.5 overflow-hidden rounded-md">
           {items.map((frame, index) => {
           const value = normalizeResultValue(frame.score)
           const timeLabel = frame.timeSec != null ? formatDuration(frame.timeSec) : `프레임 ${index + 1}`
@@ -3350,19 +3357,6 @@ function formatSecondsForViewer(seconds: number) {
 function formatScoreOutOf100(score: number | null | undefined) {
   if (score == null || !Number.isFinite(score)) return "-"
   return `${Math.round(normalizeResultValue(score) * 100)} / 100`
-}
-
-function AnalysisNoticeCard() {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
-      <h3 className="text-base font-bold text-slate-950 dark:text-foreground">분석 유의사항</h3>
-      <ul className="mt-4 space-y-2 text-sm font-semibold leading-6 text-slate-600 dark:text-muted-foreground">
-        <li>본 결과는 AI 기반 조작 의심 신호 분석이며, 조작 여부를 확정하지 않습니다.</li>
-        <li>영상 해상도, 압축률, 조명, 얼굴 가림, 빠른 움직임에 따라 분석 신뢰도가 달라질 수 있습니다.</li>
-        <li>최종 판단은 원본 자료, 사건 맥락, 전문가 검토 결과와 함께 이루어져야 합니다.</li>
-      </ul>
-    </section>
-  )
 }
 
 function ResultDetailSection({ title, children }: { title: string; children: ReactNode }) {

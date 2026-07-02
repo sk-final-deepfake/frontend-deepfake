@@ -16,7 +16,7 @@ type AnalysisHistoryResponse = {
 export async function fetchMyAnalysisHistory(options?: {
   sort?: ListSort
   page?: number
-  size?: ListPageSize
+  size?: ListPageSize | number
 }): Promise<AnalysisHistoryResponse> {
   if (features.mockApi || isMockAuthSession(getSession())) {
     return mockFetchMyAnalysisHistory(options)

@@ -193,7 +193,7 @@ export type UpdateAdminProfilePayload = {
 
 const USE_MOCK_ADMIN = features.mockApi
 
-let mockAdminUsers = MOCK_ADMIN_USERS.map((user) => ({ ...user }))
+const mockAdminUsers = MOCK_ADMIN_USERS.map((user) => ({ ...user }))
 
 function patchMockAdminUser(userId: string, patch: Partial<AdminUser>) {
   const index = mockAdminUsers.findIndex((user) => user.id === userId)
