@@ -73,6 +73,28 @@ export type FrameScore = {
   score: number
 }
 
+export type FrameRisk = {
+  frameIndex: number
+  timestampSec: number
+  /** 0.0 ~ 1.0 */
+  riskScore: number
+}
+
+export type SuspiciousSegment = {
+  startTime: number
+  endTime: number
+  /** 0.0 ~ 1.0 */
+  maxRiskScore: number
+  reason: string
+}
+
+export type ModelScore = {
+  modelName: string
+  score: number
+  confidence?: number | null
+  modelVersion?: string | null
+}
+
 export type RepresentativeFrame = {
   timeSec?: number | null
   timestamp?: string | null
@@ -84,13 +106,21 @@ export type RepresentativeFrame = {
 
 export type AnalysisInfo = {
   status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
+  /** 백엔드 queueStatus: WAITING / ANALYZING / COMPLETED / FAILED */
+  queueStatus?: string | null
   requestedAt: string | null
   completedAt: string | null
   riskScore: number | null
   confidenceScore: number | null
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | null
   summary: string
+  errorCode?: string | null
+  errorMessage?: string | null
   moduleResults: ModuleResult[]
+  modelScores?: ModelScore[] | null
+  evidenceItems?: string[] | null
+  frameRisks?: FrameRisk[] | null
+  suspiciousSegments?: SuspiciousSegment[] | null
   frameScores?: FrameScore[] | null
   representativeFrames?: RepresentativeFrame[] | null
   overlayVideoUrl?: string | null

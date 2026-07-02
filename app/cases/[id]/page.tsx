@@ -66,6 +66,7 @@ import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
+import { normalizeEvidenceDetailForUi } from "@/lib/api/normalize-analysis"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDuration } from "@/lib/formatters"
 
@@ -239,7 +240,7 @@ export default function CaseDetailPage() {
       try {
         const result = await fetchEvidenceDetail(selectedEvidenceId)
         if (!cancelled) {
-          setEvidenceDetail(result)
+          setEvidenceDetail(normalizeEvidenceDetailForUi(result))
         }
       } catch (error) {
         if (!cancelled) {
