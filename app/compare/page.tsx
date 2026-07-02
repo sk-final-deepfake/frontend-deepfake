@@ -13,7 +13,7 @@ export default function ComparePage() {
             비교검증
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            사건에 등록된 기준 증거를 선택하고, 비교 대상 파일을 업로드해 원본성과 일치 여부를 검증합니다.
+            사건에 등록된 기준 증거를 선택하고, 비교 대상 파일을 업로드해 내용 기준 일치 여부를 검증합니다.
           </p>
         </div>
         <CompareVerificationFlow />

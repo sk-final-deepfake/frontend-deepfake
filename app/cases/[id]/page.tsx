@@ -15,6 +15,7 @@ import {
   FilePlus2,
   FileSearch,
   FileVideo,
+  GitCompare,
   Home,
   Loader2,
   MessageSquareText,
@@ -64,6 +65,8 @@ import {
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
+import { getLatestCompareResultSummary, type StoredCompareResultSummary } from "@/lib/compare-history"
+import { mockUsers } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeEvidenceDetailForUi } from "@/lib/api/normalize-analysis"
@@ -97,6 +100,11 @@ function getFileExtension(fileName: string, mediaType?: string) {
 
 function getStatusLabel(status: EvidenceDetailData["analysisInfo"]["status"]) {
   return getAnalysisStatusLabel(normalizeStatus(status))
+}
+
+function getCaseActorName(userId?: string | null) {
+  if (!userId) return null
+  return mockUsers.find((user) => user.id === userId)?.name ?? userId
 }
 
 function getCaseStatusLabel(status: string) {
@@ -300,6 +308,18 @@ export default function CaseDetailPage() {
     })
   }
 
+  function startCompareVerification(evidenceId: number) {
+    const query = new URLSearchParams({
+      caseId,
+      evidenceId: String(evidenceId),
+    })
+    router.push(`/compare?${query.toString()}`)
+  }
+
+  function viewCompareVerification(compareId: number) {
+    router.push(`/compare/${compareId}`)
+  }
+
   function updateCaseSettings(caseName: string, representativeEvidenceId: number | null) {
     setCaseData((current) => (current ? { ...current, caseName, representativeEvidenceId } : current))
   }
@@ -357,8 +377,11 @@ export default function CaseDetailPage() {
                     onSelectEvidence={selectEvidence}
                     onViewResult={viewResult}
                     onViewIntegrity={viewIntegrity}
+                    onViewCompareResult={viewCompareVerification}
+                    onStartCompare={startCompareVerification}
                     onUpdateCaseSettings={updateCaseSettings}
                     onRefresh={refreshCase}
+                    currentUserName={session?.name ?? null}
                     readOnly={isReviewer}
                   />
                 )}
@@ -1552,8 +1575,11 @@ function CaseWorkflowPanel({
   onSelectEvidence,
   onViewResult,
   onViewIntegrity,
+  onViewCompareResult,
+  onStartCompare,
   onUpdateCaseSettings,
   onRefresh,
+  currentUserName,
   readOnly = false,
 }: {
   caseData: CaseDetailData
@@ -1564,8 +1590,11 @@ function CaseWorkflowPanel({
   onSelectEvidence: (evidenceId: number) => void
   onViewResult: (evidenceId: number) => void
   onViewIntegrity: (evidenceId: number) => void
+  onViewCompareResult: (compareId: number) => void
+  onStartCompare: (evidenceId: number) => void
   onUpdateCaseSettings: (caseName: string, representativeEvidenceId: number | null) => void
   onRefresh: () => void
+  currentUserName?: string | null
   readOnly?: boolean
 }) {
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -1589,6 +1618,7 @@ function CaseWorkflowPanel({
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
   const [localAnalysisProgress, setLocalAnalysisProgress] = useState<Record<number, number>>({})
+  const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [evidencePage, setEvidencePage] = useState(1)
 
   const evidences = caseData.evidences
@@ -1640,7 +1670,20 @@ function CaseWorkflowPanel({
   const selectedReviewComment = selectedEvidence
     ? reviewCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
     : ""
+  const analystName = getCaseActorName(caseData.assigneeId ?? caseData.createdBy) ?? (!readOnly ? currentUserName : null)
+  const reviewerName = getCaseActorName(caseData.reviewerId)
+  const compareLabel = getCompareVerificationLabel(selectedCompareResult)
+  const compareBadgeClassName = getCompareVerificationBadgeClassName(selectedCompareResult)
   const isReviewerMode = readOnly
+
+  useEffect(() => {
+    if (!selectedEvidence) {
+      setSelectedCompareResult(null)
+      return
+    }
+
+    setSelectedCompareResult(getLatestCompareResultSummary(selectedEvidence.evidenceId))
+  }, [selectedEvidence])
 
   useEffect(() => {
     if (message?.type !== "success") return
@@ -1871,6 +1914,11 @@ function CaseWorkflowPanel({
   function handleViewIntegrityCheck() {
     if (!selectedEvidence) return
     onViewIntegrity(selectedEvidence.evidenceId)
+  }
+
+  function handleStartCompareVerification() {
+    if (!selectedEvidence || !selectedEvidenceActive) return
+    onStartCompare(selectedEvidence.evidenceId)
   }
 
   function handleSaveCaseSettings() {
@@ -2229,23 +2277,50 @@ function CaseWorkflowPanel({
                 </dl>
 
                 {selectedEvidenceActive ? (
-                  <button
-                    type="button"
-                    className="group flex w-full items-center justify-between rounded-lg border-t border-border pt-3 text-left"
-                    onClick={handleViewIntegrityCheck}
-                  >
-                    <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-muted-foreground">
-                      <CheckCircle2 className="size-4 shrink-0 text-teal-600" aria-hidden="true" />
-                      무결성 검증
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                        해시값 일치
+                  <div className="space-y-3 border-t border-border pt-3">
+                    <button
+                      type="button"
+                      className="group flex w-full items-center justify-between rounded-lg text-left"
+                      onClick={handleViewIntegrityCheck}
+                    >
+                      <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-muted-foreground">
+                        <CheckCircle2 className="size-4 shrink-0 text-teal-600" aria-hidden="true" />
+                        무결성 검증
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                          해시값 일치
+                        </span>
                       </span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-0.5 text-sm font-bold text-teal-700 transition-colors group-hover:text-teal-900">
-                      상세보기
-                      <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-                    </span>
-                  </button>
+                      <span className="flex shrink-0 items-center gap-0.5 text-sm font-bold text-teal-700 transition-colors group-hover:text-teal-900">
+                        상세보기
+                        <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                      </span>
+                    </button>
+
+                    {!readOnly ? (
+                      <button
+                        type="button"
+                        className="group flex w-full items-center justify-between rounded-lg text-left disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isWorking}
+                        onClick={
+                          selectedCompareResult
+                            ? () => onViewCompareResult(selectedCompareResult.compareId)
+                            : handleStartCompareVerification
+                        }
+                      >
+                        <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-muted-foreground">
+                          <GitCompare className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+                          비교검증
+                          <span className={cn("rounded-full px-2 py-0.5 text-xs font-bold", compareBadgeClassName)}>
+                            {compareLabel}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-0.5 text-sm font-bold text-teal-700 transition-colors group-hover:text-teal-900">
+                          {selectedCompareResult ? "상세보기" : "분석하기"}
+                          <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ) : (
@@ -2257,6 +2332,11 @@ function CaseWorkflowPanel({
                   >
                     <MessageSquareText className="size-4 text-slate-500" aria-hidden="true" />
                     분석관 코멘트
+                    {analystName ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                        {analystName}
+                      </span>
+                    ) : null}
                   </label>
                   <textarea
                     id="caseAnalystComment"
@@ -2282,6 +2362,11 @@ function CaseWorkflowPanel({
                   >
                     <MessageSquareText className="size-4 text-slate-500" aria-hidden="true" />
                     검토자 코멘트
+                    {reviewerName ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                        {reviewerName}
+                      </span>
+                    ) : null}
                   </label>
                   <textarea
                     id="caseReviewerComment"
@@ -3774,6 +3859,21 @@ function getEvidenceAnalysisBadgeClassName(evidence: CaseEvidenceSummary) {
   if (verdict === "위험") return "bg-red-50 text-red-600"
   if (verdict === "주의") return "bg-amber-50 text-amber-700"
   return "bg-emerald-50 text-emerald-700"
+}
+
+function getCompareVerificationLabel(result: StoredCompareResultSummary | null) {
+  if (!result) return "미검증"
+  if (result.verdict === "ORIGINAL_MATCH") return "일치"
+  if (result.verdict === "TAMPERED") return "불일치"
+  if (result.mismatchCount > 0) return "불일치"
+  return result.verdictLabel || "판정 보류"
+}
+
+function getCompareVerificationBadgeClassName(result: StoredCompareResultSummary | null) {
+  if (!result) return "bg-slate-100 text-slate-500"
+  if (result.verdict === "ORIGINAL_MATCH") return "bg-emerald-100 text-emerald-700"
+  if (result.verdict === "TAMPERED" || result.mismatchCount > 0) return "bg-red-50 text-red-600"
+  return "bg-amber-50 text-amber-700"
 }
 
 function isEvidenceAnalysisRunning(evidence: CaseEvidenceSummary) {

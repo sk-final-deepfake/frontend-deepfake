@@ -17,8 +17,8 @@ export function AdminPageHeader({ title, description, action }: AdminPageHeaderP
         </div>
         <div className="flex shrink-0 items-center gap-3">
           {action}
-          <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
-            <span className="size-2 rounded-full bg-slate-400" />
+          <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+            <span className="size-2 rounded-full bg-emerald-500" />
             시스템 정상
           </div>
         </div>

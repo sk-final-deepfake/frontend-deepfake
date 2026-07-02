@@ -114,10 +114,10 @@ BACKEND_OR_JWT_DEPENDENCY
 | `git diff --name-status` | 0 | `next-env.d.ts`, `tsconfig.tsbuildinfo`만 tracked diff |
 | `git diff --stat` | 0 | 2 files changed, 2 insertions, 2 deletions |
 | `git diff --check` | 0 | whitespace error 없음 |
-| `npm run build` | 0 | Next build 성공. Type validation은 설정상 skip |
-| `npm run lint` | 127 | `eslint: command not found` |
-| `npm run typecheck` | 1 | `typecheck` script 없음 |
-| `npm run test` | 1 | `test` script 없음 |
+| `pnpm build` | 0 | Next build 성공. Type validation은 설정상 skip |
+| `pnpm lint` | 127 | `eslint: command not found` |
+| `pnpm typecheck` | 1 | `typecheck` script 없음 |
+| `pnpm test` | 1 | `test` script 없음 |
 
 ## 남은 확인 필요 사항
 

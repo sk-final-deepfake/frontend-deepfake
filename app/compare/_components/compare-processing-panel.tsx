@@ -26,7 +26,7 @@ export function CompareProcessingPanel({
           <div>
             <h1 className="text-xl font-bold text-slate-950 dark:text-foreground">비교 처리 중</h1>
             <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-muted-foreground">
-              원본과 대상 파일의 해시, 메타데이터, 스트림 구조를 비교하고 있습니다.
+              기준 증거와 비교 대상 파일의 해시, 메타데이터, 스트림 구조를 비교하고 있습니다.
             </p>
           </div>
         </div>
@@ -42,8 +42,12 @@ export function CompareProcessingPanel({
       </div>
 
       <div className="mt-7 grid gap-3 sm:grid-cols-2">
-        <CompareFileSummary label="원본" name={sourceEvidence.name} detail={String(sourceEvidence.id)} />
-        <CompareFileSummary label="대상" name={compareFile?.name ?? "비교 파일"} detail={compareFile?.sizeLabel ?? "-"} />
+        <CompareFileSummary
+          label="기준 증거"
+          name={sourceEvidence.displayLabel}
+          detail={formatEvidenceId(sourceEvidence.id)}
+        />
+        <CompareFileSummary label="비교 대상" name={compareFile?.name ?? "비교 파일"} detail={compareFile?.sizeLabel ?? "-"} />
       </div>
 
       <div className="mt-7">
@@ -60,6 +64,10 @@ export function CompareProcessingPanel({
       </div>
     </div>
   )
+}
+
+function formatEvidenceId(evidenceId: number) {
+  return `EVD-${evidenceId}`
 }
 
 function CompareFileSummary({ label, name, detail }: { label: string; name: string; detail: string }) {

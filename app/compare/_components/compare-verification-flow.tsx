@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type DragEvent } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Check } from "lucide-react"
 
 import { CompareFileUploader } from "./compare-file-uploader"
@@ -14,6 +15,7 @@ import {
   type CompareResult,
 } from "@/lib/api/compare"
 import { getApiErrorMessage } from "@/lib/api/errors"
+import { saveCompareResultSummary } from "@/lib/compare-history"
 import { fetchCaseDetail, type CaseDetailData } from "@/lib/api/evidence-detail"
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
 import { formatFileSize as formatSharedFileSize } from "@/lib/formatters"
@@ -24,6 +26,7 @@ type CompareStep = "source" | "upload" | "processing" | "result"
 
 export type SourceEvidence = {
   id: number
+  displayLabel: string
   name: string
   dateLabel: string
   sizeLabel: string
@@ -61,7 +64,8 @@ const EMPTY_CASE: SourceCase = {
 
 const EMPTY_EVIDENCE: SourceEvidence = {
   id: 0,
-  name: "원본 증거를 선택하세요",
+  displayLabel: "기준 증거",
+  name: "기준 증거를 선택하세요",
   dateLabel: "-",
   sizeLabel: "-",
   codecLabel: "-",
@@ -70,6 +74,16 @@ const EMPTY_EVIDENCE: SourceEvidence = {
 }
 
 export function CompareVerificationFlow() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const preselectedCaseId = searchParams.get("caseId") ?? ""
+  const preselectedEvidenceParam = searchParams.get("evidenceId")
+  const preselectedEvidenceId = preselectedEvidenceParam ? Number(preselectedEvidenceParam) : null
+  const hasPreselectedEvidence =
+    Boolean(preselectedCaseId) &&
+    preselectedEvidenceId != null &&
+    Number.isFinite(preselectedEvidenceId) &&
+    preselectedEvidenceId > 0
   const [step, setStep] = useState<CompareStep>("source")
   const [sourceCases, setSourceCases] = useState<SourceCase[]>([])
   const [selectedCaseId, setSelectedCaseId] = useState("")
@@ -107,7 +121,7 @@ export function CompareVerificationFlow() {
           evidences: [],
         }))
 
-        const firstCaseId = cases[0]?.id ?? ""
+        const firstCaseId = preselectedCaseId || cases[0]?.id || ""
         setSourceCases(cases)
         setSelectedCaseId(firstCaseId)
 
@@ -117,11 +131,25 @@ export function CompareVerificationFlow() {
 
           const hydratedCase = mapCaseDetailToSourceCase(detail)
           setSourceCases((current) =>
-            current.map((sourceCase) =>
-              sourceCase.id === hydratedCase.id ? hydratedCase : sourceCase
-            )
+            current.some((sourceCase) => sourceCase.id === hydratedCase.id)
+              ? current.map((sourceCase) =>
+                  sourceCase.id === hydratedCase.id ? hydratedCase : sourceCase
+                )
+              : [hydratedCase, ...current]
           )
-          setSelectedEvidenceId(hydratedCase.evidences[0]?.id ?? null)
+          const preferredEvidenceId =
+            hasPreselectedEvidence &&
+            hydratedCase.evidences.some((evidence) => evidence.id === preselectedEvidenceId)
+              ? preselectedEvidenceId
+              : hydratedCase.evidences[0]?.id ?? null
+
+          setSelectedEvidenceId(preferredEvidenceId)
+
+          if (hasPreselectedEvidence && preferredEvidenceId === preselectedEvidenceId) {
+            setStep("upload")
+          } else if (hasPreselectedEvidence) {
+            setSourceError("선택한 사건에서 해당 기준 증거를 찾지 못했습니다. 기준 증거를 다시 선택해 주세요.")
+          }
         }
       } catch (error) {
         if (cancelled) return
@@ -139,7 +167,7 @@ export function CompareVerificationFlow() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [hasPreselectedEvidence, preselectedCaseId, preselectedEvidenceId])
 
   useEffect(() => {
     if (step !== "processing") return
@@ -201,9 +229,10 @@ export function CompareVerificationFlow() {
     try {
       const result = await verifyCompare(selectedEvidenceId, compareFile.file, requestToken)
       if (compareRequestRef.current !== requestId) return
+      saveCompareResultSummary(result)
       setCompareResult(result)
       setProgress(100)
-      window.setTimeout(() => setStep("result"), 250)
+      window.setTimeout(() => router.push(`/compare/${result.compareId}`), 250)
     } catch (error) {
       if (compareRequestRef.current !== requestId) return
       setStep("upload")
@@ -295,7 +324,7 @@ export function CompareVerificationFlow() {
     return searchValue.includes(caseQuery.toLowerCase())
   })
   const filteredEvidences = selectedCase.evidences.filter((evidence) => {
-    const searchValue = `${evidence.id} ${evidence.name} ${evidence.codecLabel}`.toLowerCase()
+    const searchValue = `${evidence.id} ${evidence.displayLabel} ${evidence.dateLabel}`.toLowerCase()
     return searchValue.includes(evidenceQuery.toLowerCase())
   })
 
@@ -349,10 +378,10 @@ export function CompareVerificationFlow() {
 
 function StepIndicator({ currentStep }: { currentStep: CompareStep }) {
   const steps = [
-    { key: "source", label: "원본 선택" },
+    { key: "source", label: "기준 증거" },
     { key: "upload", label: "파일 업로드" },
     { key: "processing", label: "비교 처리" },
-    { key: "result", label: "검증 결과" },
+    { key: "result", label: "리포트" },
   ] satisfies { key: CompareStep; label: string }[]
   const currentIndex = steps.findIndex((step) => step.key === currentStep)
 
@@ -442,8 +471,9 @@ function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
     title: caseDetail.caseName,
     department: getCaseStatusLabel(caseDetail.status),
     updatedAtLabel: formatDateTimeLabel(caseDetail.createdAt),
-    evidences: caseDetail.evidences.map((evidence) => ({
+    evidences: caseDetail.evidences.map((evidence, index) => ({
       id: evidence.evidenceId,
+      displayLabel: evidence.displayLabel || `기준 증거 ${index + 1}`,
       name: evidence.fileName,
       dateLabel: getCaseStatusLabel(evidence.analysisStatus),
       sizeLabel: "-",
