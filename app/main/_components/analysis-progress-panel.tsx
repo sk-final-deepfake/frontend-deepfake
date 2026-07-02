@@ -30,7 +30,7 @@ export function AnalysisProgressPanel({
 
       <div className="mx-auto mt-4 grid max-w-xl gap-2 sm:grid-cols-2">
         <Button
-          className="h-10 rounded-lg bg-teal-600 text-sm font-black hover:bg-teal-700"
+          className="h-10 rounded-lg bg-teal-600 text-sm font-bold hover:bg-teal-700"
           render={<Link href="/mypage" />}
           nativeButton={false}
         >
@@ -40,7 +40,7 @@ export function AnalysisProgressPanel({
           type="button"
           variant="destructive"
           onClick={onCancel}
-          className="h-10 rounded-lg text-sm font-black"
+          className="h-10 rounded-lg text-sm font-bold"
         >
           <Ban className="size-4" aria-hidden="true" />
           분석 중단

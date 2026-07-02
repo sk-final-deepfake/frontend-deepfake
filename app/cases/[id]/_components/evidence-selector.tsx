@@ -22,8 +22,8 @@ export function EvidenceSelector({
   return (
     <aside className="rounded-xl border border-border bg-card p-4 shadow-sm xl:sticky xl:top-28">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-black text-foreground">증거 파일</h2>
-        <Badge variant="secondary" className="rounded-full px-3 font-black">
+        <h2 className="text-lg font-bold text-foreground">증거 파일</h2>
+        <Badge variant="secondary" className="rounded-full px-3 font-bold">
           {evidences.length}개
         </Badge>
       </div>
@@ -62,7 +62,7 @@ export function EvidenceSelector({
                       <ChevronRight className={cn("mt-0.5 size-4 shrink-0", active ? "text-teal-600" : "text-muted-foreground/40")} />
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2">
-                      <span className={cn("inline-flex items-center gap-1.5 text-xs font-black", completed ? "text-teal-600" : "text-muted-foreground")}>
+                      <span className={cn("inline-flex items-center gap-1.5 text-xs font-bold", completed ? "text-teal-600" : "text-muted-foreground")}>
                         <span className={cn("size-2 rounded-full", completed ? "bg-teal-500" : "bg-muted-foreground/30")} />
                         {completed ? "분석 완료" : getStatusLabel(evidence.analysisStatus)}
                       </span>

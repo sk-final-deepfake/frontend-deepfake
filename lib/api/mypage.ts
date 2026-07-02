@@ -3,6 +3,7 @@ import type { CaseSummary } from "@/app/mypage/_types/case"
 import type { ListSort, ListPageSize } from "@/lib/user-settings"
 import { features } from "@/lib/features"
 import { mockFetchMyAnalysisHistory } from "@/lib/mock/forensic-api"
+import { getSession, isMockAuthSession } from "@/lib/auth"
 
 type AnalysisHistoryResponse = {
   content: CaseSummary[]
@@ -17,7 +18,7 @@ export async function fetchMyAnalysisHistory(options?: {
   page?: number
   size?: ListPageSize
 }): Promise<AnalysisHistoryResponse> {
-  if (features.mockApi) {
+  if (features.mockApi || isMockAuthSession(getSession())) {
     return mockFetchMyAnalysisHistory(options)
   }
 

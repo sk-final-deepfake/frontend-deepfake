@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { SiteHeaderAuth } from "@/components/site-header-auth"
+import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
 const defaultNavItems = [
@@ -35,11 +36,27 @@ export function SiteHeader({
 }: SiteHeaderProps) {
   const pathname = usePathname()
   const [hash, setHash] = useState("")
+  const [session, setSessionState] = useState<AuthSession | null>(() => getSession())
   const showNav = variant !== "minimal"
   const showAuth = variant !== "minimal"
   const activeKey = getActiveNavKey(pathname, hash)
   const brandHref = variant === "admin" ? "/admin" : "/main"
-  const navItems = variant === "admin" ? adminNavItems : defaultNavItems
+  const navItems =
+    variant === "admin" || !isReviewerSession(session)
+      ? variant === "admin"
+        ? adminNavItems
+        : defaultNavItems
+      : defaultNavItems.filter((item) => item.key !== "compare")
+
+  useEffect(() => {
+    function syncSession() {
+      setSessionState(getSession())
+    }
+
+    syncSession()
+    window.addEventListener("auth-change", syncSession)
+    return () => window.removeEventListener("auth-change", syncSession)
+  }, [])
 
   useEffect(() => {
     function syncHash() {
@@ -115,7 +132,7 @@ export function SiteHeader({
                 "whitespace-nowrap font-semibold transition-colors hover:text-slate-950 dark:hover:text-foreground",
                 variant === "admin" ? "text-sm" : "text-base",
                 isActive
-                  ? "font-black text-slate-950 dark:text-foreground"
+                  ? "font-bold text-slate-950 dark:text-foreground"
                   : "text-slate-500 dark:text-muted-foreground"
               )
 

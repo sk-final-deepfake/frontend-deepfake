@@ -46,7 +46,7 @@ export function MediaPreview({ evidence, activeIndex, onOpen }: MediaPreviewProp
           </>
         )}
         <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-black/35 px-3 py-2">
-          <span className="truncate text-[11px] font-black text-white/90">{evidence.name}</span>
+          <span className="truncate text-[11px] font-bold text-white/90">{evidence.name}</span>
           <span className="text-[11px] font-bold text-white/75">{evidence.uploadAtLabel}</span>
         </div>
         <div className="absolute inset-x-0 bottom-0 bg-slate-950/75 px-3 py-2">
@@ -85,7 +85,7 @@ export function VideoPreviewDialog({ evidence, onClose }: VideoPreviewDialogProp
       >
         <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-white">
           <div className="min-w-0">
-            <p className="truncate text-sm font-black">{evidence.name}</p>
+            <p className="truncate text-sm font-bold">{evidence.name}</p>
             <p className="mt-0.5 text-xs font-semibold text-white/55">
               {evidence.sizeLabel} · {evidence.extension}
             </p>

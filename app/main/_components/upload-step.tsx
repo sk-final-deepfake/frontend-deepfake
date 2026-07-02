@@ -56,7 +56,7 @@ export function UploadStep({
           </span>
           포렌식 분석 시스템 · 정상 운영 중
         </div>
-        <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950 dark:text-foreground">
+        <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-950 dark:text-foreground">
           디지털 미디어 위변조 분석 대시보드
         </h1>
         <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-500 dark:text-muted-foreground">
@@ -65,7 +65,7 @@ export function UploadStep({
       </div>
 
       <div className="space-y-3">
-        <h2 className="flex items-center gap-2 text-xl font-black text-slate-950 dark:text-foreground">
+        <h2 className="flex items-center gap-2 text-xl font-bold text-slate-950 dark:text-foreground">
           <History className="size-5 text-cyan-600" aria-hidden="true" />
           분석 기록 및 새 분석 시작
         </h2>
@@ -75,7 +75,7 @@ export function UploadStep({
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm dark:border-border dark:bg-card">
           <div>
-            <h3 className="text-xl font-black text-slate-950 dark:text-foreground">증거 파일 업로드</h3>
+            <h3 className="text-xl font-bold text-slate-950 dark:text-foreground">증거 파일 업로드</h3>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-muted-foreground">
               분석할 영상 파일을 업로드하면 SHA-256 해시와 메타데이터가 서버에 저장됩니다.
             </p>
@@ -120,7 +120,7 @@ export function UploadStep({
             <div className="flex size-14 items-center justify-center rounded-full bg-cyan-100 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-300 dark:ring-cyan-500/25">
               <UploadCloud className="size-7" aria-hidden="true" />
             </div>
-            <p className="mt-4 text-sm font-black text-slate-700 dark:text-foreground">
+            <p className="mt-4 text-sm font-bold text-slate-700 dark:text-foreground">
               {hasEvidence ? "파일을 추가로 업로드하려면 클릭하세요" : "파일을 이곳에 드래그하거나 클릭하여 선택하세요"}
             </p>
             <p className="mt-1 text-xs font-medium text-slate-400 dark:text-muted-foreground">
@@ -132,7 +132,7 @@ export function UploadStep({
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <FileVideo className="size-4 text-cyan-600" aria-hidden="true" />
-                <h4 className="text-sm font-black text-slate-800 dark:text-foreground">선택된 파일</h4>
+                <h4 className="text-sm font-bold text-slate-800 dark:text-foreground">선택된 파일</h4>
               </div>
               <span className="text-xs font-bold text-slate-400 dark:text-muted-foreground">
                 {hasEvidence ? `${evidences.length}개 · ${totalSizeLabel}` : "0개"}
@@ -170,7 +170,7 @@ export function UploadStep({
                         <FileVideo className="size-4" aria-hidden="true" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-xs font-black text-slate-700 dark:text-foreground">
+                        <span className="block truncate text-xs font-bold text-slate-700 dark:text-foreground">
                           {item.name}
                         </span>
                         <span className="text-[11px] font-semibold text-slate-400 dark:text-muted-foreground">
@@ -232,7 +232,7 @@ export function UploadStep({
                   ? "사건명을 입력하면 분석 요청을 시작할 수 있습니다."
                   : undefined
             }
-            className="mt-5 h-11 w-full rounded-lg bg-teal-600 text-sm font-black hover:bg-teal-700"
+            className="mt-5 h-11 w-full rounded-lg bg-teal-600 text-sm font-bold hover:bg-teal-700"
           >
             분석 시작하기
           </Button>

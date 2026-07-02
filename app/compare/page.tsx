@@ -9,7 +9,7 @@ export default function ComparePage() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-2">
           <p className="text-sm font-bold text-teal-600">Compare Verification</p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight text-foreground">
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
             비교검증
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">

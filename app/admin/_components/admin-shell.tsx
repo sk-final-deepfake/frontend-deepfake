@@ -11,6 +11,7 @@ import {
   ScrollText,
   ShieldCheck,
   LogOut,
+  ClipboardCheck,
 } from "lucide-react"
 import { logoutApi } from "@/lib/auth-api"
 import { clearSession, getSession } from "@/lib/auth"
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/admin", label: "메인 대시보드", icon: LayoutDashboard, exact: true },
   { href: "/admin/users", label: "계정 관리", icon: Users },
   { href: "/admin/approvals", label: "사용자 승인", icon: UserCheck },
+  { href: "/admin/reviews", label: "검토 배정", icon: ClipboardCheck },
   { href: "/admin/statistics", label: "통계 분석", icon: BarChart3 },
   { href: "/admin/logs", label: "로그 관리", icon: ScrollText },
   { href: "/admin/invite-codes", label: "생성코드", icon: Ticket },

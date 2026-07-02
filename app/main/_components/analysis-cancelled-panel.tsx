@@ -22,7 +22,7 @@ export function AnalysisCancelledPanel({
         <div className="flex size-16 items-center justify-center rounded-full bg-red-50 text-red-500 ring-1 ring-red-100 dark:bg-red-500/10 dark:ring-red-500/20">
           <Ban className="size-8" aria-hidden="true" />
         </div>
-        <h1 className="mt-5 text-xl font-black text-slate-950 dark:text-foreground">
+        <h1 className="mt-5 text-xl font-bold text-slate-950 dark:text-foreground">
           분석이 중단되었습니다
         </h1>
         <p className="mt-2 text-sm font-bold text-slate-400 dark:text-muted-foreground">
@@ -37,7 +37,7 @@ export function AnalysisCancelledPanel({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className="mt-5 text-center text-base font-black text-red-500">{progress}%에서 중단</p>
+        <p className="mt-5 text-center text-base font-bold text-red-500">{progress}%에서 중단</p>
 
         <div className="mt-6 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
           분석 요청이 사용자에 의해 중단되었습니다. 업로드된 파일은 삭제되지 않으며,
@@ -55,7 +55,7 @@ export function AnalysisCancelledPanel({
         <Button
           type="button"
           onClick={onRestart}
-          className="h-10 rounded-lg bg-teal-600 text-sm font-black hover:bg-teal-700"
+          className="h-10 rounded-lg bg-teal-600 text-sm font-bold hover:bg-teal-700"
         >
           다시 분석 시작
         </Button>

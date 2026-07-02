@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
 import { login } from "@/lib/auth-api"
 import { getApiErrorMessage } from "@/lib/api/errors"
-import { applyLoginResponse, getSession } from "@/lib/auth"
+import { applyLoginResponse, getSession, isReviewerRole } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -17,6 +17,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { features } from "@/lib/features"
+import { normalizeUserRole } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
 const inputClassName = cn(
@@ -37,7 +39,7 @@ export function LoginForm() {
   useEffect(() => {
     const session = getSession()
     if (!session) return
-    router.replace(session.role === "admin" ? "/admin" : "/main")
+    router.replace(getLoginRedirectPath(session.role))
   }, [router])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -46,14 +48,28 @@ export function LoginForm() {
     setIsSubmitting(true)
 
     try {
+      const loginId = employeeId.trim()
+      const mockLogin = getMockLogin(loginId, password)
+      if (canUseMockLogin() && mockLogin) {
+        applyLoginResponse({
+          userId: mockLogin.userId,
+          loginId,
+          name: mockLogin.name,
+          role: mockLogin.role,
+          token: mockLogin.token,
+        })
+        router.replace(getLoginRedirectPath(mockLogin.role))
+        return
+      }
+
       const response = await login({
-        loginId: employeeId.trim(),
+        loginId,
         password,
       })
 
       applyLoginResponse(response)
 
-      router.replace(response.role === "ROLE_ADMIN" ? "/admin" : "/main")
+      router.replace(getLoginRedirectPath(response.role))
     } catch (error) {
       setErrorMessage(
         getApiErrorMessage(error, "로그인 요청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요.")
@@ -183,4 +199,47 @@ export function LoginForm() {
       </form>
     </Card>
   )
+}
+
+function getLoginRedirectPath(role: string) {
+  if (normalizeUserRole(role) === "ORG_ADMIN") return "/admin"
+  if (isReviewerRole(role)) return "/mypage"
+  return "/mypage"
+}
+
+function canUseMockLogin() {
+  if (features.mockApi) return true
+  if (typeof window === "undefined") return false
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+}
+
+function getMockLogin(loginId: string, password: string) {
+  if (loginId === "1111" && password === "1111") {
+    return {
+      userId: 1111,
+      name: "김민희",
+      role: "ROLE_INVESTIGATOR",
+      token: "mock-investigator-token",
+    }
+  }
+
+  if (loginId === "5555" && password === "6666") {
+    return {
+      userId: 5555,
+      name: "박검토",
+      role: "ROLE_REVIEWER",
+      token: "mock-reviewer-token",
+    }
+  }
+
+  if (loginId === "9999" && password === "9999") {
+    return {
+      userId: 9999,
+      name: "이관리",
+      role: "ROLE_ORG_ADMIN",
+      token: "mock-org-admin-token",
+    }
+  }
+
+  return null
 }

@@ -29,7 +29,7 @@ export function AnalysisProgress({
           <div className="absolute size-12 animate-spin rounded-full border-4 border-teal-100 border-t-teal-500" />
           <div className="size-7 rounded-full bg-teal-500/20" />
         </div>
-        <h1 className="mt-5 text-xl font-black text-slate-950 dark:text-foreground">{title}</h1>
+        <h1 className="mt-5 text-xl font-bold text-slate-950 dark:text-foreground">{title}</h1>
         <p className="mt-2 text-sm font-bold text-slate-400 dark:text-muted-foreground">
           {fileName}
         </p>
@@ -42,7 +42,7 @@ export function AnalysisProgress({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className="mt-5 text-center text-base font-black text-teal-600">{progress}%</p>
+        <p className="mt-5 text-center text-base font-bold text-teal-600">{progress}%</p>
 
         <ul className="mt-6 space-y-3">
           {progressItems.map((item) => {

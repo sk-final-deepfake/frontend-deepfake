@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { bootstrapAuthSession, getSession, type AuthSession } from "@/lib/auth"
+import { normalizeUserRole } from "@/lib/permissions"
 
 export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -22,7 +23,7 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (current.role !== "admin") {
+      if (normalizeUserRole(current.role) !== "ORG_ADMIN") {
         router.replace("/main")
         return
       }
@@ -42,7 +43,7 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [router])
 
-  if (!session || session.role !== "admin") {
+  if (!session || normalizeUserRole(session.role) !== "ORG_ADMIN") {
     return null
   }
 

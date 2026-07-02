@@ -11,6 +11,7 @@ import {
   rejectAdminUser,
 } from "@/lib/api/admin"
 import { getApiErrorMessage } from "@/lib/api/errors"
+import { roleLabelMap, type UserRole } from "@/lib/permissions"
 import { Button } from "@/components/ui/button"
 
 const HISTORY_PAGE_SIZE = 8
@@ -37,6 +38,7 @@ export default function AdminApprovalsPage() {
   const [historyPage, setHistoryPage] = useState(0)
   const [loading, setLoading] = useState(true)
   const [processingId, setProcessingId] = useState<string | null>(null)
+  const [selectedRoleByUser, setSelectedRoleByUser] = useState<Record<string, UserRole>>({})
   const { toast } = useAdminToast()
 
   const loadData = useCallback(async () => {
@@ -48,6 +50,13 @@ export default function AdminApprovalsPage() {
       ])
 
       setPendingUsers(pending.items)
+      setSelectedRoleByUser((current) => {
+        const next = { ...current }
+        for (const user of pending.items) {
+          next[user.id] = user.role ?? "INVESTIGATOR"
+        }
+        return next
+      })
       const history = allUsers.items
         .filter((user) => user.status === "APPROVED" || user.status === "REJECTED")
         .sort((a, b) => b.joinedAt.localeCompare(a.joinedAt))
@@ -72,13 +81,17 @@ export default function AdminApprovalsPage() {
     setProcessingId(`${userId}-${action}`)
     try {
       if (action === "APPROVE") {
-        await approveAdminUser(userId)
+        await approveAdminUser(userId, selectedRoleByUser[userId] ?? "INVESTIGATOR")
       } else {
         await rejectAdminUser(userId)
       }
+      const role = selectedRoleByUser[userId] ?? "INVESTIGATOR"
       toast({
         title: action === "APPROVE" ? "승인 완료" : "거부 완료",
-        description: `가입 요청이 ${action === "APPROVE" ? "승인" : "거부"}되었습니다.`,
+        description:
+          action === "APPROVE"
+            ? `가입 요청이 ${roleLabelMap[role]} 역할로 승인되었습니다.`
+            : "가입 요청이 거부되었습니다.",
       })
       await loadData()
     } catch (error) {
@@ -93,7 +106,7 @@ export default function AdminApprovalsPage() {
     <>
       <AdminPageHeader
         title="사용자 승인"
-        description="가입 신청을 검토하고 승인 또는 거부합니다."
+        description="가입 신청을 검토하고 역할을 지정해 승인 또는 거부합니다."
       />
 
       <div className="space-y-6 px-8 py-6">
@@ -129,38 +142,60 @@ export default function AdminApprovalsPage() {
                     <h3 className="text-lg font-bold text-slate-900">{user.displayName}</h3>
                     <p className="text-sm text-slate-500">{user.email}</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      {user.department || "소속 미입력"} · 수사관
+                      {user.department || "소속 미입력"}
                     </p>
                     <div className="mt-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
                       시스템 사용 신청 · ID: {user.username}
                     </div>
                     <p className="mt-3 text-xs text-slate-400">신청일: {user.joinedAt}</p>
                   </div>
-                  <div className="flex shrink-0 gap-2">
-                    <Button
-                      className="bg-teal-600 hover:bg-teal-700"
-                      disabled={processingId !== null}
-                      onClick={() => void handleAction(user.id, "APPROVE")}
-                    >
-                      {processingId === `${user.id}-APPROVE` ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <CheckCircle className="size-4" />
-                      )}
-                      승인
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={processingId !== null}
-                      onClick={() => void handleAction(user.id, "REJECT")}
-                    >
-                      {processingId === `${user.id}-REJECT` ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <XCircle className="size-4" />
-                      )}
-                      거부
-                    </Button>
+                  <div className="w-full shrink-0 space-y-3 lg:w-64">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-semibold text-slate-500">
+                        승인 역할
+                      </span>
+                      <select
+                        value={selectedRoleByUser[user.id] ?? user.role ?? "INVESTIGATOR"}
+                        onChange={(event) =>
+                          setSelectedRoleByUser((current) => ({
+                            ...current,
+                            [user.id]: event.target.value as UserRole,
+                          }))
+                        }
+                        className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
+                      >
+                        <option value="INVESTIGATOR">{roleLabelMap.INVESTIGATOR}</option>
+                        <option value="REVIEWER">{roleLabelMap.REVIEWER}</option>
+                        <option value="ORG_ADMIN">{roleLabelMap.ORG_ADMIN}</option>
+                      </select>
+                    </label>
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1 bg-teal-600 hover:bg-teal-700"
+                        disabled={processingId !== null}
+                        onClick={() => void handleAction(user.id, "APPROVE")}
+                      >
+                        {processingId === `${user.id}-APPROVE` ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <CheckCircle className="size-4" />
+                        )}
+                        승인
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        variant="outline"
+                        disabled={processingId !== null}
+                        onClick={() => void handleAction(user.id, "REJECT")}
+                      >
+                        {processingId === `${user.id}-REJECT` ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <XCircle className="size-4" />
+                        )}
+                        거부
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -178,6 +213,7 @@ export default function AdminApprovalsPage() {
                 <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs text-slate-500">
                   <th className="px-6 py-3 font-medium">신청자</th>
                   <th className="px-6 py-3 font-medium">소속</th>
+                  <th className="px-6 py-3 font-medium">역할</th>
                   <th className="px-6 py-3 font-medium">신청일</th>
                   <th className="px-6 py-3 font-medium">처리일</th>
                   <th className="px-6 py-3 font-medium">승인자</th>
@@ -187,13 +223,13 @@ export default function AdminApprovalsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center">
+                    <td colSpan={7} className="py-12 text-center">
                       <Loader2 className="mx-auto size-5 animate-spin text-slate-400" />
                     </td>
                   </tr>
                 ) : historyUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
                       처리 이력이 없습니다.
                     </td>
                   </tr>
@@ -205,6 +241,9 @@ export default function AdminApprovalsPage() {
                         <p className="text-xs text-slate-500">{user.email}</p>
                       </td>
                       <td className="px-6 py-4 text-slate-700">{user.department || "-"}</td>
+                      <td className="px-6 py-4 text-slate-700">
+                        {roleLabelMap[user.role ?? "INVESTIGATOR"]}
+                      </td>
                       <td className="px-6 py-4 text-slate-500">{user.joinedAt}</td>
                       <td className="px-6 py-4 text-slate-500">{user.joinedAt}</td>
                       <td className="px-6 py-4 text-slate-700">관리자</td>

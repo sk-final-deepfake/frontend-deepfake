@@ -11,14 +11,14 @@ export function CaseHero({ data, getStatusLabel }: CaseHeroProps) {
   return (
     <section className="flex flex-col gap-3 py-1 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
-        <h1 className="truncate text-3xl font-black tracking-normal text-slate-950 sm:text-4xl dark:text-foreground">
+        <h1 className="truncate text-3xl font-bold tracking-normal text-slate-950 sm:text-4xl dark:text-foreground">
           {data.caseName}
         </h1>
         <p className="mt-2 text-sm font-bold text-muted-foreground">
           {formatDateTime(data.createdAt)}
         </p>
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-sm font-black">
+      <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
         <HeroChip value={getStatusLabel(data.status)} highlight />
         <HeroChip value={`증거 ${data.evidences.length}개`} />
       </div>

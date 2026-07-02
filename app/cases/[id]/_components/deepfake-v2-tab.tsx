@@ -137,7 +137,7 @@ function VideoPlayerCard({
         <div className="absolute left-4 top-4 rounded bg-black/55 px-2 py-1 text-xs font-semibold text-white">
           2026-06-15 02:31:45
         </div>
-        <div className="absolute bottom-14 left-4 text-sm font-black tracking-wide text-white">CAM01</div>
+        <div className="absolute bottom-14 left-4 text-sm font-bold tracking-wide text-white">CAM01</div>
 
         {!videoUrl ? (
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
@@ -219,7 +219,7 @@ function SummaryCard({
         <Info className="size-3 text-muted-foreground/60" aria-hidden="true" />
       </p>
       <div className="flex flex-1 items-center justify-center">
-        <p className={cn("flex items-center justify-center gap-1.5 font-black", TONE_TEXT[tone], icon ? "text-3xl leading-none" : "text-[2rem] leading-none")}>
+        <p className={cn("flex items-center justify-center gap-1.5 font-bold", TONE_TEXT[tone], icon ? "text-3xl leading-none" : "text-[2rem] leading-none")}>
           {icon ? <AlertTriangle className="size-7 shrink-0" aria-hidden="true" /> : null}
           {value}
         </p>
@@ -235,7 +235,7 @@ function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-base font-black text-foreground">프레임별 위험도 그래프</h3>
+        <h3 className="text-base font-bold text-foreground">프레임별 위험도 그래프</h3>
         <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-muted-foreground">
           <LegendDot className="bg-emerald-500" label="낮음 (0~0.3)" />
           <LegendDot className="bg-amber-400" label="보통 (0.3~0.6)" />
@@ -256,7 +256,7 @@ function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
               <div className="pointer-events-none absolute inset-x-0 top-[28%] z-20 h-0">
                 <div className="absolute inset-x-0 -top-px border-t-4 border-white/95 dark:border-slate-950/90" />
                 <div className="absolute inset-x-0 top-0 border-t border-dashed border-red-500" />
-                <span className="absolute -top-4 right-0 rounded bg-white px-1.5 text-[11px] font-black text-red-600 shadow-sm ring-1 ring-red-100 dark:bg-slate-950 dark:ring-red-950/60">
+                <span className="absolute -top-4 right-0 rounded bg-white px-1.5 text-[11px] font-bold text-red-600 shadow-sm ring-1 ring-red-100 dark:bg-slate-950 dark:ring-red-950/60">
                   임계값 0.72
                 </span>
               </div>
@@ -293,7 +293,7 @@ function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
 function ReasoningNote({ summary }: { summary: string }) {
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h3 className="flex items-center gap-1.5 text-base font-black text-foreground">
+      <h3 className="flex items-center gap-1.5 text-base font-bold text-foreground">
         판정 임계값
         <Info className="size-3.5 text-muted-foreground/60" aria-hidden="true" />
         <span className="text-muted-foreground">/ 탐지 근거 설명</span>
@@ -312,7 +312,7 @@ function ReasoningNote({ summary }: { summary: string }) {
 function RepresentativeFrames({ frames }: { frames: RepresentativeFrame[] }) {
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h3 className="text-base font-black text-foreground">대표 프레임 <span className="text-sm font-semibold text-muted-foreground">(의심 구간)</span></h3>
+      <h3 className="text-base font-bold text-foreground">대표 프레임 <span className="text-sm font-semibold text-muted-foreground">(의심 구간)</span></h3>
       <p className="mt-1 text-xs font-semibold text-muted-foreground">모델 점수가 높았던 주요 의심 프레임입니다.</p>
       {frames.length > 0 ? (
         <>
@@ -391,7 +391,7 @@ function PerItemScores({ modules }: { modules: ModuleResult[] }) {
 
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h3 className="flex items-center gap-1.5 text-base font-black text-foreground">
+      <h3 className="flex items-center gap-1.5 text-base font-bold text-foreground">
         탐지 항목별 점수
         <Info className="size-3.5 text-muted-foreground/60" aria-hidden="true" />
       </h3>
@@ -420,7 +420,7 @@ function PerItemScores({ modules }: { modules: ModuleResult[] }) {
 
       {ensembleRows.length > 0 ? (
         <div className="mt-5 border-t border-dashed border-border pt-4">
-          <h4 className="text-sm font-black text-foreground">모델 앙상블 결과</h4>
+          <h4 className="text-sm font-bold text-foreground">모델 앙상블 결과</h4>
           <div className="mt-3 space-y-2.5">
             {ensembleRows.map((row) => (
               <div key={row.label} className="grid grid-cols-[minmax(118px,1.2fr)_minmax(64px,0.8fr)_36px] items-center gap-2 text-xs">
@@ -433,8 +433,8 @@ function PerItemScores({ modules }: { modules: ModuleResult[] }) {
             ))}
           </div>
           <div className="mt-3 flex items-center justify-end gap-5 border-t border-border pt-3 text-xs">
-            <span className="font-black text-muted-foreground">평균</span>
-            <span className="font-black text-foreground">{ensembleAverage.toFixed(2)}</span>
+            <span className="font-bold text-muted-foreground">평균</span>
+            <span className="font-bold text-foreground">{ensembleAverage.toFixed(2)}</span>
           </div>
         </div>
       ) : null}
@@ -462,7 +462,7 @@ function ModelInfoSidebar({ data }: { data: EvidenceDetailData }) {
 
   return (
     <aside className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h3 className="text-base font-black text-foreground">딥페이크 모델 분석 정보</h3>
+      <h3 className="text-base font-bold text-foreground">딥페이크 모델 분석 정보</h3>
       <dl className="mt-4 flex flex-1 flex-col justify-between">
         {rows.map(([label, value]) => (
           <div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-border py-2 last:border-0">

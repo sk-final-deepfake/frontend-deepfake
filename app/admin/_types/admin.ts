@@ -1,3 +1,5 @@
+import type { UserRole } from "@/lib/permissions"
+
 export type UserStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED"
 
 export interface AdminUser {
@@ -5,7 +7,9 @@ export interface AdminUser {
   username: string
   displayName: string
   email: string
+  organizationName?: string
   department: string
+  role?: UserRole
   joinedAt: string
   status: UserStatus
 }

@@ -1,7 +1,9 @@
 import {
+  getSession,
   getToken,
   handleUnauthorizedResponse,
   isAuthApiPath,
+  isMockAuthSession,
   tryRefreshSession,
 } from "@/lib/auth"
 
@@ -18,6 +20,10 @@ export async function shouldRetryAfterUnauthorized({
   retried,
   requiresAuth = true,
 }: UnauthorizedContext): Promise<boolean> {
+  if (isMockAuthSession(getSession())) {
+    return false
+  }
+
   if (!requiresAuth || retried || isAuthApiPath(path)) {
     handleUnauthorizedResponse()
     return false

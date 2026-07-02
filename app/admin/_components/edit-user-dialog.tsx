@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import type { AdminUser } from "@/app/admin/_types/admin"
+import type { AdminUser, UserStatus } from "@/app/admin/_types/admin"
+import { roleLabelMap, type UserRole } from "@/lib/permissions"
 
 const inputClassName =
   "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -12,6 +13,8 @@ export type UserEditPayload = {
   displayName: string
   email: string
   department: string
+  role?: UserRole
+  status?: UserStatus
   newPassword?: string
 }
 
@@ -33,6 +36,8 @@ export function EditUserDialog({
   const [displayName, setDisplayName] = useState("")
   const [email, setEmail] = useState("")
   const [department, setDepartment] = useState("")
+  const [role, setRole] = useState<UserRole>("INVESTIGATOR")
+  const [status, setStatus] = useState<UserStatus>("APPROVED")
   const [resetPassword, setResetPassword] = useState(false)
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -43,6 +48,8 @@ export function EditUserDialog({
     setDisplayName(user.displayName)
     setEmail(user.email)
     setDepartment(user.department)
+    setRole(user.role ?? "INVESTIGATOR")
+    setStatus(user.status)
     setResetPassword(false)
     setNewPassword("")
     setConfirmPassword("")
@@ -70,6 +77,8 @@ export function EditUserDialog({
       displayName,
       email,
       department,
+      role,
+      status,
       newPassword: resetPassword ? newPassword : undefined,
     })
   }
@@ -130,6 +139,41 @@ export function EditUserDialog({
               className={inputClassName}
               required
             />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="edit-role" className="text-sm font-medium text-foreground">
+                역할
+              </label>
+              <select
+                id="edit-role"
+                value={role}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+                className={inputClassName}
+              >
+                <option value="INVESTIGATOR">{roleLabelMap.INVESTIGATOR}</option>
+                <option value="REVIEWER">{roleLabelMap.REVIEWER}</option>
+                <option value="ORG_ADMIN">{roleLabelMap.ORG_ADMIN}</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="edit-status" className="text-sm font-medium text-foreground">
+                상태
+              </label>
+              <select
+                id="edit-status"
+                value={status}
+                onChange={(e) => setStatus(e.target.value as UserStatus)}
+                className={inputClassName}
+              >
+                <option value="APPROVED">활성</option>
+                <option value="SUSPENDED">비활성</option>
+                <option value="PENDING">승인 대기</option>
+                <option value="REJECTED">거부</option>
+              </select>
+            </div>
           </div>
         </div>
 

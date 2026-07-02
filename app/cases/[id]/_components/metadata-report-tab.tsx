@@ -239,7 +239,7 @@ export function MetadataReportTab({
                 type="button"
                 onClick={handleGenerate}
                 disabled={selectedCount === 0 || isGenerating || isCreated}
-                className="h-11 bg-teal-600 font-black hover:bg-teal-700 disabled:bg-muted disabled:text-muted-foreground"
+                className="h-11 bg-teal-600 font-bold hover:bg-teal-700 disabled:bg-muted disabled:text-muted-foreground"
               >
                 {isGenerating ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <FileBadge className="size-4" aria-hidden="true" />}
                 {isCreated ? "보고서 생성 완료" : "PDF 보고서 생성"}
@@ -295,11 +295,11 @@ function StepSection({
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-start gap-3">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-black text-blue-600 dark:bg-blue-950/30 dark:text-blue-300">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-600 dark:bg-blue-950/30 dark:text-blue-300">
           {number}
         </span>
         <div>
-          <h3 className="text-lg font-black text-foreground">{title}</h3>
+          <h3 className="text-lg font-bold text-foreground">{title}</h3>
           {description ? <p className="mt-1 text-sm font-semibold text-muted-foreground">{description}</p> : null}
         </div>
       </div>
@@ -311,7 +311,7 @@ function StepSection({
 function InfoTableCard({ title, rows }: { title: string; rows: Array<[string, string]> }) {
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-background/40">
-      <h4 className="border-b border-border bg-muted/20 px-4 py-3 text-sm font-black text-foreground">{title}</h4>
+      <h4 className="border-b border-border bg-muted/20 px-4 py-3 text-sm font-bold text-foreground">{title}</h4>
       <dl className="divide-y divide-border">
         {rows.map(([label, value]) => (
           <div key={label} className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 px-4 py-3 text-sm">
@@ -354,7 +354,7 @@ function ReportTypeCard({
         {selected ? <span className="size-2 rounded-full bg-white" /> : null}
       </span>
       <span>
-        <span className="block text-sm font-black">{type.title}</span>
+        <span className="block text-sm font-bold">{type.title}</span>
         <span className="mt-1 block text-xs font-semibold leading-5 text-muted-foreground">{type.description}</span>
       </span>
     </button>
@@ -365,7 +365,7 @@ function SummaryLine({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-      <p className="mt-1 font-black text-foreground">{value}</p>
+      <p className="mt-1 font-bold text-foreground">{value}</p>
     </div>
   )
 }
@@ -401,7 +401,7 @@ function ReportResult({
           </span>
           <div>
             <StatusBadge status={status} />
-            <p className="mt-3 text-base font-black text-foreground">{meta.message}</p>
+            <p className="mt-3 text-base font-bold text-foreground">{meta.message}</p>
             <p className="mt-1 text-sm font-semibold text-muted-foreground">{meta.helper}</p>
             {isGenerating ? <div className="mt-4 h-2 w-72 max-w-full overflow-hidden rounded-full bg-muted"><div className="h-full w-2/3 rounded-full bg-blue-500" /></div> : null}
           </div>
@@ -411,7 +411,7 @@ function ReportResult({
           <Button
             type="button"
             disabled={!isCreated}
-            className="h-11 bg-teal-600 font-black hover:bg-teal-700 disabled:bg-muted disabled:text-muted-foreground"
+            className="h-11 bg-teal-600 font-bold hover:bg-teal-700 disabled:bg-muted disabled:text-muted-foreground"
           >
             <Download className="size-4" aria-hidden="true" />
             PDF 리포트 다운로드
@@ -444,7 +444,7 @@ function VerificationCard({
 }) {
   return (
     <section className={cn("rounded-xl border border-border bg-card p-5 shadow-sm", !enabled && "opacity-75")}>
-      <h3 className="text-lg font-black text-foreground">{title}</h3>
+      <h3 className="text-lg font-bold text-foreground">{title}</h3>
       {enabled ? (
         <dl className="mt-4 divide-y divide-border">
           {rows.map(([label, value]) => (
@@ -474,7 +474,7 @@ function QrVerificationCard({
 }) {
   return (
     <section className={cn("rounded-xl border border-border bg-card p-5 shadow-sm", !enabled && "opacity-75")}>
-      <h3 className="text-lg font-black text-foreground">QR 검증 정보</h3>
+      <h3 className="text-lg font-bold text-foreground">QR 검증 정보</h3>
       {enabled ? (
         <div className="mt-4 grid gap-5 md:grid-cols-[180px_minmax(0,1fr)]">
           <div className="flex flex-col items-center gap-3">

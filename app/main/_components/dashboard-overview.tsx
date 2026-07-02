@@ -15,7 +15,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
-import { AnalysisRequestFlow } from "@/app/main/_components/analysis-request-flow"
+import { CaseCreateDialog, canRegisterCase } from "@/app/mypage/_components/case-create-dialog"
 import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
   fetchAnalysisTrend,
@@ -27,6 +27,7 @@ import {
 } from "@/lib/evidence-api"
 import { cn } from "@/lib/utils"
 import { buildCaseDetailPath } from "@/lib/route-params"
+import { getSession, type AuthSession } from "@/lib/auth"
 
 const trustItems = [
   {
@@ -87,6 +88,8 @@ type DashboardDataState = {
 
 export function DashboardOverview() {
   const [view, setView] = useState<"dashboard" | "analysis">("dashboard")
+  const [session, setSession] = useState<AuthSession | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
   const [dataState, setDataState] = useState<DashboardDataState>({
     statsStatus: "loading",
     historyStatus: "loading",
@@ -96,6 +99,16 @@ export function DashboardOverview() {
     trendPoints: [],
   })
   const locationRef = useRef("")
+
+  useEffect(() => {
+    function syncSession() {
+      setSession(getSession())
+    }
+
+    syncSession()
+    window.addEventListener("auth-change", syncSession)
+    return () => window.removeEventListener("auth-change", syncSession)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -129,19 +142,21 @@ export function DashboardOverview() {
   useEffect(() => {
     function syncViewWithHash() {
       locationRef.current = window.location.href
-      const nextView = window.location.hash === "#new-analysis" ? "analysis" : "dashboard"
-      setView(nextView)
+      const shouldOpenCreate = window.location.hash === "#new-analysis"
+      setView("dashboard")
 
-      if (nextView === "analysis") {
+      if (shouldOpenCreate) {
+        setCreateOpen(true)
         window.requestAnimationFrame(() => window.scrollTo({ top: 0 }))
       }
     }
 
     function syncViewWithHeader(event: Event) {
       const nextView = (event as MainViewChangeEvent).detail?.view ?? "dashboard"
-      setView(nextView)
+      setView("dashboard")
 
       if (nextView === "analysis") {
+        setCreateOpen(true)
         window.requestAnimationFrame(() => window.scrollTo({ top: 0 }))
         return
       }
@@ -167,16 +182,22 @@ export function DashboardOverview() {
   }, [])
 
   function openAnalysis() {
-    setView("analysis")
-    window.history.replaceState(null, "", `${window.location.pathname}#new-analysis`)
+    setView("dashboard")
+    setCreateOpen(true)
+    window.history.replaceState(null, "", window.location.pathname)
     window.requestAnimationFrame(() => window.scrollTo({ top: 0 }))
   }
+
+  const canCreateCase = canRegisterCase(session)
+  const existingCaseNames = dataState.history
+    .map((item) => item.caseName)
+    .filter((caseName): caseName is string => Boolean(caseName))
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-5 py-8 sm:px-8 lg:px-10">
       {view === "dashboard" ? (
         <>
-          <HeroPanel onStartAnalysis={openAnalysis} />
+          <HeroPanel onStartAnalysis={openAnalysis} canStartAnalysis={canCreateCase} />
           <StatsGrid
             status={dataState.statsStatus}
             stats={dataState.stats}
@@ -190,17 +211,30 @@ export function DashboardOverview() {
               status={dataState.historyStatus}
               analyses={dataState.history}
               onStartAnalysis={openAnalysis}
+              canStartAnalysis={canCreateCase}
             />
           </div>
         </>
       ) : (
-        <AnalysisWorkspace />
+        null
       )}
+      <CaseCreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        session={session}
+        existingCaseNames={existingCaseNames}
+      />
     </main>
   )
 }
 
-function HeroPanel({ onStartAnalysis }: { onStartAnalysis: () => void }) {
+function HeroPanel({
+  onStartAnalysis,
+  canStartAnalysis,
+}: {
+  onStartAnalysis: () => void
+  canStartAnalysis: boolean
+}) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-8 lg:px-9 dark:border-border dark:bg-card">
       <div className="grid items-center gap-8 md:grid-cols-[1fr_220px]">
@@ -209,7 +243,7 @@ function HeroPanel({ onStartAnalysis }: { onStartAnalysis: () => void }) {
             <span className="size-1.5 rounded-full bg-teal-500" />
             디지털 포렌식 증거 검증 플랫폼
           </div>
-          <h1 className="text-2xl font-black leading-tight tracking-tight text-slate-950 sm:text-3xl dark:text-foreground">
+          <h1 className="text-2xl font-bold leading-tight tracking-tight text-slate-950 sm:text-3xl dark:text-foreground">
             디지털 미디어 파일
             <br />
             분석 대시보드
@@ -219,13 +253,15 @@ function HeroPanel({ onStartAnalysis }: { onStartAnalysis: () => void }) {
             디지털 서명과 체인 오브 커스터디로 증거 무결성을 보장합니다.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <Button
-              onClick={onStartAnalysis}
-              className="h-9 rounded-md bg-teal-600 px-4 text-xs font-bold hover:bg-teal-700"
-            >
-              <UploadCloud className="size-4" aria-hidden="true" />
-              분석 시작하기
-            </Button>
+            {canStartAnalysis ? (
+              <Button
+                onClick={onStartAnalysis}
+                className="h-9 rounded-md bg-teal-600 px-4 text-xs font-bold hover:bg-teal-700"
+              >
+                <UploadCloud className="size-4" aria-hidden="true" />
+                분석 시작하기
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               render={<Link href="/compare" />}
@@ -350,7 +386,7 @@ function StatsGrid({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-medium text-slate-500 dark:text-muted-foreground">{stat.label}</p>
-                <p className={cn("mt-4 text-3xl font-black leading-none", tone.value)}>
+                <p className={cn("mt-4 text-3xl font-bold leading-none", tone.value)}>
                   {stat.value}
                 </p>
                 <p className="mt-2 text-xs font-medium text-slate-500 dark:text-muted-foreground">{stat.unit}</p>
@@ -482,10 +518,12 @@ function RecentPanel({
   status,
   analyses,
   onStartAnalysis,
+  canStartAnalysis,
 }: {
   status: LoadStatus
   analyses: RecentAnalysisItem[]
   onStartAnalysis: () => void
+  canStartAnalysis: boolean
 }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-border dark:bg-card" aria-label="최근 분석">
@@ -496,12 +534,14 @@ function RecentPanel({
         </Link>
       </div>
       <RecentAnalysisList status={status} analyses={analyses} />
-      <Button
-        onClick={onStartAnalysis}
-        className="mt-4 h-9 w-full rounded-md bg-teal-50 text-xs font-bold text-teal-700 hover:bg-teal-100 dark:bg-teal-500/10 dark:text-teal-300 dark:hover:bg-teal-500/20"
-      >
-        새 분석 요청 →
-      </Button>
+      {canStartAnalysis ? (
+        <Button
+          onClick={onStartAnalysis}
+          className="mt-4 h-9 w-full rounded-md bg-teal-50 text-xs font-bold text-teal-700 hover:bg-teal-100 dark:bg-teal-500/10 dark:text-teal-300 dark:hover:bg-teal-500/20"
+        >
+          사건 등록 →
+        </Button>
+      ) : null}
     </section>
   )
 }
@@ -591,8 +631,4 @@ function formatDashboardDate(value: string) {
     month: "2-digit",
     day: "2-digit",
   })
-}
-
-function AnalysisWorkspace() {
-  return <AnalysisRequestFlow />
 }

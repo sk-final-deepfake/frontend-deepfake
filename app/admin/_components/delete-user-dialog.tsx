@@ -28,18 +28,18 @@ export function DeleteUserDialog({
         className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg"
       >
         <h2 id="delete-user-title" className="text-lg font-semibold text-foreground">
-          계정 삭제
+          계정 비활성 처리
         </h2>
         <p id="delete-user-desc" className="mt-2 text-sm text-muted-foreground">
           <span className="font-mono font-medium text-foreground">{username}</span>{" "}
-          계정을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+          계정을 비활성 상태로 전환합니다. 계정 기록은 삭제되지 않고 보관됩니다.
         </p>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="outline" onClick={onCancel} disabled={loading}>
             취소
           </Button>
           <Button variant="destructive" onClick={onConfirm} disabled={loading}>
-            {loading ? "삭제 중..." : "삭제"}
+            {loading ? "처리 중..." : "비활성 처리"}
           </Button>
         </div>
       </div>

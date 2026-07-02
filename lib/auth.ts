@@ -24,6 +24,7 @@ export type AuthSession = {
 /** 예전 sessionStorage 키 — 마이그레이션 시 제거용 */
 const LEGACY_STORAGE_KEY = "veriforensics-auth"
 const LEGACY_API_ORIGIN_KEY = "veriforensics-api-origin"
+const MOCK_SESSION_STORAGE_KEY = "forenshield-mock-auth"
 
 let memorySession: AuthSession | null = null
 let redirectingToLogin = false
@@ -51,6 +52,48 @@ function purgeLegacySessionStorage() {
   sessionStorage.removeItem(LEGACY_API_ORIGIN_KEY)
 }
 
+function readStoredMockSession(): AuthSession | null {
+  if (typeof window === "undefined") return null
+
+  try {
+    const raw = sessionStorage.getItem(MOCK_SESSION_STORAGE_KEY)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as Partial<AuthSession>
+    if (
+      !parsed.token?.startsWith("mock-") ||
+      !parsed.loginId ||
+      !parsed.name ||
+      !parsed.role ||
+      !parsed.userId
+    ) {
+      sessionStorage.removeItem(MOCK_SESSION_STORAGE_KEY)
+      return null
+    }
+
+    return {
+      role: parsed.role,
+      userId: parsed.userId,
+      loginId: parsed.loginId,
+      name: parsed.name,
+      token: parsed.token,
+    }
+  } catch {
+    sessionStorage.removeItem(MOCK_SESSION_STORAGE_KEY)
+    return null
+  }
+}
+
+function persistMockSession(session: AuthSession) {
+  if (typeof window === "undefined") return
+  sessionStorage.setItem(MOCK_SESSION_STORAGE_KEY, JSON.stringify(session))
+}
+
+function clearStoredMockSession() {
+  if (typeof window === "undefined") return
+  sessionStorage.removeItem(MOCK_SESSION_STORAGE_KEY)
+}
+
 function notifyAuthChange() {
   if (typeof window === "undefined") return
   window.dispatchEvent(new Event("auth-change"))
@@ -62,11 +105,29 @@ if (typeof window !== "undefined") {
 
 export function getSession(): AuthSession | null {
   if (typeof window === "undefined") return null
+  if (!memorySession) {
+    memorySession = readStoredMockSession()
+  }
   return memorySession
 }
 
 export function getToken(): string | null {
+  if (typeof window !== "undefined" && !memorySession) {
+    memorySession = readStoredMockSession()
+  }
   return memorySession?.token ?? null
+}
+
+export function isReviewerRole(role?: AuthRole | string | null): boolean {
+  return role === "REVIEWER" || role === "ROLE_REVIEWER"
+}
+
+export function isReviewerSession(session: AuthSession | null): boolean {
+  return isReviewerRole(session?.role)
+}
+
+export function isMockAuthSession(session: AuthSession | null = memorySession): boolean {
+  return Boolean(session?.token.startsWith("mock-"))
 }
 
 // 로그인 및 refresh 응답을 한 곳에서 세션으로 변환하는 함수
@@ -164,6 +225,9 @@ export async function bootstrapAuthSession(): Promise<void> {
   bootstrapPromise = (async () => {
     purgeLegacySessionStorage()
     if (!memorySession) {
+      memorySession = readStoredMockSession()
+    }
+    if (!memorySession) {
       await tryRefreshSession()
     }
   })().finally(() => {
@@ -181,6 +245,11 @@ export function isAuthBootstrapped(): boolean {
 export function setSession(session: AuthSession) {
   memorySession = session
   redirectingToLogin = false
+  if (isMockAuthSession(session)) {
+    persistMockSession(session)
+  } else {
+    clearStoredMockSession()
+  }
   notifyAuthChange()
 }
 
@@ -188,6 +257,7 @@ export function clearSession() {
   memorySession = null
   redirectingToLogin = false
   purgeLegacySessionStorage()
+  clearStoredMockSession()
   notifyAuthChange()
 }
 

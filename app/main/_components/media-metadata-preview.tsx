@@ -37,7 +37,7 @@ export function MediaMetadataPreviewContent({
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Info className="size-4 text-teal-600" aria-hidden="true" />
-            <h2 className="text-base font-black text-slate-900 dark:text-foreground">파일 메타데이터</h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-foreground">파일 메타데이터</h2>
           </div>
           {evidences.length > 1 ? (
             <div className="flex items-center gap-2">
@@ -47,7 +47,7 @@ export function MediaMetadataPreviewContent({
               <button
                 type="button"
                 onClick={onNext}
-                className="flex size-6 items-center justify-center rounded border border-slate-200 text-xs font-black text-slate-500 transition-colors hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700 dark:border-border dark:text-muted-foreground dark:hover:border-teal-500/30 dark:hover:bg-teal-500/10 dark:hover:text-teal-300"
+                className="flex size-6 items-center justify-center rounded border border-slate-200 text-xs font-bold text-slate-500 transition-colors hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700 dark:border-border dark:text-muted-foreground dark:hover:border-teal-500/30 dark:hover:bg-teal-500/10 dark:hover:text-teal-300"
                 aria-label="다음 파일 메타데이터 보기"
               >
                 &gt;
@@ -69,7 +69,7 @@ export function MediaMetadataPreviewContent({
                   type="button"
                   onClick={() => onTabChange("metadata")}
                   className={cn(
-                    "h-8 rounded-md text-xs font-black transition-colors",
+                    "h-8 rounded-md text-xs font-bold transition-colors",
                     activeTab === "metadata"
                       ? "bg-white dark:bg-card text-teal-700 shadow-sm"
                       : "text-slate-500 dark:text-muted-foreground hover:text-slate-800 dark:text-foreground"
@@ -81,7 +81,7 @@ export function MediaMetadataPreviewContent({
                   type="button"
                   onClick={() => onTabChange("comment")}
                   className={cn(
-                    "h-8 rounded-md text-xs font-black transition-colors",
+                    "h-8 rounded-md text-xs font-bold transition-colors",
                     activeTab === "comment"
                       ? "bg-white dark:bg-card text-teal-700 shadow-sm"
                       : "text-slate-500 dark:text-muted-foreground hover:text-slate-800 dark:text-foreground"
@@ -106,7 +106,7 @@ export function MediaMetadataPreviewContent({
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-border dark:bg-muted/40">
                   <label
                     htmlFor="evidenceComment"
-                    className="flex items-center gap-2 text-xs font-black text-slate-700 dark:text-foreground"
+                    className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-foreground"
                   >
                     <MessageSquareText className="size-4 text-teal-600" aria-hidden="true" />
                     파일 코멘트
@@ -148,7 +148,7 @@ export function MetadataRow({
       <dt className="shrink-0 text-xs font-bold text-slate-400 dark:text-muted-foreground">{label}</dt>
       <dd
         className={cn(
-          "truncate text-right text-xs font-black",
+          "truncate text-right text-xs font-bold",
           accent ? "text-teal-600" : "text-slate-800 dark:text-foreground"
         )}
       >

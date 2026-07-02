@@ -24,7 +24,7 @@ export function CompareProcessingPanel({
             <GitCompare className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-950 dark:text-foreground">비교 처리 중</h1>
+            <h1 className="text-xl font-bold text-slate-950 dark:text-foreground">비교 처리 중</h1>
             <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-muted-foreground">
               원본과 대상 파일의 해시, 메타데이터, 스트림 구조를 비교하고 있습니다.
             </p>
@@ -34,7 +34,7 @@ export function CompareProcessingPanel({
           type="button"
           variant="outline"
           onClick={onCancel}
-          className="h-10 rounded-md border-red-200 px-4 text-xs font-black text-red-500 hover:bg-red-50 hover:text-red-600 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
+          className="h-10 rounded-md border-red-200 px-4 text-xs font-bold text-red-500 hover:bg-red-50 hover:text-red-600 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
         >
           <Ban className="size-4" aria-hidden="true" />
           검증 중지
@@ -66,7 +66,7 @@ function CompareFileSummary({ label, name, detail }: { label: string; name: stri
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 dark:border-border dark:bg-muted/30">
       <p className="text-xs font-bold text-slate-500 dark:text-muted-foreground">{label}</p>
-      <p className="mt-2 truncate text-sm font-black text-slate-900 dark:text-foreground">{name}</p>
+      <p className="mt-2 truncate text-sm font-bold text-slate-900 dark:text-foreground">{name}</p>
       <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-muted-foreground">{detail}</p>
     </div>
   )

@@ -5,7 +5,6 @@ import {
   Loader2,
   Search,
   User,
-  Ban,
   MoreVertical,
   Pencil,
   Trash2,
@@ -25,6 +24,7 @@ import {
   updateAdminUser,
 } from "@/lib/api/admin"
 import { getApiErrorMessage } from "@/lib/api/errors"
+import { roleLabelMap } from "@/lib/permissions"
 import { Button } from "@/components/ui/button"
 
 const PAGE_SIZE = 10
@@ -116,6 +116,8 @@ export default function AdminUsersPage() {
         displayName: payload.displayName,
         email: payload.email,
         department: payload.department,
+        role: payload.role,
+        status: payload.status,
       })
       if (payload.newPassword) {
         await resetAdminUserPassword(editTarget.id, payload.newPassword)
@@ -140,14 +142,14 @@ export default function AdminUsersPage() {
     try {
       await deleteAdminUser(deleteTarget.id)
       toast({
-        title: "계정 삭제 완료",
-        description: `${deleteTarget.displayName} 계정이 삭제되었습니다.`,
+        title: "계정 비활성 처리 완료",
+        description: `${deleteTarget.displayName} 계정의 로그인과 업무 처리가 제한됩니다.`,
       })
       setDeleteTarget(null)
       await loadUsers()
     } catch (error) {
-      const message = getApiErrorMessage(error, "계정 삭제 중 오류가 발생했습니다.")
-      toast({ title: "삭제 실패", description: message })
+      const message = getApiErrorMessage(error, "계정 비활성 처리 중 오류가 발생했습니다.")
+      toast({ title: "처리 실패", description: message })
     } finally {
       setProcessingId(null)
     }
@@ -234,22 +236,23 @@ export default function AdminUsersPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-slate-700">{user.department || "-"}</td>
-                    <td className="px-5 py-4 text-slate-700">수사관</td>
+                    <td className="px-5 py-4 text-slate-700">
+                      <div>
+                        <p>{user.department || "-"}</p>
+                        {user.organizationName ? (
+                          <p className="mt-0.5 text-xs text-slate-400">{user.organizationName}</p>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-slate-700">
+                      {roleLabelMap[user.role ?? "INVESTIGATOR"]}
+                    </td>
                     <td className="px-5 py-4">
                       <StatusPill status={user.status} />
                     </td>
                     <td className="px-5 py-4 text-slate-500">{user.joinedAt}</td>
                     <td className="px-5 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
-                          title="정지 기능은 준비 중입니다"
-                          disabled
-                        >
-                          <Ban className="size-4" />
-                        </button>
                         <div className="relative">
                           <button
                             type="button"
@@ -282,7 +285,7 @@ export default function AdminUsersPage() {
                                 }}
                               >
                                 <Trash2 className="size-3.5" />
-                                삭제
+                                비활성 처리
                               </button>
                             </div>
                           ) : null}

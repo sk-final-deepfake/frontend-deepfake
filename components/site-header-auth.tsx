@@ -7,7 +7,8 @@ import { Bell, ChevronDown, LogOut, Moon, Sun, UserCog, User } from "lucide-reac
 import { useUserSettings } from "@/hooks/use-user-settings"
 import { fetchMyProfile } from "@/lib/api/user"
 import { logoutApi } from "@/lib/auth-api"
-import { clearSession, getSession, type AuthSession } from "@/lib/auth"
+import { clearSession, getSession, isMockAuthSession, type AuthSession } from "@/lib/auth"
+import { getAppUserFromSession, roleLabelMap } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
 const themeOptions: { value: "light" | "dark"; label: string; icon: typeof Sun }[] = [
@@ -26,7 +27,20 @@ export function SiteHeaderAuth() {
   useEffect(() => {
     let cancelled = false
 
-    async function loadProfile() {
+    async function loadProfile(currentSession: AuthSession | null) {
+      if (!currentSession) {
+        if (!cancelled) setDepartment(null)
+        return
+      }
+
+      if (isMockAuthSession(currentSession)) {
+        const appUser = getAppUserFromSession(currentSession)
+        if (!cancelled) {
+          setDepartment(appUser ? `${appUser.organizationName} · ${appUser.department}` : null)
+        }
+        return
+      }
+
       try {
         const profile = await fetchMyProfile()
         if (!cancelled) setDepartment(profile.department)
@@ -36,8 +50,9 @@ export function SiteHeaderAuth() {
     }
 
     function syncAuthState() {
-      setSession(getSession())
-      loadProfile()
+      const currentSession = getSession()
+      setSession(currentSession)
+      void loadProfile(currentSession)
     }
 
     syncAuthState()
@@ -76,7 +91,9 @@ export function SiteHeaderAuth() {
 
   async function handleLogout() {
     try {
-      await logoutApi()
+      if (!isMockAuthSession(session)) {
+        await logoutApi()
+      }
     } finally {
       clearSession()
       setOpen(false)
@@ -85,7 +102,10 @@ export function SiteHeaderAuth() {
     }
   }
 
-  const displayName = session?.name || "홍길동"
+  const currentUser = getAppUserFromSession(session)
+  const displayName = currentUser
+    ? `${currentUser.name} · ${roleLabelMap[currentUser.role]}`
+    : session?.name || "홍길동"
 
   return (
     <div className="flex items-center gap-3">
@@ -131,10 +151,12 @@ export function SiteHeaderAuth() {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold text-popover-foreground">
-                  {displayName}
+                  {currentUser?.name ?? session?.name ?? "홍길동"}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {department ?? "소속 부서 미등록"}
+                  {currentUser
+                    ? `${currentUser.organizationName} · ${currentUser.department} · ${roleLabelMap[currentUser.role]}`
+                    : department ?? "소속 부서 미등록"}
                 </p>
               </div>
             </div>

@@ -179,6 +179,8 @@ export type UpdateAdminUserPayload = {
   displayName: string
   email: string
   department: string
+  role?: AdminUser["role"]
+  status?: UserStatus
 }
 
 export type UpdateAdminProfilePayload = {
@@ -190,6 +192,17 @@ export type UpdateAdminProfilePayload = {
 }
 
 const USE_MOCK_ADMIN = features.mockApi
+
+let mockAdminUsers = MOCK_ADMIN_USERS.map((user) => ({ ...user }))
+
+function patchMockAdminUser(userId: string, patch: Partial<AdminUser>) {
+  const index = mockAdminUsers.findIndex((user) => user.id === userId)
+  if (index === -1) {
+    return { ...mockAdminUsers[0], ...patch }
+  }
+  mockAdminUsers[index] = { ...mockAdminUsers[index], ...patch }
+  return mockAdminUsers[index]
+}
 
 type BackendPageResponse<T> = {
   content: T[]
@@ -373,8 +386,8 @@ export async function fetchAdminDashboardStats(): Promise<AdminDashboardStats> {
   return withMockFallback(
     () => apiRequest<AdminDashboardStats>("/api/v1/admin/dashboard/stats"),
     () => ({
-      pendingUsers: MOCK_ADMIN_USERS.filter((user) => user.status === "PENDING").length,
-      totalUsers: MOCK_ADMIN_USERS.length,
+      pendingUsers: mockAdminUsers.filter((user) => user.status === "PENDING").length,
+      totalUsers: mockAdminUsers.length,
       todayLogs: MOCK_ADMIN_LOGS.length,
       unusedInviteCodes: MOCK_INVITE_CODES.filter((code) => code.status === "UNUSED").length,
       cocLogs: MOCK_ADMIN_LOGS.filter((log) => log.category === "COC").length,
@@ -433,8 +446,8 @@ export async function fetchAdminDashboardOverview(): Promise<AdminDashboardOverv
     },
     () => {
       const stats = {
-        pendingUsers: MOCK_ADMIN_USERS.filter((user) => user.status === "PENDING").length,
-        totalUsers: MOCK_ADMIN_USERS.length,
+        pendingUsers: mockAdminUsers.filter((user) => user.status === "PENDING").length,
+        totalUsers: mockAdminUsers.length,
         todayLogs: MOCK_ADMIN_LOGS.length,
         unusedInviteCodes: MOCK_INVITE_CODES.filter((code) => code.status === "UNUSED").length,
         cocLogs: MOCK_ADMIN_LOGS.filter((log) => log.category === "COC").length,
@@ -442,13 +455,13 @@ export async function fetchAdminDashboardOverview(): Promise<AdminDashboardOverv
 
       return {
         stats,
-        approvedUsers: MOCK_ADMIN_USERS.filter((user) => user.status === "APPROVED").length,
+        approvedUsers: mockAdminUsers.filter((user) => user.status === "APPROVED").length,
         departmentCount: getLogDepartments(MOCK_ADMIN_LOGS).length,
         todayAnalysis: countTodayAnalysis(MOCK_ADMIN_LOGS),
         recentLogs: MOCK_ADMIN_LOGS.slice(0, 5),
         trend: aggregateUsageTrend(MOCK_ADMIN_LOGS, MOCK_ADMIN_LOGS, 7),
         menuBadges: {
-          users: MOCK_ADMIN_USERS.length,
+          users: mockAdminUsers.length,
           approvals: stats.pendingUsers,
           logs: stats.todayLogs,
           inviteCodes: stats.unusedInviteCodes,
@@ -487,7 +500,7 @@ export async function fetchAdminUsers(options?: {
       return mapPage(data)
     },
     () => {
-      const filtered = MOCK_ADMIN_USERS.filter((user) => {
+      const filtered = mockAdminUsers.filter((user) => {
         const statusMatched =
           !options?.status || options.status === "ALL" || user.status === options.status
         const searchMatched =
@@ -509,13 +522,23 @@ export async function fetchAdminUsers(options?: {
   )
 }
 
-export async function approveAdminUser(userId: string): Promise<AdminUserStatusResponse> {
+export async function approveAdminUser(
+  userId: string,
+  role?: AdminUser["role"]
+): Promise<AdminUserStatusResponse> {
   return withMockFallback(
     () =>
       apiRequest<AdminUserStatusResponse>(`/api/v1/admin/users/${userId}/approve`, {
         method: "POST",
+        body: role ? { role } : undefined,
       }),
-    () => ({ userId, status: "APPROVED" })
+    () => {
+      const user = patchMockAdminUser(userId, {
+        status: "APPROVED",
+        ...(role ? { role } : {}),
+      })
+      return { userId: user.id, status: user.status }
+    }
   )
 }
 
@@ -525,7 +548,10 @@ export async function rejectAdminUser(userId: string): Promise<AdminUserStatusRe
       apiRequest<AdminUserStatusResponse>(`/api/v1/admin/users/${userId}/reject`, {
         method: "POST",
       }),
-    () => ({ userId, status: "REJECTED" })
+    () => {
+      const user = patchMockAdminUser(userId, { status: "REJECTED" })
+      return { userId: user.id, status: user.status }
+    }
   )
 }
 
@@ -539,10 +565,7 @@ export async function updateAdminUser(
         method: "PATCH",
         body: payload,
       }),
-    () => {
-      const user = MOCK_ADMIN_USERS.find((item) => item.id === userId) ?? MOCK_ADMIN_USERS[0]
-      return { ...user, ...payload }
-    }
+    () => patchMockAdminUser(userId, payload)
   )
 }
 
@@ -563,7 +586,10 @@ export async function deleteAdminUser(userId: string): Promise<void> {
       apiRequest<void>(`/api/v1/admin/users/${userId}`, {
         method: "DELETE",
       }),
-    () => undefined
+    () => {
+      patchMockAdminUser(userId, { status: "SUSPENDED" })
+      return undefined
+    }
   )
 }
 

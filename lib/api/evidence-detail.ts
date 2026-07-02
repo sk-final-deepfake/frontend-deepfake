@@ -106,9 +106,28 @@ export type CocLog = {
   currentLogHash: string
 }
 
+export type SignatureInfo = {
+  signatureStatus: string
+  signatureAlgorithm: string
+  signedAt: string
+  signerCertificateSubject: string
+  signatureValid: boolean
+}
+
+export type BlockchainInfo = {
+  status: string
+  anchorType: string
+  subjectHash?: string | null
+  transactionHash?: string | null
+  anchoredAt?: string | null
+  network?: string | null
+}
+
 export type EvidenceDetailData = {
   evidenceInfo: EvidenceInfo
   integrityInfo: IntegrityInfo
+  signatureInfo?: SignatureInfo | null
+  blockchainInfo?: BlockchainInfo | null
   analysisInfo: AnalysisInfo
   cocLogs: CocLog[]
 }
@@ -121,6 +140,9 @@ export type CaseEvidenceSummary = {
   mediaType: string
   analysisStatus: string
   analysisProgress?: number | null
+  riskScore?: number | null
+  confidenceScore?: number | null
+  riskLevel?: "LOW" | "MEDIUM" | "HIGH" | null
   lifecycleStatus?: EvidenceLifecycleStatus
   role?: EvidenceRole
   replacementEvidenceId?: number | null

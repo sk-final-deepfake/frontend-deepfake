@@ -39,7 +39,7 @@ export function CompareFileUploader({
     <div className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm dark:border-border dark:bg-card">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-black text-slate-950 dark:text-foreground">
+          <h1 className="text-xl font-bold text-slate-950 dark:text-foreground">
             비교 대상 파일 업로드
           </h1>
           <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-muted-foreground">
@@ -60,7 +60,7 @@ export function CompareFileUploader({
         <ShieldCheck className="size-5 shrink-0 text-teal-600 dark:text-teal-300" aria-hidden="true" />
         <div className="min-w-0">
           <p className="text-xs font-bold text-slate-500 dark:text-muted-foreground">원본 기준 파일</p>
-          <p className="mt-1 truncate text-base font-black text-slate-900 dark:text-foreground">
+          <p className="mt-1 truncate text-base font-bold text-slate-900 dark:text-foreground">
             {sourceEvidence.name}
           </p>
           <p className="mt-1 text-xs font-bold text-slate-500 dark:text-muted-foreground">
@@ -104,7 +104,7 @@ export function CompareFileUploader({
                 <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
               </div>
             </div>
-            <p className="mt-4 max-w-md truncate text-base font-black text-slate-900 dark:text-foreground">
+            <p className="mt-4 max-w-md truncate text-base font-bold text-slate-900 dark:text-foreground">
               {compareFile.name}
             </p>
             <button
@@ -124,7 +124,7 @@ export function CompareFileUploader({
             <div className="flex size-12 items-center justify-center rounded-full bg-white text-teal-600 ring-1 ring-teal-200 dark:bg-background dark:text-teal-300 dark:ring-teal-500/30">
               <UploadCloud className="size-7" aria-hidden="true" />
             </div>
-            <p className="mt-4 text-sm font-black text-slate-700 dark:text-foreground">
+            <p className="mt-4 text-sm font-bold text-slate-700 dark:text-foreground">
               파일을 이곳에 드래그하거나 클릭하여 선택하세요
             </p>
             <p className="mt-1 text-xs font-medium text-slate-400 dark:text-muted-foreground">
@@ -151,14 +151,14 @@ export function CompareFileUploader({
           <p className="text-xs font-bold text-slate-400 dark:text-muted-foreground">
             업로드된 비교 파일
           </p>
-          <p className="mt-1 truncate text-sm font-black text-slate-900 dark:text-foreground">
+          <p className="mt-1 truncate text-sm font-bold text-slate-900 dark:text-foreground">
             {compareFile ? `${compareFile.name} · ${compareFile.sizeLabel}` : "비교 파일을 업로드하세요"}
           </p>
         </div>
         <Button
           onClick={onStart}
           disabled={!compareFile}
-          className="h-11 rounded-md bg-teal-600 px-6 text-sm font-black hover:bg-teal-700 sm:w-auto"
+          className="h-11 rounded-md bg-teal-600 px-6 text-sm font-bold hover:bg-teal-700 sm:w-auto"
         >
           <GitCompare className="size-4" aria-hidden="true" />
           비교 검증 시작

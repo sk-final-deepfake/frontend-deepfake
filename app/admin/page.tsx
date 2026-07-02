@@ -33,6 +33,12 @@ const menuItems = [
     badge: (overview: AdminDashboardOverview) => `${overview.menuBadges.approvals}건`,
   },
   {
+    href: "/admin/reviews",
+    title: "검토 배정",
+    description: "검토 요청 사건에 검토자 지정",
+    badge: () => "배정",
+  },
+  {
     href: "/admin/statistics",
     title: "통계 분석",
     description: "분석 통계 및 리포트",

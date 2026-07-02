@@ -25,7 +25,7 @@ export function CompareResultPanel({
         <p className="text-sm font-bold text-slate-500 dark:text-muted-foreground">
           검증 결과가 없습니다.
         </p>
-        <Button onClick={onReset} className="mt-5 h-10 rounded-md bg-teal-600 px-5 font-black hover:bg-teal-700">
+        <Button onClick={onReset} className="mt-5 h-10 rounded-md bg-teal-600 px-5 font-bold hover:bg-teal-700">
           새 검증 시작
         </Button>
       </div>
@@ -44,7 +44,7 @@ export function CompareResultPanel({
       >
         {verdict.icon}
         <div>
-          <p className="text-lg font-black">{verdict.title}</p>
+          <p className="text-lg font-bold">{verdict.title}</p>
           <p className="mt-1 text-sm font-semibold opacity-80">{verdict.description}</p>
           <p className="mt-3 text-xs font-bold opacity-70">
             Compare ID: {result.compareId} · 대상 파일: {result.candidateFileName}
@@ -56,13 +56,13 @@ export function CompareResultPanel({
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-border">
           <div className="flex items-center gap-2">
             <GitCompare className="size-5 text-teal-600 dark:text-teal-300" aria-hidden="true" />
-            <h1 className="text-base font-black text-slate-950 dark:text-foreground">비교 결과</h1>
+            <h1 className="text-base font-bold text-slate-950 dark:text-foreground">비교 결과</h1>
           </div>
           <div className="flex gap-2">
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
               일치 {result.summary.matchCount}
             </span>
-            <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-500 dark:bg-red-500/10 dark:text-red-300">
+            <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-500 dark:bg-red-500/10 dark:text-red-300">
               불일치 {result.summary.mismatchCount}
             </span>
           </div>
@@ -72,16 +72,16 @@ export function CompareResultPanel({
           <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-border">
             <thead className="bg-slate-50 dark:bg-muted/40">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-black text-slate-500 dark:text-muted-foreground">
+                <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-muted-foreground">
                   항목
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-black text-slate-500 dark:text-muted-foreground">
+                <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-muted-foreground">
                   원본
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-black text-slate-500 dark:text-muted-foreground">
+                <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-muted-foreground">
                   대상
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-black text-slate-500 dark:text-muted-foreground">
+                <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-muted-foreground">
                   결과
                 </th>
               </tr>
@@ -97,7 +97,7 @@ export function CompareResultPanel({
                       isMismatch && "bg-red-50/70 text-red-600 dark:bg-red-500/10 dark:text-red-300"
                     )}
                   >
-                    <td className="px-6 py-4 font-black text-slate-900 dark:text-foreground">
+                    <td className="px-6 py-4 font-bold text-slate-900 dark:text-foreground">
                       {item.label}
                     </td>
                     <td className="max-w-[220px] truncate px-6 py-4 font-semibold text-slate-500 dark:text-muted-foreground">
@@ -106,7 +106,7 @@ export function CompareResultPanel({
                     <td className="max-w-[220px] truncate px-6 py-4 font-semibold text-slate-500 dark:text-muted-foreground">
                       {item.candidateValue}
                     </td>
-                    <td className="px-6 py-4 font-black">
+                    <td className="px-6 py-4 font-bold">
                       {getCompareItemResultLabel(item.result)}
                     </td>
                   </tr>
@@ -121,14 +121,14 @@ export function CompareResultPanel({
         <Button
           variant="outline"
           onClick={onReset}
-          className="h-11 rounded-md px-6 text-sm font-black"
+          className="h-11 rounded-md px-6 text-sm font-bold"
         >
           새 검증 시작
         </Button>
         <Button
           onClick={onDownloadReport}
           disabled={isDownloading}
-          className="h-11 rounded-md bg-teal-600 px-6 text-sm font-black hover:bg-teal-700"
+          className="h-11 rounded-md bg-teal-600 px-6 text-sm font-bold hover:bg-teal-700"
         >
           <FileCheck2 className="size-4" aria-hidden="true" />
           {isDownloading ? "PDF 생성 중" : "PDF 리포트 다운로드"}

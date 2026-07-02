@@ -56,7 +56,7 @@ export function SourceEvidenceSelector({
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm dark:border-border dark:bg-card">
       <div>
-        <h1 className="text-xl font-black text-slate-950 dark:text-foreground">원본 증거 선택</h1>
+        <h1 className="text-xl font-bold text-slate-950 dark:text-foreground">원본 증거 선택</h1>
         <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-muted-foreground">
           사건을 먼저 선택한 뒤 비교 기준이 될 원본 파일을 선택하세요.
         </p>
@@ -72,7 +72,7 @@ export function SourceEvidenceSelector({
       <div className="mt-7 grid gap-5 lg:grid-cols-[320px_1fr]">
         <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-border dark:bg-muted/30">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-sm font-black text-slate-900 dark:text-foreground">
+            <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-foreground">
               <FolderOpen className="size-4 text-teal-600 dark:text-teal-300" aria-hidden="true" />
               사건 목록
             </h2>
@@ -96,7 +96,7 @@ export function SourceEvidenceSelector({
             </label>
             <button
               type="button"
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50/50 dark:border-border dark:bg-card dark:text-muted-foreground dark:hover:bg-muted"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50/50 dark:border-border dark:bg-card dark:text-muted-foreground dark:hover:bg-muted"
             >
               최신순
               <ChevronDown className="size-3.5" aria-hidden="true" />
@@ -126,10 +126,10 @@ export function SourceEvidenceSelector({
                   >
                     <span className="flex items-start justify-between gap-3">
                       <span className="min-w-0">
-                        <span className="block truncate text-xs font-black text-teal-700 dark:text-teal-300">
+                        <span className="block truncate text-xs font-bold text-teal-700 dark:text-teal-300">
                           {sourceCase.id}
                         </span>
-                        <span className="mt-1 block text-sm font-black leading-5 text-slate-900 dark:text-foreground">
+                        <span className="mt-1 block text-sm font-bold leading-5 text-slate-900 dark:text-foreground">
                           {sourceCase.title}
                         </span>
                       </span>
@@ -168,17 +168,17 @@ export function SourceEvidenceSelector({
         <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-xs font-black text-teal-700 dark:text-teal-300">
+              <p className="text-xs font-bold text-teal-700 dark:text-teal-300">
                 {selectedCase.id}
               </p>
-              <h2 className="mt-1 truncate text-lg font-black text-slate-950 dark:text-foreground">
+              <h2 className="mt-1 truncate text-lg font-bold text-slate-950 dark:text-foreground">
                 {selectedCase.title}
               </h2>
               <p className="mt-2 text-xs font-bold text-slate-500 dark:text-muted-foreground">
                 {selectedCase.department} · 원본 후보 {selectedCase.evidences.length}개
               </p>
             </div>
-            <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-emerald-50 px-3 text-xs font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-emerald-50 px-3 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
               <ShieldCheck className="size-3.5" aria-hidden="true" />
               해시 검증 완료
             </span>
@@ -220,7 +220,7 @@ export function SourceEvidenceSelector({
                   >
                     <EvidencePreview evidence={evidence} isSelected={isSelected} />
                     <span className="min-w-0">
-                      <span className="flex flex-wrap items-center gap-2 text-sm font-black text-teal-700 dark:text-teal-300">
+                      <span className="flex flex-wrap items-center gap-2 text-sm font-bold text-teal-700 dark:text-teal-300">
                         {evidence.id}
                         <ShieldCheck className="size-3.5 text-emerald-500" aria-hidden="true" />
                       </span>
@@ -230,7 +230,7 @@ export function SourceEvidenceSelector({
                       <span className="mt-1 block text-xs font-bold text-slate-500 dark:text-muted-foreground">
                         {evidence.dateLabel} · {evidence.sizeLabel} · {evidence.codecLabel}
                       </span>
-                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-500 dark:bg-muted dark:text-muted-foreground">
+                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-500 dark:bg-muted dark:text-muted-foreground">
                         {getEvidenceMediaLabel(evidence)}
                       </span>
                     </span>
@@ -261,14 +261,14 @@ export function SourceEvidenceSelector({
           <p className="text-xs font-bold text-slate-400 dark:text-muted-foreground">
             선택된 원본 증거
           </p>
-          <p className="mt-1 truncate text-sm font-black text-slate-900 dark:text-foreground">
+          <p className="mt-1 truncate text-sm font-bold text-slate-900 dark:text-foreground">
             {selectedEvidence ? `${selectedEvidence.id} · ${selectedEvidence.name}` : "원본 증거를 선택하세요"}
           </p>
         </div>
         <Button
           onClick={onNext}
           disabled={selectedEvidenceId === null}
-          className="h-11 rounded-md bg-teal-600 px-6 text-sm font-black hover:bg-teal-700 sm:w-auto"
+          className="h-11 rounded-md bg-teal-600 px-6 text-sm font-bold hover:bg-teal-700 sm:w-auto"
         >
           다음: 비교 파일 업로드
         </Button>
@@ -317,7 +317,7 @@ function EvidencePreview({
       <span className="absolute left-3 top-3 flex size-8 items-center justify-center rounded-full bg-white/90 text-teal-700 shadow-sm">
         <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
       </span>
-      <span className="absolute bottom-2 right-2 rounded bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-black text-white">
+      <span className="absolute bottom-2 right-2 rounded bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
         {evidence.durationLabel}
       </span>
     </span>

@@ -366,7 +366,7 @@ function StepIndicator({ currentStep }: { currentStep: CompareStep }) {
           <li key={step.key} className={cn(index < steps.length - 1 && "contents")}>
             <div
               className={cn(
-                "flex h-12 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-black transition-colors",
+                "flex h-12 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-bold transition-colors",
                 isActive
                   ? "border-teal-600 bg-teal-600 text-white shadow-sm"
                   : isDone

@@ -14,6 +14,13 @@ import type {
 } from "@/lib/api/evidence-detail"
 import type { UpdateUserProfilePayload, UserProfile } from "@/lib/api/user"
 import { getSession } from "@/lib/auth"
+import {
+  canViewCase,
+  getAppUserFromSession,
+  getMockUserByRole,
+  type AiResult,
+  type ReviewStatus,
+} from "@/lib/permissions"
 
 const MOCK_STORAGE_KEY = "veriforensics-mock-evidences"
 const MOCK_PROFILE_KEY = "veriforensics-mock-profile"
@@ -67,6 +74,14 @@ type MockCaseRecord = {
   caseName: string
   createdAt: string
   representativeEvidenceId?: number | null
+  organizationId?: string | null
+  department?: string | null
+  createdBy?: string | null
+  assigneeId?: string | null
+  reviewerId?: string | null
+  reviewStatus?: ReviewStatus | null
+  aiResult?: AiResult | null
+  reviewRequestedAt?: string | null
 }
 
 type MockStore = {
@@ -271,6 +286,83 @@ function normalizeEvidenceRecord(record: MockEvidenceRecord): MockEvidenceRecord
   }
 }
 
+function defaultCaseAccessFields(): Pick<
+  MockCaseRecord,
+  | "organizationId"
+  | "department"
+  | "createdBy"
+  | "assigneeId"
+  | "reviewerId"
+  | "reviewStatus"
+  | "aiResult"
+  | "reviewRequestedAt"
+> {
+  const currentUser = getAppUserFromSession(getSession()) ?? getMockUserByRole("INVESTIGATOR")
+
+  return {
+    organizationId: currentUser.organizationId,
+    department: currentUser.department,
+    createdBy: currentUser.id,
+    assigneeId: currentUser.id,
+    reviewerId: null,
+    reviewStatus: "NONE",
+    aiResult: null,
+    reviewRequestedAt: null,
+  }
+}
+
+function sampleCaseAccessFields(caseId: string): Pick<
+  MockCaseRecord,
+  | "organizationId"
+  | "department"
+  | "createdBy"
+  | "assigneeId"
+  | "reviewerId"
+  | "reviewStatus"
+  | "aiResult"
+  | "reviewRequestedAt"
+> {
+  const investigator = getMockUserByRole("INVESTIGATOR")
+  const reviewer = getMockUserByRole("REVIEWER")
+
+  if (caseId === "mock-deepfake-pair-20260627") {
+    return {
+      organizationId: investigator.organizationId,
+      department: investigator.department,
+      createdBy: investigator.id,
+      assigneeId: investigator.id,
+      reviewerId: reviewer.id,
+      reviewStatus: "REVIEW_ASSIGNED",
+      aiResult: "위험",
+      reviewRequestedAt: "2026-06-27T13:20:00",
+    }
+  }
+
+  if (caseId === "mock-tamper-single-20260627") {
+    return {
+      organizationId: investigator.organizationId,
+      department: investigator.department,
+      createdBy: investigator.id,
+      assigneeId: investigator.id,
+      reviewerId: null,
+      reviewStatus: "REVIEW_REQUESTED",
+      aiResult: "위험",
+      reviewRequestedAt: "2026-06-27T13:05:00",
+    }
+  }
+
+  return {
+    organizationId: investigator.organizationId,
+    department: investigator.department,
+    createdBy: investigator.id,
+    assigneeId: investigator.id,
+    reviewerId: null,
+    reviewStatus: "NONE",
+    aiResult: null,
+    reviewRequestedAt: null,
+  }
+}
+
 function inferCasesFromEvidences(evidences: MockEvidenceRecord[]): MockCaseRecord[] {
   const cases = new Map<string, MockCaseRecord>()
 
@@ -283,6 +375,7 @@ function inferCasesFromEvidences(evidences: MockEvidenceRecord[]): MockCaseRecor
       caseName: evidence.caseName || "미분류 사건",
       createdAt: evidence.uploadedAt,
       representativeEvidenceId: evidence.evidenceId,
+      ...defaultCaseAccessFields(),
     })
   }
 
@@ -296,6 +389,7 @@ function sampleCaseRecord(sampleCase: CaseDetailData): MockCaseRecord {
     createdAt: sampleCase.createdAt,
     representativeEvidenceId:
       sampleCase.representativeEvidenceId ?? sampleCase.evidences[0]?.evidenceId ?? null,
+    ...sampleCaseAccessFields(sampleCase.caseId),
   }
 }
 
@@ -584,10 +678,34 @@ function moduleResultsFor(mediaType: MockEvidenceRecord["mediaType"], riskScore:
       details: "프레임 간 얼굴 랜드마크와 시선 움직임의 연속성을 분석했습니다.",
     },
     {
+      moduleName: "FACE_SYNTHESIS_DETECTOR",
+      detected: riskScore >= 55,
+      score: Math.min(1, normalized + 0.03),
+      details: "얼굴 경계와 피부 질감의 생성형 합성 패턴을 분석했습니다.",
+    },
+    {
+      moduleName: "GAN_FINGERPRINT",
+      detected: riskScore >= 60,
+      score: Math.max(0.15, normalized - 0.05),
+      details: "생성 모델 특유의 주파수 지문을 탐색했습니다.",
+    },
+    {
+      moduleName: "OPTICAL_ARTIFACT",
+      detected: riskScore >= 58,
+      score: Math.max(0.18, normalized - 0.08),
+      details: "조명 반사와 얼굴 음영 방향의 일관성을 확인했습니다.",
+    },
+    {
       moduleName: "COMPRESSION_TRACE_CHECK",
       detected: riskScore >= 64,
       score: Math.max(0.2, normalized - 0.1),
       details: "프레임별 압축 흔적과 메타데이터의 일관성을 검증했습니다.",
+    },
+    {
+      moduleName: "METADATA_CONSISTENCY",
+      detected: riskScore >= 68,
+      score: Math.max(0.12, normalized - 0.14),
+      details: "영상 메타데이터와 프레임 특성의 일치 여부를 확인했습니다.",
     },
   ]
 }
@@ -736,6 +854,7 @@ export async function mockCreateCase(caseName: string): Promise<CaseDetailData> 
     caseName: trimmed,
     createdAt: new Date().toISOString(),
     representativeEvidenceId: null,
+    ...defaultCaseAccessFields(),
   }
 
   writeStore({
@@ -1095,6 +1214,47 @@ export async function mockCancelAnalysis(evidenceId: number): Promise<void> {
   })
 }
 
+export async function mockAssignReviewerToCase(caseId: string, reviewerId: string): Promise<void> {
+  await delay(180)
+
+  const reviewer = getMockUserByRole("REVIEWER")
+  if (reviewer.id !== reviewerId) {
+    throw new Error("검토자 계정을 찾을 수 없습니다.")
+  }
+
+  const store = materializeSampleCase(readStore(), caseId)
+  const targetCase = findCaseRecord(store, caseId)
+  if (!targetCase) {
+    throw new Error("검토 배정할 사건을 찾을 수 없습니다.")
+  }
+
+  const cases = store.cases.some((item) => item.caseId === caseId)
+    ? store.cases.map((item) =>
+        item.caseId === caseId
+          ? {
+              ...item,
+              reviewerId,
+              reviewStatus: "REVIEW_ASSIGNED" as const,
+              reviewRequestedAt: item.reviewRequestedAt ?? new Date().toISOString(),
+            }
+          : item
+      )
+    : [
+        {
+          ...targetCase,
+          reviewerId,
+          reviewStatus: "REVIEW_ASSIGNED" as const,
+          reviewRequestedAt: targetCase.reviewRequestedAt ?? new Date().toISOString(),
+        },
+        ...store.cases,
+      ]
+
+  writeStore({
+    ...store,
+    cases,
+  })
+}
+
 export async function mockFetchMyAnalysisHistory(options?: {
   sort?: "newest" | "status"
   page?: number
@@ -1143,6 +1303,14 @@ export async function mockFetchMyAnalysisHistory(options?: {
       status: summarizeCaseStatus(records),
       createdAt: meta?.createdAt ?? sorted[0]?.uploadedAt ?? new Date().toISOString(),
       evidenceCount: records.length,
+      organizationId: meta?.organizationId ?? defaultCaseAccessFields().organizationId,
+      department: meta?.department ?? defaultCaseAccessFields().department,
+      createdBy: meta?.createdBy ?? defaultCaseAccessFields().createdBy,
+      assigneeId: meta?.assigneeId ?? defaultCaseAccessFields().assigneeId,
+      reviewerId: meta?.reviewerId ?? null,
+      reviewStatus: meta?.reviewStatus ?? "NONE",
+      aiResult: meta?.aiResult ?? null,
+      reviewRequestedAt: meta?.reviewRequestedAt ?? null,
       representativeFileName: representativeEvidence?.fileName,
       representativeEvidenceId: representativeEvidence?.evidenceId ?? null,
       representativeEvidenceLabel: representativeEvidence?.displayLabel ?? null,
@@ -1150,7 +1318,12 @@ export async function mockFetchMyAnalysisHistory(options?: {
     }
   })
 
-  content.sort((a, b) => {
+  const currentUser = getAppUserFromSession(getSession())
+  const visibleContent = currentUser
+    ? content.filter((item) => canViewCase(currentUser, item))
+    : content
+
+  visibleContent.sort((a, b) => {
     if (options?.sort === "status") {
       const statusOrder: Record<CaseStatus, number> = {
         PROCESSING: 0,
@@ -1170,35 +1343,54 @@ export async function mockFetchMyAnalysisHistory(options?: {
   const start = page * size
 
   return {
-    content: content.slice(start, start + size),
+    content: visibleContent.slice(start, start + size),
     page,
     size,
-    totalElements: content.length,
-    totalPages: Math.max(1, Math.ceil(content.length / size)),
+    totalElements: visibleContent.length,
+    totalPages: Math.max(1, Math.ceil(visibleContent.length / size)),
   }
 }
 
 function sampleModuleResults(risk: number): ModuleResult[] {
   const base = risk / 100
+  const detected = base >= 0.5
 
   return [
     {
       moduleName: "FACE_SWAP_DETECTOR",
-      detected: false,
+      detected,
       score: base,
-      details: "얼굴 교체(GAN) 합성 흔적이 발견되지 않았습니다.",
+      details: "얼굴 교체(GAN) 합성 흔적을 분석했습니다.",
     },
     {
       moduleName: "LIP_SYNC_ANALYZER",
-      detected: false,
+      detected: base - 0.03 >= 0.5,
       score: Math.max(0, base - 0.03),
-      details: "입 모양과 음성의 동기화가 자연스럽습니다.",
+      details: "입 모양과 음성의 동기화 정도를 분석했습니다.",
     },
     {
       moduleName: "FREQUENCY_ARTIFACT",
-      detected: false,
-      score: base + 0.02,
-      details: "주파수 영역에서 합성 아티팩트가 낮게 측정되었습니다.",
+      detected: base + 0.02 >= 0.5,
+      score: Math.min(1, base + 0.02),
+      details: "주파수 영역의 합성 아티팩트를 측정했습니다.",
+    },
+    {
+      moduleName: "TEMPORAL_CONSISTENCY",
+      detected: base - 0.06 >= 0.5,
+      score: Math.max(0, base - 0.06),
+      details: "프레임 간 표정·랜드마크 이동의 연속성을 확인했습니다.",
+    },
+    {
+      moduleName: "GAN_FINGERPRINT",
+      detected: base + 0.04 >= 0.5,
+      score: Math.min(1, base + 0.04),
+      details: "생성 모델 특유의 주파수 지문을 탐색했습니다.",
+    },
+    {
+      moduleName: "COMPRESSION_TRACE_CHECK",
+      detected: base - 0.1 >= 0.5,
+      score: Math.max(0, base - 0.1),
+      details: "프레임별 압축 흔적과 메타데이터의 일관성을 검증했습니다.",
     },
   ]
 }
@@ -1224,6 +1416,30 @@ function detectedModuleResults(kind: "deepfake" | "tampered" | "clean"): ModuleR
         score: 0.79,
         details: "조명 반사와 얼굴 음영 방향의 일관성이 낮아 딥페이크 가능성을 높였습니다.",
       },
+      {
+        moduleName: "GAN_FINGERPRINT",
+        detected: true,
+        score: 0.86,
+        details: "생성 모델 특유의 주파수 지문(fingerprint)이 검출되었습니다.",
+      },
+      {
+        moduleName: "LIP_SYNC_ANALYZER",
+        detected: true,
+        score: 0.71,
+        details: "입 모양과 음성 동기화에서 부자연스러운 지연이 관측되었습니다.",
+      },
+      {
+        moduleName: "EYE_BLINK_PATTERN",
+        detected: false,
+        score: 0.44,
+        details: "눈 깜빡임 주기가 정상 범위에 가깝지만 일부 구간에서 불규칙했습니다.",
+      },
+      {
+        moduleName: "HEAD_POSE_CONSISTENCY",
+        detected: false,
+        score: 0.29,
+        details: "머리 자세와 얼굴 정렬의 일관성은 대체로 유지되었습니다.",
+      },
     ]
   }
 
@@ -1247,6 +1463,24 @@ function detectedModuleResults(kind: "deepfake" | "tampered" | "clean"): ModuleR
         score: 0.74,
         details: "영상 메타데이터와 프레임 특성 사이에 일부 불일치가 있어 위변조 의심으로 판단했습니다.",
       },
+      {
+        moduleName: "COPY_MOVE_FORGERY",
+        detected: true,
+        score: 0.77,
+        details: "동일 패턴이 복제·이동된 흔적(copy-move)이 일부 영역에서 탐지되었습니다.",
+      },
+      {
+        moduleName: "NOISE_RESIDUAL_ANALYSIS",
+        detected: false,
+        score: 0.48,
+        details: "노이즈 잔차 분포가 일부 구간에서 주변과 달랐으나 임계값 이하였습니다.",
+      },
+      {
+        moduleName: "SPLICE_DETECTOR",
+        detected: false,
+        score: 0.31,
+        details: "이질적 영상 소스가 이어 붙은 스플라이싱 흔적은 뚜렷하지 않았습니다.",
+      },
     ]
   }
 
@@ -1268,6 +1502,24 @@ function detectedModuleResults(kind: "deepfake" | "tampered" | "clean"): ModuleR
       detected: false,
       score: 0.05,
       details: "조명, 반사, 움직임 일관성이 정상 범위로 분석되었습니다.",
+    },
+    {
+      moduleName: "GAN_FINGERPRINT",
+      detected: false,
+      score: 0.09,
+      details: "생성 모델 특유의 주파수 지문이 검출되지 않았습니다.",
+    },
+    {
+      moduleName: "LIP_SYNC_ANALYZER",
+      detected: false,
+      score: 0.07,
+      details: "입 모양과 음성의 동기화가 자연스럽게 유지되었습니다.",
+    },
+    {
+      moduleName: "METADATA_CONSISTENCY",
+      detected: false,
+      score: 0.04,
+      details: "메타데이터와 프레임 특성이 서로 일치합니다.",
     },
   ]
 }
@@ -1311,10 +1563,17 @@ function buildMockFrameScores(record: MockEvidenceRecord): FrameScore[] {
 
   const pattern =
     MOCK_FRAME_SCORE_PATTERNS[record.evidenceId] ??
-    Array.from({ length: 12 }, (_, index) => {
-      const base = record.riskScore == null ? 0.18 : record.riskScore / 100
-      return Math.max(0.03, Math.min(0.96, base + Math.sin(index * 1.4) * 0.08))
-    })
+    (() => {
+      const length = 14
+      const base = record.riskScore == null ? 0.2 : record.riskScore / 100
+      const peakIndex = Math.round(length * 0.62)
+      return Array.from({ length }, (_, index) => {
+        const wave = Math.sin(index * 0.9) * 0.14 + Math.sin(index * 0.42 + 0.6) * 0.1
+        const peak = Math.exp(-((index - peakIndex) ** 2) / 8) * 0.22
+        const calmEnds = index < 2 || index > length - 3 ? -0.1 : 0
+        return Number(Math.max(0.05, Math.min(0.96, base * 0.8 + wave + peak + calmEnds)).toFixed(2))
+      })
+    })()
 
   return pattern.map((score, index) => ({
     timeSec: Number((index * 2.2).toFixed(1)),
@@ -1515,6 +1774,21 @@ function buildEvidenceDetail(
       isChainValid: true,
       verificationStatus: "VERIFIED",
     },
+    signatureInfo: {
+      signatureStatus: "SIGNED",
+      signatureAlgorithm: "SHA256withRSA",
+      signedAt: offsetIsoTime(record.uploadedAt, 0),
+      signerCertificateSubject: "CN=ForenShield Evidence Authority, O=ForenShield, C=KR",
+      signatureValid: true,
+    },
+    blockchainInfo: {
+      status: "ANCHORED",
+      anchorType: "EVIDENCE_HASH",
+      subjectHash: record.hashValue,
+      transactionHash: `0x${record.hashValue.slice(0, 40)}`,
+      anchoredAt: offsetIsoTime(record.uploadedAt, 1),
+      network: "ForenShield Private Chain",
+    },
     analysisInfo: {
       status,
       requestedAt: record.analysisRequestedAt ?? null,
@@ -1624,6 +1898,9 @@ function mapRecordToCaseEvidence(record: MockEvidenceRecord, index: number): Cas
     mediaType: record.mediaType,
     analysisStatus: record.analysisStatus ?? "PENDING",
     analysisProgress: record.analysisProgress ?? null,
+    riskScore: record.riskScore ?? null,
+    confidenceScore: record.confidenceScore ?? null,
+    riskLevel: record.riskLevel ?? null,
     lifecycleStatus: record.lifecycleStatus ?? "ACTIVE",
     role: record.role ?? "SUPPLEMENT",
     replacementEvidenceId: record.replacementEvidenceId ?? null,

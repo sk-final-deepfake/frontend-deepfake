@@ -5,6 +5,7 @@ import { formatCreatedAt } from "@/app/mypage/_lib/format-date"
 import { CaseStatusBadge } from "@/app/mypage/_components/case-status-badge"
 import { CaseHistoryEmpty } from "@/app/mypage/_components/case-history-empty"
 import type { DateFormat } from "@/lib/user-settings"
+import { reviewStatusLabelMap } from "@/lib/permissions"
 import { buildCaseDetailPath } from "@/lib/route-params"
 
 export function CaseHistoryList({
@@ -41,6 +42,11 @@ export function CaseHistoryList({
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {formatCreatedAt(item.createdAt, dateFormat)}
                 </p>
+                {item.reviewStatus && item.reviewStatus !== "NONE" ? (
+                  <p className="mt-1 text-xs font-semibold text-teal-700">
+                    {reviewStatusLabelMap[item.reviewStatus]}
+                  </p>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <CaseStatusBadge status={item.status} />
@@ -59,7 +65,8 @@ export function CaseHistoryList({
               <th className="px-5 py-3 font-medium">사건</th>
               <th className="px-5 py-3 font-medium">대표 증거</th>
               <th className="px-5 py-3 font-medium">증거 수</th>
-              <th className="px-5 py-3 font-medium">상태</th>
+              <th className="px-5 py-3 font-medium">분석 상태</th>
+              <th className="px-5 py-3 font-medium">검토 상태</th>
               <th className="px-5 py-3 font-medium">최근 분석일</th>
               <th className="px-5 py-3 font-medium">
                 <span className="sr-only">상세 보기</span>
@@ -89,6 +96,9 @@ export function CaseHistoryList({
                 <td className="px-5 py-3.5">
                   <CaseStatusBadge status={item.status} />
                 </td>
+                <td className="px-5 py-3.5">
+                  <ReviewStatusBadge status={item.reviewStatus ?? "NONE"} />
+                </td>
                 <td className="px-5 py-3.5 whitespace-nowrap text-muted-foreground">
                   {formatCreatedAt(item.createdAt, dateFormat)}
                 </td>
@@ -107,6 +117,23 @@ export function CaseHistoryList({
         </table>
       </div>
     </>
+  )
+}
+
+function ReviewStatusBadge({ status }: { status: keyof typeof reviewStatusLabelMap }) {
+  const tone =
+    status === "NONE"
+      ? "bg-slate-100 text-slate-500"
+      : status === "REVIEW_REQUESTED"
+        ? "bg-blue-50 text-blue-700"
+        : status === "REVIEW_ASSIGNED"
+          ? "bg-amber-50 text-amber-700"
+          : "bg-emerald-50 text-emerald-700"
+
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${tone}`}>
+      {reviewStatusLabelMap[status]}
+    </span>
   )
 }
 
