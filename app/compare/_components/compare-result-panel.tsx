@@ -62,7 +62,7 @@ export function CompareResultPanel({
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
               일치 {result.summary.matchCount}
             </span>
-            <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-500 dark:bg-red-500/10 dark:text-red-300">
+            <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-400">
               불일치 {result.summary.mismatchCount}
             </span>
           </div>
@@ -94,7 +94,7 @@ export function CompareResultPanel({
                   <tr
                     key={item.itemKey}
                     className={cn(
-                      isMismatch && "bg-red-50/70 text-red-600 dark:bg-red-500/10 dark:text-red-300"
+                      isMismatch && "bg-red-50/70 text-red-700 dark:bg-red-500/10 dark:text-red-400"
                     )}
                   >
                     <td className="px-6 py-4 font-bold text-slate-900 dark:text-foreground">

@@ -1,15 +1,8 @@
 import type { DragEvent, RefObject } from "react"
-import {
-  AlertTriangle,
-  GitCompare,
-  Play,
-  RotateCcw,
-  ShieldCheck,
-  UploadCloud,
-  X,
-} from "lucide-react"
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, FileVideo, Play, UploadCloud, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import type { SourceEvidence, UploadedCompareFile } from "./compare-verification-flow"
 
 type CompareFileUploaderProps = {
@@ -36,138 +29,142 @@ export function CompareFileUploader({
   compareError,
 }: CompareFileUploaderProps) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm dark:border-border dark:bg-card">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-950 dark:text-foreground">
-            비교 대상 파일 업로드
-          </h1>
-          <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-muted-foreground">
-            검증할 파일을 업로드하세요.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-bold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-muted-foreground dark:hover:bg-muted dark:hover:text-foreground"
-        >
-          <RotateCcw className="size-3.5" aria-hidden="true" />
-          재선택
-        </button>
+    <section className="rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
+      <div className="border-b border-slate-200 px-6 py-5 dark:border-border">
+        <h1 className="text-lg font-bold text-slate-950 dark:text-foreground">비교 대상 파일 업로드</h1>
+        <p className="mt-1 text-sm font-medium text-slate-500">
+          기준 증거와 비교할 파일을 업로드하세요. 기준 증거는 변경되지 않습니다.
+        </p>
       </div>
 
-      <div className="mt-7 flex items-center gap-4 rounded-lg border border-teal-200 bg-teal-50/60 px-5 py-4 dark:border-teal-500/30 dark:bg-teal-500/10">
-        <ShieldCheck className="size-5 shrink-0 text-teal-600 dark:text-teal-300" aria-hidden="true" />
-        <div className="min-w-0">
-          <p className="text-xs font-bold text-slate-500 dark:text-muted-foreground">기준 증거</p>
-          <p className="mt-1 truncate text-base font-bold text-slate-900 dark:text-foreground">
-            {sourceEvidence.displayLabel}
-          </p>
-          <p className="mt-1 text-xs font-bold text-slate-500 dark:text-muted-foreground">
-            {formatEvidenceId(sourceEvidence.id)}
-          </p>
-        </div>
-      </div>
+      <div className="space-y-4 px-6 py-5">
+        {compareError ? (
+          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            {compareError}
+          </div>
+        ) : null}
 
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => fileInputRef.current?.click()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click()
-        }}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={onDrop}
-        className="mt-6 flex min-h-56 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-teal-300 bg-teal-50/25 px-6 py-8 text-center transition-colors hover:border-teal-500 hover:bg-teal-50/50 dark:border-teal-500/40 dark:bg-teal-500/10 dark:hover:bg-teal-500/15"
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*"
-          className="sr-only"
-          onChange={(event) => onFileChange(event.target.files)}
-        />
+        <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_44px_minmax(0,1fr)]">
+          <SourceEvidenceCard evidence={sourceEvidence} />
 
-        {compareFile ? (
-          <>
-            <div className="relative aspect-video w-full max-w-md overflow-hidden rounded-lg border border-teal-200 bg-slate-950 shadow-sm dark:border-teal-500/30">
-              <video
-                src={compareFile.previewUrl}
-                className="size-full object-cover"
-                muted
-                playsInline
-                preload="metadata"
-                aria-label={`${compareFile.name} 미리보기`}
-              />
-              <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950/80 to-transparent" />
-              <div className="absolute left-3 top-3 flex size-9 items-center justify-center rounded-full bg-white/90 text-teal-700 shadow-sm">
-                <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
+          <div className="hidden items-center justify-center text-slate-400 lg:flex">
+            <ArrowRightLeft className="size-5" aria-hidden="true" />
+          </div>
+
+          {compareFile ? (
+            <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 dark:border-border dark:bg-card">
+              <p className="text-xs font-bold text-slate-400">비교 대상 (제출본)</p>
+              <div className="mt-3 flex min-w-0 flex-1 items-start gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-secondary dark:text-muted-foreground">
+                  <FileVideo className="size-5" aria-hidden="true" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold text-slate-950 dark:text-foreground">
+                    {compareFile.name}
+                  </span>
+                  <span className="mt-1 block text-xs font-semibold text-slate-500">{compareFile.sizeLabel}</span>
+                </span>
               </div>
+              <button
+                type="button"
+                onClick={onRemoveFile}
+                className="mt-3 inline-flex w-fit items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-red-500"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+                파일 제거
+              </button>
             </div>
-            <p className="mt-4 max-w-md truncate text-base font-bold text-slate-900 dark:text-foreground">
-              {compareFile.name}
-            </p>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                onRemoveFile()
+          ) : (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click()
               }}
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-red-500 dark:text-muted-foreground"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={onDrop}
+              className={cn(
+                "flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed",
+                "border-slate-300 bg-slate-50/60 px-6 py-8 text-center transition-colors",
+                "hover:border-slate-400 hover:bg-slate-50 dark:border-border dark:bg-background dark:hover:bg-secondary/40"
+              )}
             >
-              <X className="size-3.5" aria-hidden="true" />
-              제거
-            </button>
-          </>
-        ) : (
-          <>
-            <div className="flex size-12 items-center justify-center rounded-full bg-white text-teal-600 ring-1 ring-teal-200 dark:bg-background dark:text-teal-300 dark:ring-teal-500/30">
-              <UploadCloud className="size-7" aria-hidden="true" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="video/*"
+                className="sr-only"
+                onChange={(event) => onFileChange(event.target.files)}
+              />
+              <span className="flex size-11 items-center justify-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200 dark:bg-card dark:ring-border">
+                <UploadCloud className="size-6" aria-hidden="true" />
+              </span>
+              <p className="mt-3 text-sm font-bold text-slate-700 dark:text-foreground">
+                파일을 드래그하거나 클릭해서 업로드
+              </p>
+              <p className="mt-1 text-xs font-medium text-slate-400">MP4, MOV 권장</p>
             </div>
-            <p className="mt-4 text-sm font-bold text-slate-700 dark:text-foreground">
-              파일을 이곳에 드래그하거나 클릭하여 선택하세요
-            </p>
-            <p className="mt-1 text-xs font-medium text-slate-400 dark:text-muted-foreground">
-              용량 제한 없음 · MP4, MOV 권장
-            </p>
-          </>
-        )}
+          )}
+        </div>
       </div>
 
-      <div className="mt-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
-        <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-        비교 대상 파일은 복사본으로 처리되며 기준 증거 파일은 변경되지 않습니다.
-      </div>
-
-      {compareError ? (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          {compareError}
-        </div>
-      ) : null}
-
-      <div className="mt-6 flex flex-col gap-4 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-border">
-        <div className="min-w-0">
-          <p className="text-xs font-bold text-slate-400 dark:text-muted-foreground">
-            업로드된 비교 파일
-          </p>
-          <p className="mt-1 truncate text-sm font-bold text-slate-900 dark:text-foreground">
-            {compareFile ? `${compareFile.name} · ${compareFile.sizeLabel}` : "비교 파일을 업로드하세요"}
-          </p>
-        </div>
+      <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 dark:border-border">
         <Button
+          type="button"
+          variant="outline"
+          onClick={onBack}
+          className="h-10 rounded-full border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          기준 증거 다시 선택
+        </Button>
+        <Button
+          type="button"
           onClick={onStart}
           disabled={!compareFile}
-          className="h-11 rounded-md bg-teal-600 px-6 text-sm font-bold hover:bg-teal-700 sm:w-auto"
+          className="h-10 rounded-full bg-slate-950 px-6 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-foreground dark:text-background"
         >
-          <GitCompare className="size-4" aria-hidden="true" />
           비교 검증 시작
+          <ArrowRight className="size-4" aria-hidden="true" />
         </Button>
       </div>
-    </div>
+    </section>
   )
 }
 
-function formatEvidenceId(evidenceId: number) {
-  return `EVD-${evidenceId}`
+export function SourceEvidenceCard({ evidence }: { evidence: SourceEvidence }) {
+  const mediaPreviewUrl = evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-border dark:bg-background">
+      <p className="text-xs font-bold text-slate-400">기준 증거 (원본)</p>
+      <div className="mt-3 flex min-w-0 items-start gap-3">
+        <span className="relative block h-14 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-950">
+          {evidence.thumbnailUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={evidence.thumbnailUrl} alt="" className="absolute inset-0 size-full object-cover" />
+          ) : mediaPreviewUrl ? (
+            <video
+              src={mediaPreviewUrl}
+              className="absolute inset-0 size-full object-cover"
+              muted
+              playsInline
+              preload="metadata"
+            />
+          ) : null}
+          <span className="absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-white/90 text-slate-700">
+            <Play className="ml-px size-2.5 fill-current" aria-hidden="true" />
+          </span>
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-bold text-slate-950 dark:text-foreground">
+            {evidence.name}
+          </span>
+          <span className="mt-1 block font-mono text-xs font-medium text-slate-400">EVD-{evidence.id}</span>
+        </span>
+      </div>
+    </div>
+  )
 }

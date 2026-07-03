@@ -8,23 +8,26 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
-  ChevronLeft,
   ChevronRight,
   Copy,
   Download,
-  FilePlus2,
   FileSearch,
   FileVideo,
   GitCompare,
   Home,
   Loader2,
+  Maximize2,
   MessageSquareText,
   MoreVertical,
+  Pause,
   Pencil,
-  PlayCircle,
+  Play,
+  Plus,
   Square,
   Trash2,
   UserRound,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react"
 
@@ -33,6 +36,7 @@ import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
 import { MetadataReportTab } from "./_components/metadata-report-tab"
+import { ModelRadarChart } from "./_components/model-radar-chart"
 import { SummaryTab } from "./_components/summary-tab"
 import {
   buildProgressSteps,
@@ -66,12 +70,12 @@ import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
 import { getLatestCompareResultSummary, type StoredCompareResultSummary } from "@/lib/compare-history"
-import { mockUsers } from "@/lib/permissions"
+import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeEvidenceDetailForUi } from "@/lib/api/normalize-analysis"
 import { cn } from "@/lib/utils"
-import { formatDateTime, formatDuration } from "@/lib/formatters"
+import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -118,7 +122,18 @@ function sortEvidences(evidences: CaseEvidenceSummary[]) {
   return [...evidences].sort((a, b) => a.evidenceId - b.evidenceId)
 }
 
-const EVIDENCE_PAGE_SIZE = 10
+function isActiveEvidence(evidence: CaseEvidenceSummary) {
+  return (evidence.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
+}
+
+function getPreferredEvidenceId(evidences: CaseEvidenceSummary[], preferredEvidenceId: number | null) {
+  const preferredEvidence = evidences.find((item) => item.evidenceId === preferredEvidenceId)
+  if (preferredEvidence && isActiveEvidence(preferredEvidence)) return preferredEvidence.evidenceId
+
+  return evidences.find(isActiveEvidence)?.evidenceId ?? evidences[0]?.evidenceId ?? null
+}
+
+type EvidenceStatusBucket = "pending" | "running" | "completed" | "inactive"
 const PRIORITY_REVIEW_START_SEC = 15.8
 const PRIORITY_REVIEW_END_SEC = 23.8
 const PRIORITY_REVIEW_RANGE_LABEL = "00:15.800 ~ 00:23.800"
@@ -205,15 +220,8 @@ export default function CaseDetailPage() {
         const sorted = sortEvidences(result.evidences ?? [])
         setCaseData({ ...result, evidences: sorted })
         setSelectedEvidenceId((current) => {
-          if (Number.isFinite(initialEvidenceId) && sorted.some((item) => item.evidenceId === initialEvidenceId)) {
-            return initialEvidenceId
-          }
-
-          if (current && sorted.some((item) => item.evidenceId === current)) {
-            return current
-          }
-
-          return sorted[0]?.evidenceId ?? null
+          const preferredEvidenceId = Number.isFinite(initialEvidenceId) ? initialEvidenceId : current
+          return getPreferredEvidenceId(sorted, preferredEvidenceId)
         })
       } catch (error) {
         if (!cancelled) {
@@ -231,7 +239,15 @@ export default function CaseDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [caseId, initialEvidenceId, caseRefreshKey])
+  }, [caseId, caseRefreshKey])
+
+  useEffect(() => {
+    if (!caseData || !Number.isFinite(initialEvidenceId)) return
+    const initialEvidence = caseData.evidences.find((item) => item.evidenceId === initialEvidenceId)
+    if (!initialEvidence || !isActiveEvidence(initialEvidence)) return
+
+    setSelectedEvidenceId((current) => (current === initialEvidenceId ? current : initialEvidenceId))
+  }, [caseData, initialEvidenceId])
 
   useEffect(() => {
     let cancelled = false
@@ -244,6 +260,7 @@ export default function CaseDetailPage() {
 
       setDetailLoading(true)
       setDetailError(null)
+      setEvidenceDetail(null)
 
       try {
         const result = await fetchEvidenceDetail(selectedEvidenceId)
@@ -334,9 +351,9 @@ export default function CaseDetailPage() {
           showResultDashboard ? "py-4" : "py-7"
         )}
       >
-        {caseLoading ? (
+        {caseLoading && !caseData ? (
           <LoadingCard label="사건 상세 정보를 불러오는 중입니다..." />
-        ) : error ? (
+        ) : error && !caseData ? (
           <ErrorState error={error} onBack={() => router.back()} />
         ) : caseData ? (
           <>
@@ -356,6 +373,7 @@ export default function CaseDetailPage() {
                     selectedEvidenceId={selectedEvidenceId}
                     detailLoading={detailLoading}
                     detailError={detailError}
+                    currentSession={session}
                     onBack={() => setShowResultDashboard(false)}
                   />
                 ) : showIntegrityDashboard ? (
@@ -365,6 +383,7 @@ export default function CaseDetailPage() {
                     selectedEvidenceId={selectedEvidenceId}
                     detailLoading={detailLoading}
                     detailError={detailError}
+                    currentSession={session}
                     onBack={() => setShowIntegrityDashboard(false)}
                   />
                 ) : (
@@ -455,10 +474,10 @@ type ResultMediaMode = "original" | "overlay" | "heatmap"
 function MockAnalysisOverlay() {
   return (
     <div className="pointer-events-none absolute inset-0">
-      <div className="absolute left-[39%] top-[20%] h-[34%] w-[24%] rounded-[18%] border-2 border-red-400 bg-red-500/18 shadow-[0_0_24px_rgba(239,68,68,0.35)]" />
+      <div className="absolute left-[39%] top-[20%] h-[34%] w-[24%] rounded-[18%] border-2 border-red-700 bg-red-700/15 shadow-[0_0_24px_rgba(185,28,28,0.3)]" />
       <div className="absolute left-[43%] top-[38%] h-[7%] w-[16%] rounded-sm bg-yellow-300/55" />
-      <div className="absolute left-[34%] top-[56%] h-[18%] w-[36%] rounded-md border border-red-300 bg-red-500/12" />
-      <div className="absolute bottom-4 left-4 rounded-md bg-red-600/90 px-2.5 py-1 text-xs font-bold text-white">
+      <div className="absolute left-[34%] top-[56%] h-[18%] w-[36%] rounded-md border border-red-700/40 bg-red-700/10" />
+      <div className="absolute bottom-4 left-4 rounded-md bg-red-700/95 px-2.5 py-1 text-xs font-bold text-white">
         얼굴 경계 불연속 · 압축 흔적
       </div>
     </div>
@@ -487,12 +506,238 @@ function HeatmapLayer({ heatmapImageUrl }: { heatmapImageUrl: string | null }) {
   )
 }
 
+function EvidenceWatermarkOverlay({
+  caseId,
+  evidenceId,
+  viewerName,
+  viewerLoginId,
+  compact = false,
+  mode = "full",
+}: {
+  caseId?: string | null
+  evidenceId?: number | string | null
+  viewerName?: string | null
+  viewerLoginId?: string | null
+  compact?: boolean
+  mode?: "full" | "review"
+}) {
+  const [timestamp, setTimestamp] = useState("열람 시간 확인 중")
+  const evidenceLabel = evidenceId ? `EVD-${evidenceId}` : "EVD-미지정"
+  const viewerLabel = [viewerName, viewerLoginId].filter(Boolean).join(" / ") || "열람자 미확인"
+  const primaryText = `${evidenceLabel} · ${viewerLabel} · ${timestamp}`
+  const centerText = caseId ? `${primaryText} · CASE ${caseId}` : primaryText
+  const isReviewMode = mode === "review"
+
+  // 열람 시작 시각으로 고정 — 추적 목적엔 시작 시각이면 충분하고, 매초 갱신은 시선만 끈다
+  useEffect(() => {
+    setTimestamp(formatDateTimeWithSeconds(new Date()))
+  }, [])
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden" aria-hidden="true">
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span
+          className={cn(
+            "-rotate-[18deg] whitespace-nowrap font-mono font-bold tracking-wider",
+            isReviewMode ? "text-white/10" : "text-white/[0.14]",
+            compact || isReviewMode ? "text-xs sm:text-sm" : "text-sm sm:text-lg"
+          )}
+          style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}
+        >
+          {centerText}
+        </span>
+      </div>
+      <span className="absolute bottom-14 left-3 rounded-md bg-black/40 px-2 py-1 font-mono text-[10px] font-bold text-white/60 backdrop-blur-sm">
+        {primaryText}
+      </span>
+    </div>
+  )
+}
+
+function requestProtectedFullscreen(element: HTMLElement | null) {
+  if (!element) return
+
+  const fullscreenDocument = document as Document & {
+    webkitFullscreenElement?: Element | null
+    webkitExitFullscreen?: () => Promise<void> | void
+  }
+  const fullscreenElement = document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement
+  if (fullscreenElement === element) {
+    const exitFullscreen = document.exitFullscreen ?? fullscreenDocument.webkitExitFullscreen
+    void exitFullscreen?.call(fullscreenDocument)
+    return
+  }
+
+  const fullscreenTarget = element as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void> | void
+  }
+  const requestFullscreen = fullscreenTarget.requestFullscreen ?? fullscreenTarget.webkitRequestFullscreen
+  void requestFullscreen?.call(fullscreenTarget)
+}
+
+function ProtectedVideoPlayer({
+  src,
+  videoRef,
+  objectFit = "cover",
+  children,
+}: {
+  src: string
+  videoRef?: { current: HTMLVideoElement | null }
+  objectFit?: "cover" | "contain"
+  children?: ReactNode
+}) {
+  const playerRef = useRef<HTMLDivElement | null>(null)
+  const internalVideoRef = useRef<HTMLVideoElement | null>(null)
+  const [playing, setPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [muted, setMuted] = useState(false)
+  const [captureAlert, setCaptureAlert] = useState(false)
+
+  // PrintScreen 감지 — 경고 표시 + 클립보드 덮어쓰기. 캡처 자체는 브라우저에서 차단 불가(추적·억제 목적)
+  useEffect(() => {
+    let timer: number | undefined
+
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.key !== "PrintScreen") return
+      setCaptureAlert(true)
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => setCaptureAlert(false), 4000)
+      void navigator.clipboard
+        ?.writeText("ForenShield AI: 증거 화면 캡처가 감지되어 열람 기록이 남습니다.")
+        .catch(() => undefined)
+      console.warn("[ForenShield] 증거 화면 캡처 시도 감지 — 열람 기록 저장 대상")
+    }
+
+    window.addEventListener("keyup", handleKeyUp)
+    return () => {
+      window.removeEventListener("keyup", handleKeyUp)
+      window.clearTimeout(timer)
+    }
+  }, [])
+
+  function setVideoElement(element: HTMLVideoElement | null) {
+    internalVideoRef.current = element
+    if (videoRef) {
+      videoRef.current = element
+    }
+  }
+
+  function togglePlay() {
+    const video = internalVideoRef.current
+    if (!video) return
+
+    if (video.paused) {
+      void video.play()
+    } else {
+      video.pause()
+    }
+  }
+
+  function seekTo(value: string) {
+    const video = internalVideoRef.current
+    if (!video) return
+
+    const nextTime = Number(value)
+    video.currentTime = nextTime
+    setCurrentTime(nextTime)
+  }
+
+  function toggleMuted() {
+    const video = internalVideoRef.current
+    if (!video) return
+
+    video.muted = !video.muted
+    setMuted(video.muted)
+  }
+
+  return (
+    <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
+      <video
+        ref={setVideoElement}
+        src={src}
+        playsInline
+        preload="metadata"
+        className={cn("absolute inset-0 size-full", objectFit === "cover" ? "object-cover" : "object-contain")}
+        onClick={togglePlay}
+        onDoubleClick={() => requestProtectedFullscreen(playerRef.current)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
+      />
+      {children}
+      {captureAlert ? (
+        <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-red-600/90 px-4 py-2 text-xs font-bold text-white shadow-lg">
+          <AlertCircle className="size-4" aria-hidden="true" />
+          화면 캡처가 감지되었습니다 · 열람 기록이 남습니다
+        </div>
+      ) : null}
+      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/75 via-black/35 to-transparent px-3 pb-3 pt-10 text-white">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-black/35 text-white transition-colors hover:bg-black/55"
+            aria-label={playing ? "일시정지" : "재생"}
+            onClick={togglePlay}
+          >
+            {playing ? (
+              <Pause className="size-4 fill-current" aria-hidden="true" />
+            ) : (
+              <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
+            )}
+          </button>
+          <span className="w-[86px] shrink-0 font-mono text-sm font-semibold">
+            {formatVideoClock(currentTime)} / {formatVideoClock(duration)}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={duration || 0}
+            step="0.05"
+            value={Math.min(currentTime, duration || 0)}
+            onChange={(event) => seekTo(event.currentTarget.value)}
+            className="min-w-0 flex-1 accent-white"
+            aria-label="재생 위치"
+          />
+          <button
+            type="button"
+            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-black/30 text-white transition-colors hover:bg-black/55"
+            aria-label={muted ? "음소거 해제" : "음소거"}
+            onClick={toggleMuted}
+          >
+            {muted ? <VolumeX className="size-4" aria-hidden="true" /> : <Volume2 className="size-4" aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-black/30 text-white transition-colors hover:bg-black/55"
+            aria-label="워터마크 포함 확대"
+            onClick={() => requestProtectedFullscreen(playerRef.current)}
+          >
+            <Maximize2 className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatVideoClock(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0:00"
+
+  const minutes = Math.floor(value / 60)
+  const seconds = Math.floor(value % 60)
+  return `${minutes}:${String(seconds).padStart(2, "0")}`
+}
+
 function CaseResultView({
   caseData,
   evidenceDetail,
   selectedEvidenceId,
   detailLoading,
   detailError,
+  currentSession,
   onBack,
 }: {
   caseData: CaseDetailData
@@ -500,6 +745,7 @@ function CaseResultView({
   selectedEvidenceId: number | null
   detailLoading: boolean
   detailError: string | null
+  currentSession: AuthSession | null
   onBack: () => void
 }) {
   const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
@@ -515,11 +761,7 @@ function CaseResultView({
   const confidenceScore = formatResultScore(evidenceDetail?.analysisInfo.confidenceScore ?? null)
   const riskScoreLabel = riskScore ? `${riskScore} / 100` : "70 / 100"
   const confidenceScoreLabel = confidenceScore ? `${confidenceScore}%` : "86%"
-  const resultTitle =
-    selectedEvidence?.originalFileName ??
-    selectedEvidence?.fileName ??
-    selectedEvidence?.displayLabel ??
-    caseData.caseName
+  const resultEvidenceIdLabel = selectedEvidence ? `EVD-${selectedEvidence.evidenceId}` : caseData.caseId
   const analyzedAt = evidenceDetail?.analysisInfo.completedAt ?? evidenceDetail?.analysisInfo.requestedAt ?? caseData.createdAt
   const resultMediaUrl =
     evidenceDetail?.evidenceInfo.videoUrl ??
@@ -558,21 +800,35 @@ function CaseResultView({
   const highRiskFrameCount = frameScores.filter((frame) => normalizeResultValue(frame.score) >= 0.6).length
   const modelInsights = buildModelInsights(evidenceDetail, frameScores)
   const modelSettings = buildModelAnalysisSettings(evidenceDetail, frameScores)
-  const verdictToneStyles = {
-    red: {
-      badge: "bg-red-50 text-red-600 dark:bg-red-500/10",
-      dot: "bg-red-500",
+  const timesFormerScore = modelInsights.primaryModels.find((model) => model.name === "TimesFormer")?.score ?? 0
+  const xceptionScore = modelInsights.primaryModels.find((model) => model.name === "Xception")?.score ?? 0
+  const modelRadarModels = [
+    {
+      label: "시간적 일관성",
+      source: "TimesFormer",
+      score: timesFormerScore,
     },
-    orange: {
-      badge: "bg-amber-50 text-amber-600 dark:bg-amber-500/10",
-      dot: "bg-amber-500",
+    {
+      label: "얼굴 경계부",
+      source: "Xception",
+      score: xceptionScore,
     },
-    green: {
-      badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10",
-      dot: "bg-emerald-500",
+    {
+      label: "질감 패턴",
+      source: "Xception",
+      score: xceptionScore,
     },
-  }[riskTone]
-
+    {
+      label: "움직임 벡터",
+      source: "GMFlow",
+      score: modelInsights.gmflow.score,
+    },
+    {
+      label: "프레임 위험 집중",
+      source: "Frame score",
+      score: peakFrame ? normalizeResultValue(peakFrame.score) : modelInsights.ensembleScore,
+    },
+  ]
   function seekResultVideo(seconds: number, mode: ResultMediaMode = mediaMode) {
     setMediaMode(mode)
     requestAnimationFrame(() => {
@@ -602,20 +858,9 @@ function CaseResultView({
               <h1 className="truncate text-2xl font-bold tracking-normal text-slate-950 dark:text-foreground">
                 딥페이크 분석 결과
               </h1>
-              {evidenceDetail ? (
-                <span
-                  className={cn(
-                    "inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-sm font-bold",
-                    verdictToneStyles.badge
-                  )}
-                >
-                  <span className={cn("size-2 rounded-full", verdictToneStyles.dot)} aria-hidden="true" />
-                  {resultVerdict} · {riskScoreLabel}
-                </span>
-              ) : null}
             </div>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              {resultTitle} · 분석 완료 {formatDateTime(analyzedAt)}
+              {resultEvidenceIdLabel} · 분석 완료 {formatDateTime(analyzedAt)}
             </p>
           </div>
         </div>
@@ -672,27 +917,28 @@ function CaseResultView({
               </div>
               <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
                 {visibleVideoUrl ? (
-                  <video
-                    ref={videoRef}
-                    src={visibleVideoUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    className="absolute inset-0 size-full object-cover"
-                  />
+                  <ProtectedVideoPlayer src={visibleVideoUrl} videoRef={videoRef} objectFit="cover">
+                    {mediaMode === "overlay" && !overlayVideoUrl ? <MockAnalysisOverlay /> : null}
+                    {mediaMode === "heatmap" ? <HeatmapLayer heatmapImageUrl={heatmapImageUrl} /> : null}
+                    <EvidenceWatermarkOverlay
+                      caseId={caseData.caseId}
+                      evidenceId={selectedEvidence?.evidenceId ?? selectedEvidenceId}
+                      viewerName={currentSession?.name ?? null}
+                      viewerLoginId={currentSession?.loginId ?? null}
+                      mode={mediaMode === "original" ? "full" : "review"}
+                    />
+                    {mediaMode !== "original" ? (
+                      <div className="absolute left-4 top-4 z-20 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
+                        {mediaMode === "overlay" ? "탐지 오버레이" : "히트맵"}
+                      </div>
+                    ) : null}
+                  </ProtectedVideoPlayer>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
                     <FileVideo className="mb-3 size-8" aria-hidden="true" />
                     미리보기 가능한 영상이 없습니다.
                   </div>
                 )}
-                {mediaMode === "overlay" && !overlayVideoUrl ? <MockAnalysisOverlay /> : null}
-                {mediaMode === "heatmap" ? <HeatmapLayer heatmapImageUrl={heatmapImageUrl} /> : null}
-                {mediaMode !== "original" ? (
-                  <div className="absolute left-4 top-4 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
-                    {mediaMode === "overlay" ? "탐지 오버레이" : "히트맵"}
-                  </div>
-                ) : null}
               </div>
               {frameScores.length > 0 ? (
                 <FrameRiskHeatStrip scores={frameScores} onSeek={seekResultVideo} />
@@ -787,13 +1033,13 @@ function CaseResultView({
                         위험도가 높은 항목을 우선 표시했습니다.
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
+                    <span className="shrink-0 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
                       주요 위험 신호 2개
                     </span>
                   </div>
                   <ul className="mt-5 space-y-3">
-                    {RESULT_RISK_SIGNALS.map((signal) => (
-                      <RiskSignalCard key={signal.label} signal={signal} />
+                    {RESULT_RISK_SIGNALS.map((signal, index) => (
+                      <RiskSignalCard key={signal.label} signal={signal} delayMs={index * 120} />
                     ))}
                   </ul>
 
@@ -903,7 +1149,7 @@ function CaseResultView({
                                   <span className="font-mono text-sm font-semibold text-slate-950 dark:text-foreground">
                                     {frame.time}
                                   </span>
-                                  <span className="shrink-0 text-sm font-bold text-red-600">{frame.score} / 100</span>
+                                  <span className="shrink-0 text-sm font-bold text-red-700">{frame.score} / 100</span>
                                   <span className="truncate text-sm font-semibold text-slate-600 dark:text-muted-foreground">
                                     {frame.signal}
                                   </span>
@@ -948,7 +1194,7 @@ function CaseResultView({
                           {formatScoreOutOf100(modelInsights.ensembleScore)}
                         </p>
                       </div>
-                      <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
+                      <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
                         위험 신호 높음
                       </span>
                     </div>
@@ -979,7 +1225,7 @@ function CaseResultView({
                         const verdict = row.aux
                           ? { label: "참고", cls: "bg-teal-100 text-teal-700" }
                           : row.score >= 0.5
-                            ? { label: "위험", cls: "bg-red-100 text-red-700" }
+                            ? { label: "위험", cls: "bg-red-50 text-red-700" }
                             : { label: "정상", cls: "bg-emerald-100 text-emerald-700" }
                         return (
                           <div
@@ -1024,6 +1270,7 @@ function CaseResultView({
                         </p>
                       ))}
                     </div>
+                    <ModelRadarChart models={modelRadarModels} />
                     <div className="mt-4 border-t border-slate-100 pt-4 dark:border-border">
                       <p className="text-xs font-semibold text-slate-400">분석 설정</p>
                       <div className="mt-3 grid gap-x-8 gap-y-2.5 sm:grid-cols-2">
@@ -1055,6 +1302,7 @@ function CaseIntegrityView({
   selectedEvidenceId,
   detailLoading,
   detailError,
+  currentSession,
   onBack,
 }: {
   caseData: CaseDetailData
@@ -1062,6 +1310,7 @@ function CaseIntegrityView({
   selectedEvidenceId: number | null
   detailLoading: boolean
   detailError: string | null
+  currentSession?: AuthSession | null
   onBack: () => void
 }) {
   const selectedEvidence =
@@ -1331,65 +1580,76 @@ function CaseIntegrityView({
                         <span className="size-2 rounded-full bg-emerald-500" /> 완료·검증
                       </span>
                       <span className="inline-flex items-center gap-1.5">
-                        <span className="size-2 rounded-full bg-red-500" /> 실패
+                        <span className="size-2 rounded-full bg-red-700" /> 실패
                       </span>
                     </div>
                   ) : null}
                   {cocLogs.length > 0 ? (
                     <ol className="mt-6 space-y-0">
-                      {cocLogs.map((log, index) => (
-                        <li key={log.logId} className="relative flex gap-4 pb-6 last:pb-0">
-                          {index < cocLogs.length - 1 ? (
+                      {cocLogs.map((log, index) => {
+                        const actor = getCocActor(log.userId, currentSession)
+
+                        return (
+                          <li key={log.logId} className="relative flex gap-4 pb-6 last:pb-0">
+                            {index < cocLogs.length - 1 ? (
+                              <span
+                                className="absolute left-[13px] top-7 -bottom-0 w-px bg-slate-200 dark:bg-border"
+                                aria-hidden="true"
+                              />
+                            ) : null}
                             <span
-                              className="absolute left-[13px] top-7 -bottom-0 w-px bg-slate-200 dark:bg-border"
+                              className="relative z-10 mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200 dark:bg-card dark:ring-border"
                               aria-hidden="true"
-                            />
-                          ) : null}
-                          <span
-                            className="relative z-10 mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200 dark:bg-card dark:ring-border"
-                            aria-hidden="true"
-                          >
-                            <span className={cn("size-2.5 rounded-full", getCocEventDotClass(log.eventType))} />
-                          </span>
-                          <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 transition-colors hover:border-slate-200 dark:border-border dark:bg-background">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-bold text-slate-950 dark:text-foreground">
-                                  {getCocEventLabel(log.eventType)}
-                                </p>
-                                <span
-                                  className={cn(
-                                    "rounded-full px-2 py-0.5 text-[10px] font-bold",
-                                    getCocActor(log.userId).roleClass
-                                  )}
-                                >
-                                  {getCocActor(log.userId).role}
+                            >
+                              <span className={cn("size-2.5 rounded-full", getCocEventDotClass(log.eventType))} />
+                            </span>
+                            <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 transition-colors hover:border-slate-200 dark:border-border dark:bg-background">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                                    {getCocEventLabel(log.eventType)}
+                                  </p>
+                                  <span
+                                    className={cn(
+                                      "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                                      actor.roleClass
+                                    )}
+                                  >
+                                    {actor.role}
+                                  </span>
+                                </div>
+                                <time className="text-xs font-semibold text-slate-400">
+                                  {formatDateTime(log.createdAt)}
+                                </time>
+                              </div>
+                              {log.description ? (
+                                <p className="mt-1.5 text-xs font-medium leading-5 text-slate-500">{log.description}</p>
+                              ) : null}
+                              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                                <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 ring-1 ring-slate-100 dark:bg-card dark:ring-border">
+                                  <UserRound className="size-3 text-slate-400" aria-hidden="true" />
+                                  <span className="flex min-w-0 flex-col leading-tight">
+                                    <span className="truncate text-[11px] font-bold text-slate-600">
+                                      {actor.label}
+                                    </span>
+                                    {actor.detail ? (
+                                      <span className="truncate text-[10px] font-semibold text-slate-400">
+                                        {actor.detail}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </span>
+                                <span className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-white px-2 py-1 ring-1 ring-slate-100 dark:bg-card dark:ring-border">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-300">hash</span>
+                                  <span className="truncate font-mono text-[11px] font-semibold text-slate-400">
+                                    {shortHash(log.currentLogHash)}
+                                  </span>
                                 </span>
                               </div>
-                              <time className="text-xs font-semibold text-slate-400">
-                                {formatDateTime(log.createdAt)}
-                              </time>
                             </div>
-                            {log.description ? (
-                              <p className="mt-1.5 text-xs font-medium leading-5 text-slate-500">{log.description}</p>
-                            ) : null}
-                            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                              <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 ring-1 ring-slate-100 dark:bg-card dark:ring-border">
-                                <UserRound className="size-3 text-slate-400" aria-hidden="true" />
-                                <span className="truncate text-[11px] font-bold text-slate-500">
-                                  {getCocActor(log.userId).label}
-                                </span>
-                              </span>
-                              <span className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-white px-2 py-1 ring-1 ring-slate-100 dark:bg-card dark:ring-border">
-                                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-300">hash</span>
-                                <span className="truncate font-mono text-[11px] font-semibold text-slate-400">
-                                  {shortHash(log.currentLogHash)}
-                                </span>
-                              </span>
-                            </div>
-                          </div>
-                        </li>
-                      ))}
+                          </li>
+                        )
+                      })}
                     </ol>
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
@@ -1426,7 +1686,7 @@ function IntegrityStatusCard({
         className={cn(
           "mt-4 text-2xl font-bold",
           tone === "safe" && "text-teal-700",
-          tone === "danger" && "text-red-600",
+          tone === "danger" && "text-red-700",
           tone === "neutral" && "text-slate-950 dark:text-foreground"
         )}
       >
@@ -1459,7 +1719,7 @@ function IntegrityInfoRow({
             "min-w-0 truncate text-right text-sm font-bold text-slate-950 dark:text-foreground",
             mono && "font-mono text-xs",
             accent === "safe" && "text-teal-700 dark:text-teal-400",
-            accent === "danger" && "text-red-600 dark:text-red-400"
+            accent === "danger" && "text-red-700 dark:text-red-400"
           )}
         >
           {value}
@@ -1619,13 +1879,27 @@ function CaseWorkflowPanel({
   const [isWorking, setIsWorking] = useState(false)
   const [localAnalysisProgress, setLocalAnalysisProgress] = useState<Record<number, number>>({})
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
-  const [evidencePage, setEvidencePage] = useState(1)
+  const [statusFilter, setStatusFilter] = useState<EvidenceStatusBucket | "all">("all")
 
   const evidences = caseData.evidences
   const activeEvidences = evidences.filter((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE")
-  const evidencePageCount = Math.max(1, Math.ceil(evidences.length / EVIDENCE_PAGE_SIZE))
-  const evidencePageStart = (evidencePage - 1) * EVIDENCE_PAGE_SIZE
-  const pagedEvidences = evidences.slice(evidencePageStart, evidencePageStart + EVIDENCE_PAGE_SIZE)
+  const getEvidenceBucket = (evidence: CaseEvidenceSummary): EvidenceStatusBucket => {
+    if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return "inactive"
+    if (isEvidenceAnalysisRunning(evidence) || localAnalysisProgress[evidence.evidenceId] != null) return "running"
+    if (normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED") return "completed"
+    return "pending"
+  }
+  const bucketCounts = evidences.reduce(
+    (counts, evidence) => {
+      counts[getEvidenceBucket(evidence)] += 1
+      return counts
+    },
+    { pending: 0, running: 0, completed: 0, inactive: 0 } as Record<EvidenceStatusBucket, number>
+  )
+  const filteredEvidences =
+    statusFilter === "all"
+      ? evidences
+      : evidences.filter((evidence) => getEvidenceBucket(evidence) === statusFilter)
   const selectedEvidence =
     evidences.find((item) => item.evidenceId === selectedEvidenceId) ?? evidences[0] ?? null
   const selectedEvidenceActive = (selectedEvidence?.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
@@ -1641,6 +1915,12 @@ function CaseWorkflowPanel({
     : selectedEvidenceStatus === "COMPLETED"
       ? 100
       : 0
+  const selectedEvidenceRunningCopy = getRunningAnalysisCopy(
+    analysisType,
+    selectedEvidenceStatus,
+    selectedEvidenceProgress
+  )
+  const selectedEvidenceCompleted = selectedEvidenceActive && selectedEvidenceStatus === "COMPLETED"
   const selectedEvidenceAnalysisSelectable = selectedEvidence
     ? !readOnly && isEvidenceSelectableForAnalysis(selectedEvidence)
     : false
@@ -1673,7 +1953,13 @@ function CaseWorkflowPanel({
   const analystName = getCaseActorName(caseData.assigneeId ?? caseData.createdBy) ?? (!readOnly ? currentUserName : null)
   const reviewerName = getCaseActorName(caseData.reviewerId)
   const compareLabel = getCompareVerificationLabel(selectedCompareResult)
-  const compareBadgeClassName = getCompareVerificationBadgeClassName(selectedCompareResult)
+  const compareTextClassName = !selectedCompareResult
+    ? "text-muted-foreground"
+    : selectedCompareResult.verdict === "ORIGINAL_MATCH"
+      ? "text-emerald-600"
+      : selectedCompareResult.verdict === "TAMPERED" || selectedCompareResult.mismatchCount > 0
+        ? "text-red-700 dark:text-red-400"
+        : "text-amber-600"
   const isReviewerMode = readOnly
 
   useEffect(() => {
@@ -1704,17 +1990,10 @@ function CaseWorkflowPanel({
   }, [evidences])
 
   useEffect(() => {
-    setEvidencePage((current) => Math.min(current, evidencePageCount))
-  }, [evidencePageCount])
-
-  useEffect(() => {
-    if (!selectedEvidenceId) return
-
-    const selectedIndex = evidences.findIndex((evidence) => evidence.evidenceId === selectedEvidenceId)
-    if (selectedIndex < 0) return
-
-    setEvidencePage(Math.floor(selectedIndex / EVIDENCE_PAGE_SIZE) + 1)
-  }, [evidences, selectedEvidenceId])
+    if (statusFilter === "running" && bucketCounts.running === 0) {
+      setStatusFilter("all")
+    }
+  }, [statusFilter, bucketCounts.running])
 
   useEffect(() => {
     const runningIds = new Set(
@@ -1785,7 +2064,7 @@ function CaseWorkflowPanel({
         firstEvidenceId ??= result.evidenceId
       }
       if (firstEvidenceId) onSelectEvidence(firstEvidenceId)
-    }, `${selectedFiles.length}개 증거가 사건에 추가되었습니다.`)
+    }, "", { showSuccess: false })
 
     if (uploadInputRef.current) uploadInputRef.current.value = ""
   }
@@ -1827,7 +2106,19 @@ function CaseWorkflowPanel({
         setMessage({ type: "error", text: "비교검증은 서로 다른 기준 증거와 비교 대상 증거를 선택해야 합니다." })
         return
       }
-    } else if (selectedAnalysisIds.length === 0) {
+    }
+
+    const selectedSelectableAnalysisIds = selectedAnalysisIds.filter((id) =>
+      selectableAnalysisEvidences.some((evidence) => evidence.evidenceId === id)
+    )
+    const fallbackAnalysisIds =
+      selectedEvidence && isEvidenceSelectableForAnalysis(selectedEvidence)
+        ? [selectedEvidence.evidenceId]
+        : selectableAnalysisEvidences.length === 1
+          ? [selectableAnalysisEvidences[0].evidenceId]
+          : []
+
+    if (analysisType !== "COMPARE" && selectedSelectableAnalysisIds.length === 0 && fallbackAnalysisIds.length === 0) {
       setMessage({ type: "error", text: "분석할 증거를 1개 이상 선택해 주세요." })
       return
     }
@@ -1835,7 +2126,9 @@ function CaseWorkflowPanel({
     const targetIds =
       analysisType === "COMPARE"
         ? [baseEvidenceId, targetEvidenceId].filter((id): id is number => typeof id === "number")
-        : selectedAnalysisIds
+        : selectedSelectableAnalysisIds.length > 0
+          ? selectedSelectableAnalysisIds
+          : fallbackAnalysisIds
 
     await runAction(
       async () => {
@@ -1861,35 +2154,6 @@ function CaseWorkflowPanel({
     )
   }
 
-  async function handleQuickStartAnalysis() {
-    if (readOnly) return
-
-    if (!selectedEvidence) return
-
-    if (!selectedEvidenceAnalysisSelectable) {
-      setMessage({ type: "error", text: "미분석 상태의 활성 증거만 분석할 수 있습니다." })
-      return
-    }
-
-    await runAction(
-      async () => {
-        await startCaseAnalysis({
-          caseId: caseData.caseId,
-          caseName: caseData.caseName,
-          analysisType: "DEEPFAKE",
-          evidenceIds: [selectedEvidence.evidenceId],
-        })
-        onSelectEvidence(selectedEvidence.evidenceId)
-        setLocalAnalysisProgress((current) => ({
-          ...current,
-          [selectedEvidence.evidenceId]: Math.max(current[selectedEvidence.evidenceId] ?? 0, 8),
-        }))
-      },
-      `${formatEvidenceTitle(selectedEvidence)} 분석 요청이 등록되었습니다.`,
-      { showSuccess: false, refresh: false }
-    )
-  }
-
   async function handleCancelSelectedAnalysis() {
     if (readOnly) return
 
@@ -1908,7 +2172,7 @@ function CaseWorkflowPanel({
         return next
       })
       onSelectEvidence(selectedEvidence.evidenceId)
-    }, `${formatEvidenceTitle(selectedEvidence)} 분석이 중단되었습니다.`)
+    }, "", { showSuccess: false })
   }
 
   function handleViewIntegrityCheck() {
@@ -1975,90 +2239,96 @@ function CaseWorkflowPanel({
 
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-bold text-foreground">등록된 증거</h2>
-          <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
-            {activeEvidences.length}/{evidences.length}
-          </span>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-xl font-bold text-foreground">증거</h2>
+          <span className="text-sm font-bold text-muted-foreground">{evidences.length}개</span>
         </div>
-        {readOnly ? (
-          <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600">
-            검토 전용
-          </span>
-        ) : (
-          <div className="relative">
-            <input
-              ref={uploadInputRef}
-              type="file"
-              multiple
-              accept="video/*"
-              className="sr-only"
-              onChange={(event) => void handleUploadFiles(event.target.files)}
-            />
-            <button
-              type="button"
-              className="flex size-10 items-center justify-center rounded-md bg-transparent text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={isWorking}
-              aria-label="증거 작업 메뉴"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <MoreVertical className="size-5" aria-hidden="true" />
-            </button>
-            {menuOpen ? (
-              <div className="absolute right-0 top-12 z-20 w-52 overflow-hidden rounded-xl border border-border bg-card py-1 text-sm font-bold shadow-lg">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between px-4 py-3 text-left text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={isWorking}
-                onClick={() => {
-                  setMenuOpen(false)
-                  setCaseNameDraft(caseData.caseName)
-                  setRepresentativeDraftId(caseData.representativeEvidenceId ?? selectedEvidence?.evidenceId ?? null)
-                  setEditCaseOpen(true)
-                  setDeleteConfirmOpen(false)
-                }}
-              >
-                수정하기
-                <Pencil className="size-4" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center justify-between px-4 py-3 text-left text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={isWorking}
-                onClick={() => {
-                  setMenuOpen(false)
-                  uploadInputRef.current?.click()
-                }}
-              >
-                증거 추가
-                <FilePlus2 className="size-4" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center justify-between px-4 py-3 text-left text-red-500 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!selectedEvidence || isWorking || (selectedEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
-                onClick={() => {
-                  setMenuOpen(false)
-                  if (selectedEvidenceRepresentative && activeEvidences.length > 1) {
-                    setDeleteConfirmOpen(false)
-                    setMessage({
-                      type: "error",
-                      text: "대표는 삭제 불가능합니다. 대표 증거를 먼저 변경한 뒤 삭제해 주세요.",
-                    })
-                    return
-                  }
-                  setDeleteConfirmOpen(true)
-                }}
-              >
-                삭제하기
-                <Trash2 className="size-4" aria-hidden="true" />
-              </button>
-              </div>
-            ) : null}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {(
+              [
+                { key: "all", label: "전체", count: evidences.length },
+                { key: "pending", label: "미분석", count: bucketCounts.pending },
+                { key: "running", label: "분석 중", count: bucketCounts.running },
+                { key: "completed", label: "완료", count: bucketCounts.completed },
+              ] as const
+            ).map((chip) =>
+              chip.key === "running" && chip.count === 0 ? null : (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => setStatusFilter(chip.key)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 text-xs font-bold transition-colors",
+                    statusFilter === chip.key
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {chip.label} {chip.count}
+                </button>
+              )
+            )}
           </div>
-        )}
+          {readOnly ? (
+            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600">
+              검토 전용
+            </span>
+          ) : (
+            <div className="relative">
+              <button
+                type="button"
+                className="flex size-10 items-center justify-center rounded-md bg-transparent text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isWorking}
+                aria-label="증거 작업 메뉴"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen((open) => !open)}
+              >
+                <MoreVertical className="size-5" aria-hidden="true" />
+              </button>
+              {menuOpen ? (
+                <div className="absolute right-0 top-12 z-20 w-52 overflow-hidden rounded-xl border border-border bg-card py-1 text-sm font-bold shadow-lg">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isWorking}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setCaseNameDraft(caseData.caseName)
+                      setRepresentativeDraftId(caseData.representativeEvidenceId ?? selectedEvidence?.evidenceId ?? null)
+                      setEditCaseOpen(true)
+                      setDeleteConfirmOpen(false)
+                    }}
+                  >
+                    수정하기
+                    <Pencil className="size-4" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!selectedEvidence || isWorking || (selectedEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      if (selectedEvidenceRepresentative && activeEvidences.length > 1) {
+                        setDeleteConfirmOpen(false)
+                        setMessage({
+                          type: "error",
+                          text: "대표는 삭제 불가능합니다. 대표 증거를 먼저 변경한 뒤 삭제해 주세요.",
+                        })
+                        return
+                      }
+                      setDeleteConfirmOpen(true)
+                    }}
+                  >
+                    삭제하기
+                    <Trash2 className="size-4" aria-hidden="true" />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
 
       {message ? (
@@ -2067,7 +2337,7 @@ function CaseWorkflowPanel({
             "mt-4 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold",
             message.type === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-600"
+              : "border-red-700/25 bg-red-50 text-red-700"
           )}
         >
           {message.type === "success" ? (
@@ -2079,25 +2349,42 @@ function CaseWorkflowPanel({
         </div>
       ) : null}
 
-      <div className="mt-5">
+      <div className="mt-4">
         {evidences.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border px-5 py-12 text-center text-sm font-bold text-muted-foreground">
-            아직 등록된 증거가 없습니다. 증거 영상을 먼저 업로드하세요.
-          </div>
+          readOnly ? (
+            <div className="rounded-xl border border-dashed border-border px-5 py-12 text-center text-sm font-bold text-muted-foreground">
+              아직 등록된 증거가 없습니다.
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="flex w-full items-center justify-center rounded-xl border border-dashed border-border px-5 py-12 text-center text-sm font-bold text-muted-foreground transition-colors hover:border-slate-300 hover:bg-muted/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isWorking}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              아직 등록된 증거가 없습니다. 증거 영상을 업로드하세요.
+            </button>
+          )
         ) : (
-          <>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="-mx-1 flex min-w-0 flex-1 gap-3 overflow-x-auto px-1 pb-3">
-                {pagedEvidences.map((evidence) => (
-                  <EvidenceStripCard
+          <div className="flex flex-col gap-4 xl:flex-row">
+            <div className="flex max-h-[520px] flex-col gap-0.5 overflow-y-auto xl:w-64 xl:shrink-0 xl:border-r xl:border-border xl:pr-4">
+              {filteredEvidences.length === 0 ? (
+                <p className="px-3 py-10 text-center text-xs font-bold text-muted-foreground">
+                  해당 상태의 증거가 없습니다.
+                </p>
+              ) : (
+                filteredEvidences.map((evidence) => (
+                  <EvidenceListRow
                     key={evidence.evidenceId}
                     evidence={evidence}
-                    active={selectedEvidenceId === evidence.evidenceId}
+                    active={selectedEvidence?.evidenceId === evidence.evidenceId}
                     representative={caseData.representativeEvidenceId === evidence.evidenceId}
                     disabled={(evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
+                    running={getEvidenceBucket(evidence) === "running"}
                     analysisSelectable={!readOnly && isEvidenceSelectableForAnalysis(evidence)}
                     analysisSelected={selectedAnalysisIdSet.has(evidence.evidenceId)}
                     onToggleAnalysisSelect={() => toggleAnalysisEvidence(evidence.evidenceId)}
+                    onViewResult={() => onViewResult(evidence.evidenceId)}
                     onSelect={() => {
                       if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return
                       onSelectEvidence(evidence.evidenceId)
@@ -2107,153 +2394,85 @@ function CaseWorkflowPanel({
                       setDeleteConfirmOpen(false)
                     }}
                   />
-                ))}
-              </div>
-              {selectableAnalysisEvidences.length > 0 ? (
-                <div className="flex shrink-0 justify-end">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {selectedAnalysisCount > 0 ? (
-                      <span className="rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground">
-                        {selectedAnalysisCount}개 선택
+                ))
+              )}
+            </div>
+
+            {selectedEvidence ? (
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <h3 className="truncate text-base font-bold text-foreground">
+                      {formatEvidenceTitle(selectedEvidence)}
+                    </h3>
+                    <span className="font-mono text-xs font-bold text-muted-foreground">
+                      EVD-{selectedEvidence.evidenceId}
+                    </span>
+                    {(selectedEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE" ? (
+                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-bold", getLifecycleClassName(selectedEvidence.lifecycleStatus ?? "ACTIVE"))}>
+                        {getLifecycleLabel(selectedEvidence.lifecycleStatus ?? "ACTIVE")}
                       </span>
                     ) : null}
-                    <Button
+                  </div>
+                  <div className="relative grid grid-cols-2 rounded-full bg-muted/60 p-1 text-xs font-bold">
+                    <span
+                      className={cn(
+                        "absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full border border-border bg-card shadow-sm transition-transform duration-200 ease-out",
+                        infoTab === "comment" && "translate-x-full"
+                      )}
+                      aria-hidden="true"
+                    />
+                    <button
                       type="button"
-                      variant="outline"
-                      className="h-9 rounded-lg px-3 text-xs font-bold"
-                      disabled={isWorking}
-                      onClick={toggleAllSelectableAnalysis}
+                      onClick={() => setInfoTab("metadata")}
+                      className={cn(
+                        "relative z-10 rounded-full px-4 py-1.5 transition-colors duration-200",
+                        infoTab === "metadata" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      )}
                     >
-                      {allSelectableAnalysisSelected ? "선택 해제" : "전체 선택"}
-                    </Button>
-                    <Button
+                      메타데이터
+                    </button>
+                    <button
                       type="button"
-                      className="h-9 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white hover:bg-emerald-700"
-                      disabled={selectedAnalysisCount === 0 || isWorking}
-                      onClick={() => void handleStartAnalysis()}
+                      onClick={() => setInfoTab("comment")}
+                      className={cn(
+                        "relative z-10 rounded-full px-4 py-1.5 transition-colors duration-200",
+                        infoTab === "comment" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      )}
                     >
-                      {isWorking ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
-                      분석하기
-                    </Button>
+                      코멘트
+                    </button>
                   </div>
                 </div>
-              ) : null}
-            </div>
-            {evidencePageCount > 1 ? (
-              <div className="mt-1 flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-muted-foreground">
-                <span>
-                  {evidencePageStart + 1}-{Math.min(evidencePageStart + EVIDENCE_PAGE_SIZE, evidences.length)} /{" "}
-                  {evidences.length}건
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 rounded-lg px-2"
-                    disabled={evidencePage <= 1}
-                    onClick={() => setEvidencePage((page) => Math.max(1, page - 1))}
-                    aria-label="이전 증거 페이지"
-                  >
-                    <ChevronLeft className="size-4" aria-hidden="true" />
-                  </Button>
-                  <span className="min-w-14 text-center font-bold text-foreground">
-                    {evidencePage} / {evidencePageCount}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 rounded-lg px-2"
-                    disabled={evidencePage >= evidencePageCount}
-                    onClick={() => setEvidencePage((page) => Math.min(evidencePageCount, page + 1))}
-                    aria-label="다음 증거 페이지"
-                  >
-                    <ChevronRight className="size-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
 
-      {selectedEvidence ? (
-        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_420px]">
-          <section className="overflow-hidden rounded-xl border border-border bg-background">
-            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-              <div className="min-w-0">
-                <h3 className="truncate text-lg font-bold text-foreground">
-                  {formatEvidenceTitle(selectedEvidence)}
-                </h3>
-                <p className="mt-0.5 font-mono text-xs font-bold text-muted-foreground">
-                  EVD-{selectedEvidence.evidenceId}
-                </p>
-              </div>
-              <div className="flex flex-wrap justify-end gap-2 text-xs font-bold">
-                {(selectedEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE" ? (
-                  <span className={cn("rounded-full px-2.5 py-1", getLifecycleClassName(selectedEvidence.lifecycleStatus ?? "ACTIVE"))}>
-                    {getLifecycleLabel(selectedEvidence.lifecycleStatus ?? "ACTIVE")}
-                  </span>
-                ) : null}
-                <span className={cn("rounded-full px-2.5 py-1", getEvidenceAnalysisBadgeClassName(selectedEvidence))}>
-                  {getEvidenceAnalysisLabel(selectedEvidence)}
-                </span>
-              </div>
-            </div>
-
-            <div className="p-4">
-              <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-                {detailLoading ? (
+                <div className="mt-3 flex flex-col gap-5 lg:flex-row">
+                  <div className="relative aspect-video w-full shrink-0 self-start overflow-hidden rounded-lg bg-slate-950 lg:w-[63%]">
+                {detailLoading && !selectedMediaUrl ? (
                   <div className="flex size-full items-center justify-center text-sm font-bold text-white/70">
                     <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
                     영상 정보를 불러오는 중
                   </div>
                 ) : selectedMediaUrl ? (
-                  <video
-                    src={selectedMediaUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    className="size-full object-contain"
-                  />
+                  <ProtectedVideoPlayer src={selectedMediaUrl} objectFit="contain">
+                    <EvidenceWatermarkOverlay
+                      caseId={caseData.caseId}
+                      evidenceId={selectedEvidence.evidenceId}
+                      viewerName={currentUserName}
+                      compact
+                    />
+                  </ProtectedVideoPlayer>
                 ) : (
                   <div className="flex size-full flex-col items-center justify-center text-sm font-bold text-white/60">
                     <FileVideo className="mb-3 size-8" aria-hidden="true" />
                     미리보기 가능한 영상이 없습니다.
                   </div>
                 )}
-              </div>
+                  </div>
 
-            </div>
-          </section>
-
-          <aside className="flex min-h-full flex-col rounded-xl border border-border bg-background p-4">
-            <div className="grid grid-cols-2 rounded-lg border border-border bg-muted/40 p-1">
-              <button
-                type="button"
-                onClick={() => setInfoTab("metadata")}
-                className={cn(
-                  "h-9 rounded-md text-sm font-bold transition-colors",
-                  infoTab === "metadata" ? "bg-card text-teal-700 shadow-sm" : "text-muted-foreground"
-                )}
-              >
-                메타데이터
-              </button>
-              <button
-                type="button"
-                onClick={() => setInfoTab("comment")}
-                className={cn(
-                  "h-9 rounded-md text-sm font-bold transition-colors",
-                  infoTab === "comment" ? "bg-card text-teal-700 shadow-sm" : "text-muted-foreground"
-                )}
-              >
-                코멘트
-              </button>
-            </div>
-
+                  <div className="min-h-[330px] min-w-0 flex-none lg:flex-1 lg:border-l lg:border-border lg:pl-5">
             {infoTab === "metadata" ? (
-              <div className="mt-4 space-y-3">
+              <div>
                 <dl className="space-y-3">
-                  <CaseMetadataRow label="증거 ID" value={`EVD-${selectedEvidence.evidenceId}`} accent />
                   <CaseMetadataRow label="파일 유형" value={selectedEvidence.mediaType || "-"} />
                   <CaseMetadataRow
                     label="해상도"
@@ -2279,29 +2498,27 @@ function CaseWorkflowPanel({
                 </dl>
 
                 {selectedEvidenceActive ? (
-                  <div className="space-y-3 border-t border-border pt-3">
+                  <div className="mt-3 space-y-3 border-t border-border pt-3">
                     <button
                       type="button"
-                      className="group flex w-full items-center justify-between rounded-lg text-left"
+                      className="group flex w-full items-center justify-between gap-4 text-left"
                       onClick={handleViewIntegrityCheck}
                     >
-                      <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-muted-foreground">
-                        <CheckCircle2 className="size-4 shrink-0 text-teal-600" aria-hidden="true" />
-                        무결성 검증
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                          해시값 일치
-                        </span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-0.5 text-sm font-bold text-teal-700 transition-colors group-hover:text-teal-900">
-                        상세보기
-                        <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                      <span className="shrink-0 text-sm font-bold text-muted-foreground">무결성 검증</span>
+                      <span className="flex min-w-0 items-center gap-1 text-sm font-bold">
+                        <span className="text-emerald-600">해시값 일치</span>
+                        <span className="text-muted-foreground transition-colors group-hover:text-foreground">· 상세</span>
+                        <ChevronRight
+                          className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                          aria-hidden="true"
+                        />
                       </span>
                     </button>
 
                     {!readOnly ? (
                       <button
                         type="button"
-                        className="group flex w-full items-center justify-between rounded-lg text-left disabled:cursor-not-allowed disabled:opacity-50"
+                        className="group flex w-full items-center justify-between gap-4 text-left disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={isWorking}
                         onClick={
                           selectedCompareResult
@@ -2309,16 +2526,16 @@ function CaseWorkflowPanel({
                             : handleStartCompareVerification
                         }
                       >
-                        <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-muted-foreground">
-                          <GitCompare className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
-                          비교검증
-                          <span className={cn("rounded-full px-2 py-0.5 text-xs font-bold", compareBadgeClassName)}>
-                            {compareLabel}
+                        <span className="shrink-0 text-sm font-bold text-muted-foreground">비교검증</span>
+                        <span className="flex min-w-0 items-center gap-1 text-sm font-bold">
+                          <span className={compareTextClassName}>{compareLabel}</span>
+                          <span className="text-muted-foreground transition-colors group-hover:text-foreground">
+                            · {selectedCompareResult ? "상세" : "분석"}
                           </span>
-                        </span>
-                        <span className="flex shrink-0 items-center gap-0.5 text-sm font-bold text-teal-700 transition-colors group-hover:text-teal-900">
-                          {selectedCompareResult ? "상세보기" : "분석하기"}
-                          <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                          <ChevronRight
+                            className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                            aria-hidden="true"
+                          />
                         </span>
                       </button>
                     ) : null}
@@ -2326,7 +2543,7 @@ function CaseWorkflowPanel({
                 ) : null}
               </div>
             ) : (
-              <div className="mt-4 space-y-3 rounded-lg border border-border bg-card p-3">
+              <div className="space-y-3">
                 <div>
                   <label
                     htmlFor="caseAnalystComment"
@@ -2401,63 +2618,85 @@ function CaseWorkflowPanel({
               </div>
             )}
 
-            {detailError ? (
-              <p className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
-                {detailError}
-              </p>
-            ) : null}
+                  </div>
+                </div>
 
-            <div className="mt-auto space-y-3 pt-4">
-              {readOnly ? (
-                selectedEvidence.analysisStatus === "COMPLETED" ? (
+                {detailError ? (
+                  <p className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs font-bold text-muted-foreground">
+                    상세 정보를 불러오지 못해 목록 기준 정보만 표시 중입니다.
+                  </p>
+                ) : null}
+
+                {readOnly && selectedEvidence.analysisStatus === "COMPLETED" ? (
                   <Button
                     type="button"
-                    className="h-11 w-full bg-emerald-600 text-base font-bold text-white hover:bg-emerald-700"
+                    className="mt-4 h-11 w-full rounded-full bg-foreground text-sm font-bold text-background hover:bg-foreground/90"
                     disabled={!selectedEvidenceActive}
                     onClick={() => onViewResult(selectedEvidence.evidenceId)}
                   >
                     결과보기
                   </Button>
-                ) : (
-                  <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm font-bold text-muted-foreground">
+                ) : readOnly ? (
+                  <p className="mt-4 text-xs font-bold text-muted-foreground">
                     검토 가능한 분석 결과가 아직 없습니다.
-                  </div>
-                )
-              ) : selectedEvidence.analysisStatus === "COMPLETED" ? (
-                <Button
-                  type="button"
-                  className="h-11 w-full bg-emerald-600 text-base font-bold text-white hover:bg-emerald-700"
-                  disabled={!selectedEvidenceActive}
-                  onClick={() => onViewResult(selectedEvidence.evidenceId)}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      {!readOnly ? (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+          <input
+            ref={uploadInputRef}
+            type="file"
+            multiple
+            accept="video/*"
+            className="sr-only"
+            onChange={(event) => void handleUploadFiles(event.target.files)}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
+            disabled={isWorking}
+            onClick={() => uploadInputRef.current?.click()}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            증거 추가
+          </Button>
+          {selectedEvidenceRunning || selectedEvidenceCompleted || selectableAnalysisEvidences.length > 0 ? (
+            <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
+              {selectedEvidenceRunning ? (
+                <div
+                  className="flex min-w-[240px] flex-col gap-2 sm:min-w-[360px]"
+                  aria-label={`AI 분석 진행률 ${selectedEvidenceProgress}%`}
+                  aria-live="polite"
                 >
-                  결과보기
-                </Button>
-              ) : selectedEvidenceRunning ? (
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="inline-flex items-center gap-2 text-sm font-bold text-emerald-700">
-                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                        AI 분석 중입니다
-                      </p>
-                      <p className="mt-1 text-xs font-bold text-emerald-700/75">
-                        완료되면 결과보기가 활성화됩니다.
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-sm font-bold text-emerald-700">
-                      {selectedEvidenceProgress}%
-                    </span>
+                  <div
+                    key={`${selectedEvidenceRunningCopy.title}-${selectedEvidenceRunningCopy.detail}`}
+                    className="min-h-[42px] animate-in fade-in slide-in-from-bottom-1 duration-500"
+                  >
+                    <p className="text-sm font-bold text-foreground">{selectedEvidenceRunningCopy.title}</p>
+                    <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                      {selectedEvidenceRunningCopy.detail}
+                    </p>
                   </div>
-                  <div className="mt-3 flex items-center gap-3">
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-emerald-100">
+                  <div className="flex items-center gap-2">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full rounded-full bg-emerald-600 transition-all duration-500"
+                        className="h-full rounded-full bg-foreground transition-all duration-500"
                         style={{ width: `${selectedEvidenceProgress}%` }}
                       />
                     </div>
+                    <span className="w-10 shrink-0 text-right text-sm font-bold text-foreground">
+                      {selectedEvidenceProgress}%
+                    </span>
                     <button
                       type="button"
-                      className="flex size-6 shrink-0 items-center justify-center bg-transparent text-slate-950 transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex size-7 shrink-0 items-center justify-center bg-transparent text-foreground transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
                       disabled={isWorking}
                       aria-label="분석 중단"
                       title="분석 중단"
@@ -2467,20 +2706,43 @@ function CaseWorkflowPanel({
                     </button>
                   </div>
                 </div>
-              ) : (
+              ) : null}
+              {!selectedEvidenceRunning && !selectedEvidenceCompleted && selectableAnalysisEvidences.length > 1 ? (
                 <Button
                   type="button"
-                  className="h-11 w-full bg-emerald-600 text-base font-bold text-white hover:bg-emerald-700"
-                  disabled={isWorking || !selectedEvidenceAnalysisSelectable}
-                  onClick={() => void handleQuickStartAnalysis()}
+                  variant="ghost"
+                  className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
+                  disabled={isWorking}
+                  onClick={toggleAllSelectableAnalysis}
                 >
-                  <PlayCircle className="size-5" aria-hidden="true" />
-                  {selectedEvidence.analysisStatus === "PROCESSING" ? "분석 중" : "분석하기"}
+                  {allSelectableAnalysisSelected ? "선택 해제" : "전체 선택"}
                 </Button>
-              )}
-
+              ) : null}
+              {!selectedEvidenceRunning ? (
+                <Button
+                  type="button"
+                  className="h-11 rounded-full bg-foreground px-6 text-sm font-bold text-background hover:bg-foreground/90"
+                  disabled={
+                    isWorking ||
+                    (!selectedEvidenceCompleted &&
+                      selectedAnalysisCount === 0 &&
+                      !selectedEvidenceAnalysisSelectable &&
+                      selectableAnalysisEvidences.length !== 1)
+                  }
+                  onClick={() => {
+                    if (selectedEvidenceCompleted && selectedEvidence) {
+                      onViewResult(selectedEvidence.evidenceId)
+                      return
+                    }
+                    void handleStartAnalysis()
+                  }}
+                >
+                  {isWorking ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                  {selectedEvidenceCompleted ? "결과보기" : "분석하기"}
+                </Button>
+              ) : null}
             </div>
-          </aside>
+          ) : null}
         </div>
       ) : null}
 
@@ -2613,10 +2875,10 @@ function CaseWorkflowPanel({
             role="dialog"
             aria-modal="true"
             aria-labelledby="deleteEvidenceTitle"
-            className="w-full max-w-md rounded-2xl border border-red-100 bg-card p-5 shadow-2xl"
+            className="w-full max-w-md rounded-2xl border border-red-700/20 bg-card p-5 shadow-2xl"
           >
             <div className="flex items-start gap-3">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-500">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-700">
                 <AlertCircle className="size-5" aria-hidden="true" />
               </span>
               <div>
@@ -2703,7 +2965,7 @@ function EvidenceManagementCard({
         </p>
       ) : null}
       {evidence.excludedReason ? (
-        <p className="mt-2 text-xs font-bold text-red-500">{evidence.excludedReason}</p>
+        <p className="mt-2 text-xs font-bold text-red-700">{evidence.excludedReason}</p>
       ) : null}
       <details className="mt-3 text-xs font-semibold text-muted-foreground">
         <summary className="cursor-pointer">원본 파일 정보</summary>
@@ -2713,27 +2975,35 @@ function EvidenceManagementCard({
   )
 }
 
-function EvidenceStripCard({
+function EvidenceListRow({
   evidence,
   active,
   representative,
   disabled,
+  running,
   analysisSelectable,
   analysisSelected,
   onSelect,
   onToggleAnalysisSelect,
+  onViewResult,
 }: {
   evidence: CaseEvidenceSummary
   active: boolean
   representative: boolean
   disabled: boolean
+  running: boolean
   analysisSelectable: boolean
   analysisSelected: boolean
   onSelect: () => void
   onToggleAnalysisSelect: () => void
+  onViewResult?: () => void
 }) {
   const lifecycle = evidence.lifecycleStatus ?? "ACTIVE"
-  const statusLabel = lifecycle === "ACTIVE" ? getEvidenceAnalysisLabel(evidence) : getLifecycleLabel(lifecycle)
+  const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+  const completed = lifecycle === "ACTIVE" && !running && status === "COMPLETED"
+  const statusLabel =
+    lifecycle !== "ACTIVE" ? getLifecycleLabel(lifecycle) : running ? "분석 중" : getEvidenceAnalysisLabel(evidence)
+  const statusClassName = getEvidenceRowStatusClassName(evidence, running)
 
   return (
     <div
@@ -2749,48 +3019,75 @@ function EvidenceStripCard({
       }}
       aria-disabled={disabled}
       className={cn(
-        "relative flex h-[86px] min-w-[210px] cursor-pointer flex-col items-start justify-center rounded-lg border px-4 pr-11 text-left transition-colors",
-        active
-          ? "border-teal-500 bg-teal-50 text-teal-700 shadow-sm"
-          : "border-border bg-background text-muted-foreground hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700",
-        disabled && "cursor-not-allowed border-slate-200 bg-slate-50 opacity-55 hover:border-slate-200 hover:bg-slate-50 hover:text-muted-foreground"
+        "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+        active ? "bg-muted/70" : "hover:bg-muted/40",
+        disabled && "cursor-not-allowed opacity-55 hover:bg-transparent"
       )}
     >
       {analysisSelectable ? (
         <button
           type="button"
+          role="checkbox"
+          aria-checked={analysisSelected}
           aria-label={`${formatEvidenceTitle(evidence)} 분석 선택`}
           onClick={(event) => {
             event.stopPropagation()
             onToggleAnalysisSelect()
           }}
           className={cn(
-            "absolute right-3 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-transparent text-xs transition-colors",
-            analysisSelected ? "text-emerald-600" : "text-slate-300 hover:text-emerald-500"
+            "flex size-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
+            analysisSelected
+              ? "border-foreground bg-foreground text-background"
+              : "border-slate-300 bg-transparent hover:border-slate-400"
           )}
         >
-          <CheckCircle2 className="size-5" aria-hidden="true" />
+          {analysisSelected ? <Check className="size-3" strokeWidth={3} aria-hidden="true" /> : null}
         </button>
-      ) : null}
-      <span className="flex w-full items-center gap-2">
-        <span className="min-w-0 truncate text-base font-bold leading-tight text-foreground">
-          {formatEvidenceTitle(evidence)}
+      ) : (
+        <span className="flex size-[18px] shrink-0 items-center justify-center">
+          {running ? (
+            <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
+          ) : completed ? (
+            <Check className="size-4 text-muted-foreground" aria-hidden="true" />
+          ) : status === "FAILED" && lifecycle === "ACTIVE" ? (
+            <AlertCircle className="size-4 text-red-700" aria-hidden="true" />
+          ) : (
+            <span className="size-1.5 rounded-full bg-slate-300" aria-hidden="true" />
+          )}
         </span>
-        {representative ? (
-          <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
-            대표
-          </span>
-        ) : null}
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-bold text-foreground">{formatEvidenceTitle(evidence)}</span>
+          {representative ? (
+            <span className="shrink-0 rounded-full border border-border px-1.5 py-px text-[10px] font-bold text-muted-foreground">
+              대표
+            </span>
+          ) : null}
+        </span>
+        <span className="block font-mono text-xs font-semibold text-muted-foreground">
+          EVD-{evidence.evidenceId}
+        </span>
       </span>
-      <span className="mt-1 font-mono text-xs font-bold text-muted-foreground">EVD-{evidence.evidenceId}</span>
-      <span
-        className={cn(
-          "mt-2 rounded-full px-2 py-0.5 text-xs font-bold",
-          lifecycle !== "ACTIVE" ? "bg-slate-100 text-slate-400" : getEvidenceAnalysisBadgeClassName(evidence)
-        )}
-      >
-        {statusLabel}
-      </span>
+      {completed && onViewResult ? (
+        <button
+          type="button"
+          className="group/result flex shrink-0 items-center gap-0.5 text-xs font-bold"
+          aria-label={`${formatEvidenceTitle(evidence)} 결과보기`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onViewResult()
+          }}
+        >
+          <span className={statusClassName}>{statusLabel}</span>
+          <ChevronRight
+            className="size-3.5 text-muted-foreground transition-colors group-hover/result:text-foreground"
+            aria-hidden="true"
+          />
+        </button>
+      ) : (
+        <span className={cn("shrink-0 text-xs font-bold", statusClassName)}>{statusLabel}</span>
+      )}
     </div>
   )
 }
@@ -2806,10 +3103,10 @@ function CaseMetadataRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border pb-3 last:border-b-0 last:pb-0">
-      <dt className="shrink-0 text-xs font-bold text-muted-foreground">{label}</dt>
+      <dt className="shrink-0 text-sm font-bold text-muted-foreground">{label}</dt>
       <dd
         className={cn(
-          "min-w-0 truncate text-right text-xs font-bold",
+          "min-w-0 truncate text-right text-sm font-bold",
           accent ? "text-teal-600" : "text-foreground"
         )}
       >
@@ -2924,7 +3221,7 @@ function ResultScoreBar({ label, value }: { label: string; value: number }) {
         <div
           className={cn(
             "h-full rounded-full",
-            percent >= 60 ? "bg-red-500" : percent >= 30 ? "bg-amber-400" : "bg-emerald-500"
+            percent >= 60 ? "bg-red-700" : percent >= 30 ? "bg-amber-400" : "bg-emerald-500"
           )}
           style={{ width: `${percent}%` }}
         />
@@ -2954,18 +3251,39 @@ function ResultBreakdownRow({
         <span className="shrink-0 text-xl font-bold text-slate-950 dark:text-foreground">{percent}</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-muted">
-        <div className="h-full rounded-full bg-red-500" style={{ width: `${percent}%` }} />
+        <div className="h-full rounded-full bg-red-700" style={{ width: `${percent}%` }} />
       </div>
     </div>
   )
 }
 
-function RiskSignalCard({ signal }: { signal: (typeof RESULT_RISK_SIGNALS)[number] }) {
+function RiskSignalCard({
+  signal,
+  delayMs = 0,
+}: {
+  signal: (typeof RESULT_RISK_SIGNALS)[number]
+  delayMs?: number
+}) {
   const value = normalizeResultValue(signal.score)
+  const percent = Math.round(value * 100)
+  const [barWidth, setBarWidth] = useState(0)
   const toneClassName =
     signal.tone === "danger"
-      ? "bg-red-100 text-red-700"
+      ? "bg-red-50 text-red-700"
       : "bg-amber-100 text-amber-700"
+
+  useEffect(() => {
+    setBarWidth(0)
+    let frame = 0
+    const timer = window.setTimeout(() => {
+      frame = window.requestAnimationFrame(() => setBarWidth(percent))
+    }, delayMs)
+
+    return () => {
+      window.clearTimeout(timer)
+      window.cancelAnimationFrame(frame)
+    }
+  }, [delayMs, percent])
 
   return (
     <li className="rounded-xl border border-slate-100 bg-slate-50/70 p-4 transition-colors hover:border-slate-200 dark:border-border dark:bg-background">
@@ -2982,8 +3300,11 @@ function RiskSignalCard({ signal }: { signal: (typeof RESULT_RISK_SIGNALS)[numbe
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
         <div
-          className={cn("h-full rounded-full", signal.tone === "danger" ? "bg-red-500" : "bg-amber-400")}
-          style={{ width: `${Math.round(value * 100)}%` }}
+          className={cn(
+            "h-full rounded-full transition-[width] duration-700 ease-out",
+            signal.tone === "danger" ? "bg-red-700" : "bg-amber-400"
+          )}
+          style={{ width: `${barWidth}%` }}
         />
       </div>
       <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-muted-foreground">
@@ -3123,7 +3444,7 @@ function SummaryMetricRow({
       <span
         className={cn(
           "rounded-full px-3 py-1 text-sm font-bold",
-          tone === "danger" && "bg-red-50 text-red-600",
+          tone === "danger" && "bg-red-50 text-red-700",
           tone === "safe" && "bg-emerald-50 text-emerald-700",
           tone === "neutral" && "bg-slate-100 text-slate-700"
         )}
@@ -3151,7 +3472,7 @@ function FrameStatCard({
       <p
         className={cn(
           "mt-1.5 text-xl font-bold text-slate-950 dark:text-foreground",
-          tone === "danger" && "text-red-600"
+          tone === "danger" && "text-red-700"
         )}
       >
         {value}
@@ -3183,7 +3504,7 @@ function AnimatedRiskBar({
         <div
           className={cn(
             "h-full rounded-full transition-[width] duration-700 ease-out",
-            aux ? "bg-teal-500" : "bg-red-500"
+            aux ? "bg-teal-500" : "bg-red-700"
           )}
           style={{ width: `${width}%` }}
         />
@@ -3207,6 +3528,10 @@ function AnimatedRiskBar({
 
 function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
   const fallbackScores = [0.18, 0.24, 0.31, 0.48, 0.63, 0.76, 0.7, 0.58, 0.42, 0.28, 0.2, 0.16]
+  const [drawProgress, setDrawProgress] = useState(0)
+  const [markersVisible, setMarkersVisible] = useState(false)
+  const [measuredLineLength, setMeasuredLineLength] = useState(1)
+  const linePathRef = useRef<SVGPathElement | null>(null)
   const items =
     scores.length > 0
       ? scores.slice(0, 36).map((item) => ({ value: normalizeResultValue(item.score), timeSec: item.timeSec ?? null }))
@@ -3215,7 +3540,11 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
   const peakItem = items[peakIndex]
   const toX = (index: number) => (items.length <= 1 ? 50 : 2 + (index / (items.length - 1)) * 96)
   const toY = (value: number) => 92 - Math.max(0, Math.min(1, value)) * 76
-  const points = items.map((item, index) => `${toX(index).toFixed(2)},${toY(item.value).toFixed(2)}`).join(" ")
+  const pointCoordinates = items.map((item, index) => ({ x: toX(index), y: toY(item.value) }))
+  const points = pointCoordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ")
+  const linePath = pointCoordinates
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(" ")
   const areaPoints = `2,92 ${points} 98,92`
   const thresholdY = toY(0.6)
   const endTime = items[items.length - 1]?.timeSec
@@ -3227,19 +3556,35 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
     formatSecondsForViewer(timelineStart + (timelineEnd - timelineStart) * ratio)
   )
 
+  useEffect(() => {
+    setDrawProgress(0)
+    setMarkersVisible(false)
+
+    const pathLength = linePathRef.current?.getTotalLength() ?? 1
+    setMeasuredLineLength(pathLength)
+
+    const frame = window.requestAnimationFrame(() => setDrawProgress(1))
+    const markerTimer = window.setTimeout(() => setMarkersVisible(true), 1040)
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(markerTimer)
+    }
+  }, [linePath])
+
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-slate-500 dark:text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="h-0.5 w-3.5 rounded-full bg-red-500" />
+          <span className="h-0.5 w-3.5 rounded-full bg-red-700" />
           위험 점수
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3.5 border-t-2 border-dashed border-red-300" />
+          <span className="w-3.5 border-t-2 border-dashed border-red-700/35" />
           임계값 60 / 100
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-full bg-red-600" />
+          <span className="size-2.5 rounded-full bg-red-700" />
           최고 위험 프레임
         </span>
       </div>
@@ -3260,19 +3605,27 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
               y1={thresholdY}
               x2="98"
               y2={thresholdY}
-              className="stroke-red-300"
+              className="stroke-red-700/35"
               strokeWidth="0.45"
               strokeDasharray="2 2"
             />
-            <polygon points={areaPoints} className="fill-red-500/[0.08]" />
-            <polyline
-              points={points}
+            <polygon
+              points={areaPoints}
+              className="fill-red-700/[0.08] transition-opacity duration-500"
+              style={{ opacity: markersVisible ? 1 : 0 }}
+            />
+            <path
+              ref={linePathRef}
+              d={linePath}
               fill="none"
-              className="stroke-red-500"
+              className="stroke-red-700"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
+              strokeDasharray={measuredLineLength}
+              strokeDashoffset={measuredLineLength * (1 - drawProgress)}
+              style={{ transition: "stroke-dashoffset 980ms cubic-bezier(0.22, 1, 0.36, 1)" }}
             />
           </svg>
           {[
@@ -3284,7 +3637,7 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
               key={tick.label}
               className={cn(
                 "absolute -translate-x-full -translate-y-1/2 text-[11px] font-semibold text-slate-400",
-                tick.danger && "text-red-400"
+                tick.danger && "text-red-700"
               )}
               style={{ left: -10, top: `${tick.top}%` }}
             >
@@ -3292,8 +3645,8 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
             </span>
           ))}
           <span
-            className="absolute -translate-x-1/2 whitespace-nowrap text-xs font-bold text-red-600"
-            style={{ left: `${peakLabelLeft}%`, top: `${peakLabelTop}%` }}
+            className="absolute -translate-x-1/2 whitespace-nowrap text-xs font-bold text-red-700 transition-opacity duration-300"
+            style={{ left: `${peakLabelLeft}%`, top: `${peakLabelTop}%`, opacity: markersVisible ? 1 : 0 }}
           >
             {formatScoreOutOf100(peakItem?.value)}
           </span>
@@ -3309,10 +3662,10 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
                 className={cn(
                   "absolute -translate-x-1/2 -translate-y-1/2 rounded-full",
                   isPeak
-                    ? "size-3.5 bg-red-600 ring-2 ring-white dark:ring-card"
-                    : "size-3 bg-red-500 opacity-0 ring-2 ring-white transition-opacity hover:opacity-100 dark:ring-card"
+                    ? "size-3.5 bg-red-700 ring-2 ring-white transition-opacity duration-300 dark:ring-card"
+                    : "size-3 bg-red-700 opacity-0 ring-2 ring-white transition-opacity hover:opacity-100 dark:ring-card"
                 )}
-                style={{ left: `${x}%`, top: `${y}%` }}
+                style={{ left: `${x}%`, top: `${y}%`, opacity: isPeak ? (markersVisible ? 1 : 0) : undefined }}
               />
             )
           })}
@@ -3349,7 +3702,7 @@ function FrameMetricCard({
       <p
         className={cn(
           "mt-1 truncate text-lg font-bold tracking-tight text-slate-950 dark:text-foreground",
-          tone === "danger" && "text-red-600"
+          tone === "danger" && "text-red-700"
         )}
       >
         {value}
@@ -3378,15 +3731,15 @@ function FrameRiskHeatStrip({
             60 미만
           </span>
           <span className="flex items-center gap-1">
-            <span className="size-2 rounded-[3px] bg-red-200" />
+            <span className="size-2 rounded-[3px] bg-red-700/25" />
             60+
           </span>
           <span className="flex items-center gap-1">
-            <span className="size-2 rounded-[3px] bg-red-400" />
+            <span className="size-2 rounded-[3px] bg-red-700/60" />
             70+
           </span>
           <span className="flex items-center gap-1">
-            <span className="size-2 rounded-[3px] bg-red-600" />
+            <span className="size-2 rounded-[3px] bg-red-700" />
             80+
           </span>
         </div>
@@ -3407,11 +3760,11 @@ function FrameRiskHeatStrip({
               className={cn(
                 "min-w-0 flex-1 rounded-[2px] transition-opacity hover:opacity-70",
                 value >= 0.8
-                  ? "bg-red-600"
+                  ? "bg-red-700"
                   : value >= 0.7
-                    ? "bg-red-400"
+                    ? "bg-red-700/60"
                     : value >= 0.6
-                      ? "bg-red-200"
+                      ? "bg-red-700/25"
                       : "bg-slate-200 dark:bg-secondary"
               )}
             />
@@ -3603,7 +3956,7 @@ function splitSummary(summary: string) {
 }
 
 function getDetectionTone(value: number): { level: string; badgeClass: string; barClass: string } {
-  if (value >= 0.6) return { level: "높음", badgeClass: "bg-red-100 text-red-700", barClass: "bg-red-500" }
+  if (value >= 0.6) return { level: "높음", badgeClass: "bg-red-50 text-red-700", barClass: "bg-red-700" }
   if (value >= 0.3) return { level: "보통", badgeClass: "bg-amber-100 text-amber-700", barClass: "bg-amber-500" }
   return { level: "낮음", badgeClass: "bg-emerald-100 text-emerald-700", barClass: "bg-emerald-500" }
 }
@@ -3787,24 +4140,77 @@ function getCocEventLabel(eventType: string) {
 
 // 점 색상 = 이벤트 성격. 실패=빨강, 완료·검증 계열=초록, 그 외 진행 단계=파랑
 function getCocEventDotClass(eventType: string) {
-  if (eventType === "ANALYSIS_FAILED") return "bg-red-500"
+  if (eventType === "ANALYSIS_FAILED") return "bg-red-700"
   if (eventType === "ANALYSIS_COMPLETED" || eventType === "INTEGRITY_VERIFIED" || eventType === "REPORT_GENERATED")
     return "bg-emerald-500"
   return "bg-blue-500"
 }
 
-// 행위자(userId)를 역할 라벨로 변환 — 실데이터 연동 시 admin/reviewer id가 오면 자동으로 관리자/검토자 표기
-function getCocActor(userId: string): { label: string; role: string; roleClass: string } {
-  const id = (userId || "").toLowerCase()
+type CocActorDisplay = {
+  label: string
+  detail?: string
+  role: string
+  roleClass: string
+}
+
+// 행위자(userId)를 역할 라벨로 변환 — 백엔드가 실명 필드를 주기 전에는 현재 세션과 매칭해 사람이 읽기 좋은 이름으로 표시한다.
+function getCocActor(userId: string, session?: AuthSession | null): CocActorDisplay {
+  const rawUserId = (userId || "").trim()
+  const id = rawUserId.toLowerCase()
+
+  const currentUser = getAppUserFromSession(session ?? null)
+  const matchesCurrentUser =
+    Boolean(currentUser) &&
+    Boolean(rawUserId) &&
+    (rawUserId === session?.loginId || rawUserId === session?.userId || rawUserId === currentUser?.id)
+
+  if (matchesCurrentUser && currentUser) {
+    return {
+      label: `${currentUser.name} · ${roleLabelMap[currentUser.role]}`,
+      detail: `ID ${rawUserId}`,
+      role: roleLabelMap[currentUser.role],
+      roleClass: getCocRoleClass(currentUser.role),
+    }
+  }
+
+  if (id === "mock-user") {
+    return {
+      label: "강팀장 · 분석관",
+      detail: "서울경찰청 사이버수사팀",
+      role: "분석관",
+      roleClass: "bg-blue-100 text-blue-700",
+    }
+  }
+  if (id === "mock-system") {
+    return {
+      label: "ForenShield 시스템",
+      detail: "자동 처리",
+      role: "시스템",
+      roleClass: "bg-slate-100 text-slate-600",
+    }
+  }
   if (id.includes("admin") || id.includes("관리자"))
-    return { label: userId, role: "관리자", roleClass: "bg-violet-100 text-violet-700" }
+    return { label: rawUserId, detail: "관리자 계정", role: "관리자", roleClass: "bg-violet-100 text-violet-700" }
   if (id.includes("review") || id.includes("검토"))
-    return { label: userId, role: "검토자", roleClass: "bg-amber-100 text-amber-700" }
-  if (id.includes("ai") || id.includes("worker"))
-    return { label: userId, role: "AI 엔진", roleClass: "bg-teal-100 text-teal-700" }
+    return { label: rawUserId, detail: "검토자 계정", role: "검토자", roleClass: "bg-amber-100 text-amber-700" }
+  if (id.includes("ai") || id.includes("worker")) {
+    const workerLabel = rawUserId.match(/\d+/)?.[0]
+    return {
+      label: "AI 분석 엔진",
+      detail: workerLabel ? `Worker ${workerLabel}` : "자동 분석",
+      role: "AI 엔진",
+      roleClass: "bg-teal-100 text-teal-700",
+    }
+  }
   if (id.includes("system"))
-    return { label: userId, role: "시스템", roleClass: "bg-slate-100 text-slate-600" }
-  return { label: userId || "-", role: "분석관", roleClass: "bg-blue-100 text-blue-700" }
+    return { label: "ForenShield 시스템", detail: "자동 처리", role: "시스템", roleClass: "bg-slate-100 text-slate-600" }
+  return { label: rawUserId || "-", role: "분석관", roleClass: "bg-blue-100 text-blue-700" }
+}
+
+function getCocRoleClass(role: string) {
+  if (role === "ORG_ADMIN") return "bg-violet-100 text-violet-700"
+  if (role === "REVIEWER") return "bg-amber-100 text-amber-700"
+  return "bg-blue-100 text-blue-700"
 }
 
 function getLifecycleLabel(status: string) {
@@ -3837,14 +4243,15 @@ function getEvidenceAnalysisLabel(evidence: CaseEvidenceSummary) {
     return status === "PENDING" ? "분석 대기" : "분석 중"
   }
 
-  if (status === "COMPLETED") return getEvidenceRiskVerdictLabel(evidence)
+  if (status === "COMPLETED") return getEvidenceRiskVerdictLabel(evidence) ?? "분석 완료"
   return getEvidenceStatusLabel(status)
 }
 
-function getEvidenceRiskVerdictLabel(evidence: CaseEvidenceSummary) {
+function getEvidenceRiskVerdictLabel(evidence: CaseEvidenceSummary): string | null {
   const riskLevel = evidence.riskLevel
   const riskScore = evidence.riskScore ?? null
 
+  if (riskLevel == null && riskScore == null) return null
   if (riskLevel === "HIGH" || (riskScore != null && riskScore >= 70)) return "위험"
   if (riskLevel === "MEDIUM" || (riskScore != null && riskScore >= 45)) return "주의"
   return "정상"
@@ -3854,13 +4261,29 @@ function getEvidenceAnalysisBadgeClassName(evidence: CaseEvidenceSummary) {
   const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
 
   if (isEvidenceAnalysisRunning(evidence)) return "bg-blue-50 text-blue-700"
-  if (status === "FAILED") return "bg-red-50 text-red-600"
+  if (status === "FAILED") return "bg-red-50 text-red-700"
   if (status === "PENDING") return "bg-slate-100 text-slate-400"
 
   const verdict = getEvidenceRiskVerdictLabel(evidence)
-  if (verdict === "위험") return "bg-red-50 text-red-600"
+  if (verdict === "위험") return "bg-red-50 text-red-700"
   if (verdict === "주의") return "bg-amber-50 text-amber-700"
+  if (verdict == null) return "bg-slate-100 text-slate-500"
   return "bg-emerald-50 text-emerald-700"
+}
+
+function getEvidenceRowStatusClassName(evidence: CaseEvidenceSummary, running: boolean) {
+  const lifecycle = evidence.lifecycleStatus ?? "ACTIVE"
+  if (lifecycle !== "ACTIVE") return "text-slate-400"
+  if (running) return "text-muted-foreground"
+
+  const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+  if (status === "FAILED") return "text-red-700"
+  if (status !== "COMPLETED") return "text-muted-foreground"
+
+  const verdict = getEvidenceRiskVerdictLabel(evidence)
+  if (verdict === "위험") return "text-red-700"
+  if (verdict === "주의") return "text-amber-600"
+  return "text-emerald-600"
 }
 
 function getCompareVerificationLabel(result: StoredCompareResultSummary | null) {
@@ -3869,13 +4292,6 @@ function getCompareVerificationLabel(result: StoredCompareResultSummary | null) 
   if (result.verdict === "TAMPERED") return "불일치"
   if (result.mismatchCount > 0) return "불일치"
   return result.verdictLabel || "판정 보류"
-}
-
-function getCompareVerificationBadgeClassName(result: StoredCompareResultSummary | null) {
-  if (!result) return "bg-slate-100 text-slate-500"
-  if (result.verdict === "ORIGINAL_MATCH") return "bg-emerald-100 text-emerald-700"
-  if (result.verdict === "TAMPERED" || result.mismatchCount > 0) return "bg-red-50 text-red-600"
-  return "bg-amber-50 text-amber-700"
 }
 
 function isEvidenceAnalysisRunning(evidence: CaseEvidenceSummary) {
@@ -3901,6 +4317,77 @@ function getAnalysisTypeLabel(type: AnalysisType) {
   if (type === "INTEGRITY") return "위변조/무결성 검증"
   if (type === "COMPARE") return "비교검증"
   return "딥페이크 탐지"
+}
+
+function getRunningAnalysisCopy(type: AnalysisType, status: AnalysisStatus, progress: number) {
+  const currentProgress = Math.max(0, Math.min(100, progress))
+
+  if (currentProgress < 12) {
+    return {
+      title: "AI 분석 준비 중",
+      detail:
+        status === "PENDING"
+          ? "분석 작업을 등록하고 원본 파일 정보를 확인하고 있습니다."
+          : "분석 엔진을 준비하고 처리 순서를 맞추고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 24) {
+    return {
+      title: "AI 분석 중",
+      detail: "프레임을 추출하고 얼굴 영역을 정렬하고 있습니다.",
+    }
+  }
+
+  if (currentProgress >= 85) {
+    return {
+      title: "결과 정리 중",
+      detail: "탐지 결과와 검증 기록을 사건 증거 정보에 반영하고 있습니다.",
+    }
+  }
+
+  if (type === "INTEGRITY") {
+    return currentProgress < 55
+      ? {
+          title: "무결성 검증 중",
+          detail: "원본 해시와 파일 메타데이터의 일치 여부를 확인하고 있습니다.",
+        }
+      : {
+          title: "해시 체인 확인 중",
+          detail: "CoC 기록과 증거 해시 연결 상태를 대조하고 있습니다.",
+        }
+  }
+
+  if (type === "COMPARE") {
+    return currentProgress < 55
+      ? {
+          title: "비교검증 진행 중",
+          detail: "기준 증거와 비교 대상의 시각적 특징을 맞춰 보고 있습니다.",
+        }
+      : {
+          title: "기준 증거 대조 중",
+          detail: "프레임별 차이와 불일치 구간을 계산하고 있습니다.",
+        }
+  }
+
+  if (currentProgress < 42) {
+    return {
+      title: "AI 분석 중",
+      detail: "얼굴 경계와 압축 패턴의 이상 신호를 확인하고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 64) {
+    return {
+      title: "AI 분석 중",
+      detail: "프레임 간 움직임과 시간적 일관성을 대조하고 있습니다.",
+    }
+  }
+
+  return {
+    title: "위험 신호 계산 중",
+    detail: "탐지 모델 결과를 종합해 최종 위험도를 계산하고 있습니다.",
+  }
 }
 
 const TAB_VALUES = ["summary", "deepfake", "integrity", "report"]

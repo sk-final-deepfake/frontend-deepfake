@@ -1,4 +1,5 @@
 import type { AnalysisType, CaseDetailData, EvidenceRole } from "@/lib/api/evidence-detail"
+import { apiRequest } from "@/lib/api/client"
 import {
   mockCreateCase,
   mockCancelAnalysis,
@@ -32,13 +33,14 @@ export async function createCase(caseName: string): Promise<CaseDetailData> {
     return mockCreateCase(caseName)
   }
 
+  const data = await apiRequest<CaseDetailData>("/api/v1/cases", {
+    method: "POST",
+    body: { caseName: caseName.trim() },
+  })
+
   return {
-    caseId: caseName.trim(),
-    caseName: caseName.trim(),
-    status: "PENDING",
-    createdAt: new Date().toISOString(),
-    representativeEvidenceId: null,
-    evidences: [],
+    ...data,
+    evidences: data.evidences ?? [],
   }
 }
 

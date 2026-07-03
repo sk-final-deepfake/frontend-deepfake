@@ -9,12 +9,12 @@ type CaseHeroProps = {
 
 export function CaseHero({ data, getStatusLabel }: CaseHeroProps) {
   return (
-    <section className="flex flex-col gap-3 py-1 lg:flex-row lg:items-end lg:justify-between">
-      <div className="min-w-0">
-        <h1 className="truncate text-3xl font-bold tracking-normal text-slate-950 sm:text-4xl dark:text-foreground">
+    <section className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="max-w-full truncate text-2xl font-bold tracking-normal text-slate-950 dark:text-foreground">
           {data.caseName}
         </h1>
-        <p className="mt-2 text-sm font-bold text-muted-foreground">
+        <p className="text-sm font-medium text-muted-foreground">
           {formatDateTime(data.createdAt)}
         </p>
       </div>

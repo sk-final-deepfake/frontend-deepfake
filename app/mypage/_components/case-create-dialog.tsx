@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { AlertCircle, UploadCloud, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ApiError } from "@/lib/api/client"
 import { createCase, setRepresentativeEvidence, uploadEvidenceToCase } from "@/lib/api/case-workflow"
 import type { AuthSession } from "@/lib/auth"
 import { canCreateCase, getAppUserFromSession } from "@/lib/permissions"
@@ -23,6 +24,7 @@ export function CaseCreateDialog({
   existingCaseNames?: string[]
 }) {
   const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [newCaseName, setNewCaseName] = useState("")
   const [representativeFile, setRepresentativeFile] = useState<File | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -42,21 +44,18 @@ export function CaseCreateDialog({
       return
     }
 
-    if (!representativeFile) {
-      setCreateError("대표 증거 영상을 1개 선택해 주세요.")
-      return
-    }
-
     setIsCreating(true)
     setCreateError(null)
 
     try {
       const created = await createCase(trimmed)
-      const representativeEvidence = await uploadEvidenceToCase(
-        created.caseId,
-        created.caseName,
-        representativeFile
-      )
+      const representativeEvidence = representativeFile
+        ? await uploadEvidenceToCase(
+            created.caseId,
+            created.caseName,
+            representativeFile
+          )
+        : null
 
       if (representativeEvidence) {
         try {
@@ -70,7 +69,7 @@ export function CaseCreateDialog({
       onClose()
       router.push(buildCaseDetailPath(created.caseId, representativeEvidence?.evidenceId))
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : "사건과 증거 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+      setCreateError(getCreateCaseErrorMessage(error))
     } finally {
       setIsCreating(false)
     }
@@ -86,6 +85,9 @@ export function CaseCreateDialog({
     setNewCaseName("")
     setRepresentativeFile(null)
     setCreateError(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
   }
 
   function selectRepresentativeFile(fileList: FileList | null) {
@@ -108,7 +110,7 @@ export function CaseCreateDialog({
           <div>
             <h2 className="text-xl font-bold text-foreground">사건 등록</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              사건 정보와 대표 증거 영상을 함께 접수합니다. 등록된 증거는 원본 해시와 함께 이력에 기록됩니다.
+              사건을 먼저 접수하고, 증거는 지금 또는 사건 상세 화면에서 추가합니다.
             </p>
           </div>
           <button
@@ -147,21 +149,26 @@ export function CaseCreateDialog({
               </div>
             </div>
 
-            <div className="mt-5 rounded-lg border border-border bg-card px-4 py-3">
-              <p className="text-xs font-bold text-muted-foreground">접수자 정보</p>
-              <p className="mt-1 text-sm font-bold text-foreground">{receptionistText}</p>
+            <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs">
+              <span className="font-semibold text-muted-foreground">접수자</span>
+              <span className="font-bold text-foreground">{receptionistText}</span>
             </div>
           </section>
 
           <section className="rounded-xl border border-border bg-background p-4">
             <div className="mb-4 flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-full bg-teal-600 text-sm font-bold text-white">
+              <span className="flex size-7 items-center justify-center rounded-full border border-border bg-muted text-sm font-bold text-muted-foreground">
                 2
               </span>
               <div>
-                <h3 className="text-sm font-bold text-foreground">증거 업로드</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-foreground">증거 업로드</h3>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">
+                    선택
+                  </span>
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  MP4, MOV 등 대표 증거 영상 1개를 선택하세요. 추가 증거는 사건 상세 화면에서 등록할 수 있습니다.
+                  대표 증거가 준비되어 있으면 함께 등록할 수 있습니다.
                 </p>
               </div>
             </div>
@@ -180,7 +187,7 @@ export function CaseCreateDialog({
                 {representativeFile ? "대표 증거 선택 완료" : "대표 증거 영상 선택"}
               </span>
               <span className="mt-1 text-xs text-muted-foreground">
-                MP4, MOV 등 대표 증거 영상 1개를 선택하세요.
+                MP4, MOV 등 영상 파일을 선택하세요.
               </span>
               {representativeFile ? (
                 <span className="mt-3 flex max-w-full items-center gap-2 rounded-full bg-card px-3 py-1.5 text-xs font-bold text-teal-700 shadow-sm">
@@ -191,6 +198,9 @@ export function CaseCreateDialog({
                     aria-label="선택한 대표 증거 제거"
                     onClick={(event) => {
                       event.preventDefault()
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = ""
+                      }
                       setRepresentativeFile(null)
                     }}
                   >
@@ -200,13 +210,13 @@ export function CaseCreateDialog({
               ) : null}
             </label>
             <input
+              ref={fileInputRef}
               id="dashboardEvidenceFile"
               type="file"
               accept="video/*"
               className="sr-only"
               onChange={(event) => {
                 selectRepresentativeFile(event.target.files)
-                event.currentTarget.value = ""
               }}
             />
           </section>
@@ -220,7 +230,7 @@ export function CaseCreateDialog({
         ) : null}
         <div className="mt-6 flex justify-end gap-2">
           <p className="mr-auto self-center text-xs font-semibold text-muted-foreground">
-            등록 후 원본 저장, SHA-256 해시 생성, 메타데이터 추출이 자동으로 진행됩니다.
+            증거를 함께 등록하면 원본 저장, SHA-256 해시 생성, 메타데이터 추출이 자동으로 진행됩니다.
           </p>
           <Button
             type="button"
@@ -237,7 +247,7 @@ export function CaseCreateDialog({
             disabled={isCreating}
             onClick={handleCreateCase}
           >
-            {isCreating ? "등록 중" : "사건 및 증거 등록"}
+            {isCreating ? "등록 중" : representativeFile ? "사건 + 증거 등록" : "사건만 등록"}
           </Button>
         </div>
       </section>
@@ -251,4 +261,37 @@ export function canRegisterCase(session: AuthSession | null) {
 
 function normalizeCaseNameForCompare(caseName: string) {
   return caseName.trim().toLowerCase()
+}
+
+function getCreateCaseErrorMessage(error: unknown) {
+  if (isLocalFileReadError(error)) {
+    return "선택한 파일을 브라우저가 읽지 못했습니다. 파일이 이동/삭제되었거나 접근 권한이 끊겼을 수 있어요. 파일을 다시 선택한 뒤 등록해 주세요."
+  }
+
+  if (error instanceof ApiError) {
+    if (error.errorCode === "DUPLICATE_CASE_NAME" || error.status === 409) {
+      return "이미 등록된 사건명입니다. 다른 사건명을 입력해 주세요."
+    }
+    if (error.errorCode === "INVALID_REQUEST" || error.status === 400) {
+      return error.details?.[0]?.reason ?? error.message ?? "사건명을 확인해 주세요."
+    }
+    if (error.errorCode === "FORBIDDEN" || error.status === 403) {
+      return "사건을 등록할 권한이 없습니다. 관리자에게 권한을 확인해 주세요."
+    }
+    return error.message
+  }
+
+  return error instanceof Error
+    ? error.message
+    : "사건과 증거 등록에 실패했습니다. 잠시 후 다시 시도해 주세요."
+}
+
+function isLocalFileReadError(error: unknown) {
+  if (!(error instanceof Error)) return false
+
+  return (
+    error.name === "NotReadableError" ||
+    error.message.includes("requested file could not be read") ||
+    error.message.includes("permission problems")
+  )
 }

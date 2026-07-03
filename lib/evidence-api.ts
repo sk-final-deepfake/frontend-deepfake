@@ -149,11 +149,12 @@ export async function uploadEvidence(
 ): Promise<UploadResult> {
   const formData = new FormData()
   formData.append("file", file)
-  if (caseName?.trim()) {
-    formData.append("caseName", caseName.trim())
-  }
+  const trimmedCaseName = caseName?.trim()
+  const path = trimmedCaseName
+    ? `/api/v1/evidences/upload?${new URLSearchParams({ caseName: trimmedCaseName })}`
+    : "/api/v1/evidences/upload"
 
-  const data = await apiRequestForm<FileUploadResponse>("/api/v1/evidences/upload", {
+  const data = await apiRequestForm<FileUploadResponse>(path, {
     body: formData,
   })
 

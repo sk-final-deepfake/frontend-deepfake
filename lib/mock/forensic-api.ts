@@ -685,11 +685,30 @@ async function sha256(file: File): Promise<string> {
     return fallbackHash(file)
   }
 
-  const buffer = await file.arrayBuffer()
+  let buffer: ArrayBuffer
+  try {
+    buffer = await file.arrayBuffer()
+  } catch (error) {
+    if (isLocalFileReadError(error)) {
+      return fallbackHash(file)
+    }
+    throw error
+  }
+
   const digest = await crypto.subtle.digest("SHA-256", buffer)
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
+}
+
+function isLocalFileReadError(error: unknown) {
+  if (!(error instanceof Error)) return false
+
+  return (
+    error.name === "NotReadableError" ||
+    error.message.includes("requested file could not be read") ||
+    error.message.includes("permission problems")
+  )
 }
 
 function fallbackHash(file: File) {
