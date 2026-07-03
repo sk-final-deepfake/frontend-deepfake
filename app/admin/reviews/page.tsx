@@ -372,22 +372,22 @@ export default function AdminReviewAssignmentPage() {
         () => [
             {
                 value: "REQUESTED" as const,
-                label: "미배정",
+                label: "배정대기",
                 count: requestedCases.length,
             },
             {
                 value: "ASSIGNED" as const,
-                label: "검토 중",
+                label: "검토중",
                 count: assignedCases.length,
             },
             {
                 value: "SUPPLEMENT_REQUESTED" as const,
-                label: "보완 요청",
+                label: "재검토",
                 count: supplementRequestedCases.length,
             },
             {
                 value: "COMPLETED" as const,
-                label: "완료",
+                label: "승인",
                 count: completedCases.length,
             },
         ],
@@ -630,13 +630,13 @@ export default function AdminReviewAssignmentPage() {
                 <section className="rounded-lg border border-slate-200 bg-white px-5 py-3 shadow-sm">
                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-700">
-                            <span>미배정 {queueStats.requested}건</span>
+                            <span>배정대기 {queueStats.requested}건</span>
                             <span className="h-3 w-px bg-slate-200" />
-                            <span>검토 중 {queueStats.assigned}건</span>
+                            <span>검토중 {queueStats.assigned}건</span>
                             <span className="h-3 w-px bg-slate-200" />
-                            <span>보완 요청 {queueStats.supplementRequested}건</span>
+                            <span>재검토 {queueStats.supplementRequested}건</span>
                             <span className="h-3 w-px bg-slate-200" />
-                            <span>완료 {queueStats.completed}건</span>
+                            <span>승인 {queueStats.completed}건</span>
                             <span className="h-3 w-px bg-slate-200" />
                             <span
                                 className={
@@ -1236,20 +1236,20 @@ function AssignmentModal({
 function EmptyState({ activeTab }: { activeTab: QueueTab }) {
     const title =
         activeTab === "REQUESTED"
-            ? "미배정 사건이 없습니다."
+            ? "배정대기 사건이 없습니다."
             : activeTab === "ASSIGNED"
-                ? "검토 중인 사건이 없습니다."
+                ? "검토중인 사건이 없습니다."
                 : activeTab === "SUPPLEMENT_REQUESTED"
-                    ? "보완 요청된 사건이 없습니다."
-                    : "완료된 사건이 없습니다.";
+                    ? "재검토 사건이 없습니다."
+                    : "승인된 사건이 없습니다.";
     const description =
         activeTab === "REQUESTED"
             ? "담당자 배정이 필요한 사건이 생기면 이곳에 표시됩니다."
             : activeTab === "ASSIGNED"
                 ? "담당자가 배정되어 검토 중인 사건이 이곳에 표시됩니다."
                 : activeTab === "SUPPLEMENT_REQUESTED"
-                    ? "검토자가 보완을 요청한 사건이 이곳에 표시됩니다."
-                    : "검토 완료 또는 승인 완료된 사건이 이곳에 표시됩니다.";
+                    ? "검토자가 재검토로 표시한 사건이 이곳에 표시됩니다."
+                    : "승인된 사건이 이곳에 표시됩니다.";
 
     return (
         <div className="flex min-h-[260px] flex-col items-center justify-center text-center">

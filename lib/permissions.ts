@@ -9,6 +9,11 @@ export type ReviewStatus =
   | "REVIEW_ASSIGNED"
   | "REVIEW_COMPLETED"
   | "REPORT_APPROVED"
+  | "REVIEW_SUPPLEMENT_REQUESTED"
+  | "SUPPLEMENT_REQUESTED"
+  | "REVIEW_REVISION_REQUESTED"
+  | "REVISION_REQUESTED"
+  | "REVIEW_NEEDS_CHANGES"
 
 export type AiResult = "낮음" | "검토 필요" | "위험"
 
@@ -37,11 +42,16 @@ export const roleLabelMap: Record<UserRole, string> = {
 }
 
 export const reviewStatusLabelMap: Record<ReviewStatus, string> = {
-  NONE: "분석 후 배정",
-  REVIEW_REQUESTED: "배정 대기",
-  REVIEW_ASSIGNED: "검토 중",
-  REVIEW_COMPLETED: "검토 완료",
-  REPORT_APPROVED: "보고서 승인 완료",
+  NONE: "배정대기",
+  REVIEW_REQUESTED: "배정대기",
+  REVIEW_ASSIGNED: "검토중",
+  REVIEW_COMPLETED: "승인",
+  REPORT_APPROVED: "승인",
+  REVIEW_SUPPLEMENT_REQUESTED: "재검토",
+  SUPPLEMENT_REQUESTED: "재검토",
+  REVIEW_REVISION_REQUESTED: "재검토",
+  REVISION_REQUESTED: "재검토",
+  REVIEW_NEEDS_CHANGES: "재검토",
 }
 
 export const mockUsers: AppUser[] = [

@@ -1969,7 +1969,7 @@ function CaseWorkflowPanel({
     setReviewDecision(nextDecision)
     setMessage({
       type: "success",
-      text: nextDecision === "APPROVED" ? "검토 승인으로 표시되었습니다." : "보완 요청으로 표시되었습니다.",
+      text: nextDecision === "APPROVED" ? "승인으로 표시되었습니다." : "재검토로 표시되었습니다.",
     })
   }
 
@@ -2384,7 +2384,7 @@ function CaseWorkflowPanel({
                     }}
                     placeholder={
                       isReviewerMode
-                        ? "검토 결과와 보완 요청 내용을 입력하세요."
+                        ? "검토 결과와 재검토 사유를 입력하세요."
                         : "검토자가 작성한 의견이 여기에 표시됩니다."
                     }
                     className="mt-2 h-[92px] w-full resize-none overflow-y-auto rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-slate-300 read-only:bg-muted/30"
@@ -2829,7 +2829,7 @@ function ReviewerDecisionActions({
   onRevision: () => void
 }) {
   const statusLabel =
-    decision === "APPROVED" ? "승인" : decision === "REVISION" ? "보완 요청" : "검토 대기"
+    decision === "APPROVED" ? "승인" : decision === "REVISION" ? "재검토" : "검토대기"
   const statusClassName =
     decision === "APPROVED"
       ? "bg-emerald-50 text-emerald-700"
@@ -2853,14 +2853,14 @@ function ReviewerDecisionActions({
           className="h-10 font-bold"
           onClick={onRevision}
         >
-          보완 요청
+          재검토
         </Button>
         <Button
           type="button"
           className="h-10 bg-teal-600 font-bold text-white hover:bg-teal-700"
           onClick={onApprove}
         >
-          검토 승인
+          승인
         </Button>
       </div>
     </div>
