@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import {
@@ -66,6 +66,7 @@ import {
   startCaseAnalysis,
   uploadEvidenceToCase,
 } from "@/lib/api/case-workflow"
+import { fetchAnalysisStatus } from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
@@ -189,6 +190,7 @@ export default function CaseDetailPage() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [caseRefreshKey, setCaseRefreshKey] = useState(0)
+  const isInitialCaseLoad = useRef(true)
   const [showResultDashboard, setShowResultDashboard] = useState(false)
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
@@ -208,7 +210,10 @@ export default function CaseDetailPage() {
     let cancelled = false
 
     async function loadCaseDetail() {
-      setCaseLoading(true)
+      const showFullScreenLoader = isInitialCaseLoad.current
+      if (showFullScreenLoader) {
+        setCaseLoading(true)
+      }
       setError(null)
 
       try {
@@ -229,7 +234,10 @@ export default function CaseDetailPage() {
         }
       } finally {
         if (!cancelled) {
-          setCaseLoading(false)
+          if (showFullScreenLoader) {
+            setCaseLoading(false)
+            isInitialCaseLoad.current = false
+          }
         }
       }
     }
@@ -303,9 +311,9 @@ export default function CaseDetailPage() {
     }
   }
 
-  function refreshCase() {
+  const refreshCase = useCallback(() => {
     setCaseRefreshKey((key) => key + 1)
-  }
+  }, [])
 
   function viewResult(evidenceId: number) {
     selectEvidence(evidenceId)
@@ -1877,7 +1885,6 @@ function CaseWorkflowPanel({
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
-  const [localAnalysisProgress, setLocalAnalysisProgress] = useState<Record<number, number>>({})
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [statusFilter, setStatusFilter] = useState<EvidenceStatusBucket | "all">("all")
 
@@ -1885,7 +1892,7 @@ function CaseWorkflowPanel({
   const activeEvidences = evidences.filter((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE")
   const getEvidenceBucket = (evidence: CaseEvidenceSummary): EvidenceStatusBucket => {
     if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return "inactive"
-    if (isEvidenceAnalysisRunning(evidence) || localAnalysisProgress[evidence.evidenceId] != null) return "running"
+    if (isEvidenceAnalysisRunning(evidence)) return "running"
     if (normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED") return "completed"
     return "pending"
   }
@@ -1904,14 +1911,11 @@ function CaseWorkflowPanel({
     evidences.find((item) => item.evidenceId === selectedEvidenceId) ?? evidences[0] ?? null
   const selectedEvidenceActive = (selectedEvidence?.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
   const selectedEvidenceStatus = normalizeStatus(selectedEvidence?.analysisStatus ?? "PENDING")
-  const selectedEvidenceLocalProgress = selectedEvidence
-    ? localAnalysisProgress[selectedEvidence.evidenceId]
-    : undefined
   const selectedEvidenceRunning = selectedEvidence
-    ? isEvidenceAnalysisRunning(selectedEvidence) || selectedEvidenceLocalProgress != null
+    ? isEvidenceAnalysisRunning(selectedEvidence)
     : false
   const selectedEvidenceProgress = selectedEvidenceRunning
-    ? Math.max(selectedEvidenceLocalProgress ?? 0, selectedEvidence?.analysisProgress ?? 0)
+    ? selectedEvidence?.analysisProgress ?? 0
     : selectedEvidenceStatus === "COMPLETED"
       ? 100
       : 0
@@ -1996,34 +2000,45 @@ function CaseWorkflowPanel({
   }, [statusFilter, bucketCounts.running])
 
   useEffect(() => {
-    const runningIds = new Set(
-      evidences
-        .filter((evidence) => isEvidenceAnalysisRunning(evidence) || localAnalysisProgress[evidence.evidenceId] != null)
-        .map((evidence) => evidence.evidenceId)
-    )
+    const pollIds = evidences
+      .filter((evidence) => isEvidenceAnalysisRunning(evidence))
+      .map((evidence) => evidence.evidenceId)
 
-    if (runningIds.size === 0) return
+    if (pollIds.length === 0) return
+
+    let cancelled = false
+    let lastRefreshAt = 0
+
+    async function pollAnalysisStatuses() {
+      const statuses = await Promise.all(
+        pollIds.map((evidenceId) => fetchAnalysisStatus(evidenceId).catch(() => null))
+      )
+
+      if (cancelled) return
+
+      const hasTerminalStatus = statuses.some(
+        (status) => status?.status === "COMPLETED" || status?.status === "FAILED"
+      )
+      const now = Date.now()
+
+      if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
+        lastRefreshAt = now
+        onRefresh()
+      }
+    }
+
+    void pollAnalysisStatuses()
 
     const interval = window.setInterval(() => {
-      setLocalAnalysisProgress((current) => {
-        let changed = false
-        const next = { ...current }
+      if (document.hidden) return
+      void pollAnalysisStatuses()
+    }, 4000)
 
-        for (const evidenceId of runningIds) {
-          const currentValue = next[evidenceId] ?? 8
-          const bumped = Math.min(92, currentValue + 4)
-          if (bumped !== currentValue) {
-            next[evidenceId] = bumped
-            changed = true
-          }
-        }
-
-        return changed ? next : current
-      })
-    }, 900)
-
-    return () => window.clearInterval(interval)
-  }, [evidences, localAnalysisProgress])
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [evidences, onRefresh])
 
   async function runAction(
     action: () => Promise<void>,
@@ -2141,16 +2156,11 @@ function CaseWorkflowPanel({
           targetEvidenceId,
         })
         if (targetIds[0]) onSelectEvidence(targetIds[0])
-        setLocalAnalysisProgress((current) => {
-          const next = { ...current }
-          for (const id of targetIds) next[id] = Math.max(next[id] ?? 0, 8)
-          return next
-        })
         setSelectedAnalysisIds([])
         setActionMode("idle")
       },
       `${getAnalysisTypeLabel(analysisType)} 요청이 등록되었습니다.`,
-      { showSuccess: false, refresh: false }
+      { showSuccess: false, refresh: true }
     )
   }
 
@@ -2166,11 +2176,6 @@ function CaseWorkflowPanel({
 
     await runAction(async () => {
       await cancelCaseAnalysis(selectedEvidence.evidenceId)
-      setLocalAnalysisProgress((current) => {
-        const next = { ...current }
-        delete next[selectedEvidence.evidenceId]
-        return next
-      })
       onSelectEvidence(selectedEvidence.evidenceId)
     }, "", { showSuccess: false })
   }
@@ -4298,19 +4303,15 @@ function isEvidenceAnalysisRunning(evidence: CaseEvidenceSummary) {
   const lifecycle = evidence.lifecycleStatus ?? "ACTIVE"
   const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
 
-  return lifecycle === "ACTIVE" && (
-    status === "PROCESSING" || (status === "PENDING" && evidence.analysisProgress != null)
-  )
+  // PROCESSING(=백엔드 ANALYZING)만 분석 중. PENDING+progress 0은 미요청/대기.
+  return lifecycle === "ACTIVE" && status === "PROCESSING"
 }
 
 function isEvidenceSelectableForAnalysis(evidence: CaseEvidenceSummary) {
   const lifecycle = evidence.lifecycleStatus ?? "ACTIVE"
   const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
 
-  return lifecycle === "ACTIVE" &&
-    status !== "COMPLETED" &&
-    status !== "PROCESSING" &&
-    !(status === "PENDING" && evidence.analysisProgress != null)
+  return lifecycle === "ACTIVE" && (status === "PENDING" || status === "FAILED")
 }
 
 function getAnalysisTypeLabel(type: AnalysisType) {
