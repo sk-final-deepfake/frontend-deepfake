@@ -26,6 +26,7 @@ type CompareStep = "source" | "upload" | "processing" | "result"
 
 export type SourceEvidence = {
   id: number
+  caseId: string
   displayLabel: string
   name: string
   dateLabel: string
@@ -64,6 +65,7 @@ const EMPTY_CASE: SourceCase = {
 
 const EMPTY_EVIDENCE: SourceEvidence = {
   id: 0,
+  caseId: "",
   displayLabel: "기준 증거",
   name: "기준 증거를 선택하세요",
   dateLabel: "-",
@@ -325,7 +327,7 @@ export function CompareVerificationFlow() {
     EMPTY_EVIDENCE
   const filteredEvidences = selectedCase.evidences.filter((evidence) => {
     const searchValue =
-      `${evidence.id} ${evidence.displayLabel} ${evidence.name} ${evidence.dateLabel}`.toLowerCase()
+      `${evidence.id} ${evidence.displayLabel} ${evidence.dateLabel}`.toLowerCase()
     return searchValue.includes(evidenceQuery.toLowerCase())
   })
 
@@ -466,6 +468,7 @@ function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
     updatedAtLabel: formatDateTimeLabel(caseDetail.createdAt),
     evidences: completedEvidences.map((evidence, index) => ({
       id: evidence.evidenceId,
+      caseId: caseDetail.caseId,
       displayLabel: evidence.displayLabel || `기준 증거 ${index + 1}`,
       name: evidence.fileName,
       dateLabel: getCaseStatusLabel(evidence.analysisStatus),

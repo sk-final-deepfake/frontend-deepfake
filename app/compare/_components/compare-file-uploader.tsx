@@ -1,9 +1,10 @@
 import type { DragEvent, RefObject } from "react"
-import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, FileVideo, Play, UploadCloud, X } from "lucide-react"
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, FileVideo, UploadCloud, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { SourceEvidence, UploadedCompareFile } from "./compare-verification-flow"
+import { SourceEvidenceMediaPreview } from "./source-evidence-media-preview"
 
 type CompareFileUploaderProps = {
   sourceEvidence: SourceEvidence
@@ -61,7 +62,7 @@ export function CompareFileUploader({
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-bold text-slate-950 dark:text-foreground">
-                    {compareFile.name}
+                    비교 대상 파일
                   </span>
                   <span className="mt-1 block text-xs font-semibold text-slate-500">{compareFile.sizeLabel}</span>
                 </span>
@@ -135,32 +136,14 @@ export function CompareFileUploader({
 }
 
 export function SourceEvidenceCard({ evidence }: { evidence: SourceEvidence }) {
-  const mediaPreviewUrl = evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl
-
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-border dark:bg-background">
       <p className="text-xs font-bold text-slate-400">기준 증거 (원본)</p>
       <div className="mt-3 flex min-w-0 items-start gap-3">
-        <span className="relative block h-14 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-950">
-          {evidence.thumbnailUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={evidence.thumbnailUrl} alt="" className="absolute inset-0 size-full object-cover" />
-          ) : mediaPreviewUrl ? (
-            <video
-              src={mediaPreviewUrl}
-              className="absolute inset-0 size-full object-cover"
-              muted
-              playsInline
-              preload="metadata"
-            />
-          ) : null}
-          <span className="absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-white/90 text-slate-700">
-            <Play className="ml-px size-2.5 fill-current" aria-hidden="true" />
-          </span>
-        </span>
+        <SourceEvidenceMediaPreview evidence={evidence} className="h-14 w-24 shrink-0" compact />
         <span className="min-w-0">
           <span className="block truncate text-sm font-bold text-slate-950 dark:text-foreground">
-            {evidence.name}
+            비교검증 기준 증거
           </span>
           <span className="mt-1 block font-mono text-xs font-medium text-slate-400">EVD-{evidence.id}</span>
         </span>

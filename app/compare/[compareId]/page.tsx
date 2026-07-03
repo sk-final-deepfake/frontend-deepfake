@@ -256,10 +256,10 @@ function CompareReport({
         <div className="min-w-0">
           <p className="text-xs font-bold text-slate-400">비교 대상 (제출본)</p>
           <p className="mt-1.5 truncate text-sm font-bold text-slate-950 dark:text-foreground">
-            {result.candidateFileName || "-"}
+            비교 대상 파일
           </p>
           <p className="mt-1 text-xs font-semibold text-slate-500">
-            {getFileTypeFromName(result.candidateFileName)} 파일 · {formatDateTime(result.createdAt)} 검증
+            제출본 · {formatDateTime(result.createdAt)} 검증
           </p>
         </div>
       </section>
@@ -539,10 +539,10 @@ function CompareItemRow({ item }: { item: CompareItem }) {
     <tr className={cn(isSkipped && "text-slate-300")}>
       <td className="px-6 py-3 font-bold text-slate-900 dark:text-foreground">{item.label}</td>
       <td className="max-w-[240px] px-6 py-3">
-        <CompareValue value={item.originalValue} />
+        <CompareValue value={formatCompareItemValue(item, item.originalValue)} />
       </td>
       <td className="max-w-[240px] px-6 py-3">
-        <CompareValue value={item.candidateValue} tone={isMismatch ? "danger" : undefined} />
+        <CompareValue value={formatCompareItemValue(item, item.candidateValue)} tone={isMismatch ? "danger" : undefined} />
       </td>
       <td
         className={cn(
@@ -667,7 +667,10 @@ function getCompareItemResultLabel(result: CompareItemResult) {
   return labels[result]
 }
 
-function getFileTypeFromName(fileName: string) {
-  const extension = fileName?.split(".").pop()
-  return extension ? extension.toUpperCase() : "-"
+function formatCompareItemValue(item: { itemKey: string; label: string }, value: string) {
+  const itemText = `${item.itemKey} ${item.label}`.toLowerCase()
+  if (itemText.includes("filename") || itemText.includes("file_name") || item.label.includes("파일명")) {
+    return "비공개"
+  }
+  return value || "-"
 }

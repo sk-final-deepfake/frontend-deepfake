@@ -47,7 +47,7 @@ export function CompareResultPanel({
           <p className="text-lg font-bold">{verdict.title}</p>
           <p className="mt-1 text-sm font-semibold opacity-80">{verdict.description}</p>
           <p className="mt-3 text-xs font-bold opacity-70">
-            Compare ID: {result.compareId} · 비교 대상 파일: {result.candidateFileName}
+            Compare ID: {result.compareId} · 비교 대상: 제출본
           </p>
         </div>
       </div>
@@ -101,10 +101,10 @@ export function CompareResultPanel({
                       {item.label}
                     </td>
                     <td className="max-w-[220px] truncate px-6 py-4 font-semibold text-slate-500 dark:text-muted-foreground">
-                      {item.originalValue}
+                      {formatCompareItemValue(item, item.originalValue)}
                     </td>
                     <td className="max-w-[220px] truncate px-6 py-4 font-semibold text-slate-500 dark:text-muted-foreground">
-                      {item.candidateValue}
+                      {formatCompareItemValue(item, item.candidateValue)}
                     </td>
                     <td className="px-6 py-4 font-bold">
                       {getCompareItemResultLabel(item.result)}
@@ -153,6 +153,14 @@ function getCompareItemResultLabel(result: string) {
   }
 
   return labels[result] ?? result
+}
+
+function formatCompareItemValue(item: { itemKey: string; label: string }, value: string) {
+  const itemText = `${item.itemKey} ${item.label}`.toLowerCase()
+  if (itemText.includes("filename") || itemText.includes("file_name") || item.label.includes("파일명")) {
+    return "비공개"
+  }
+  return value || "-"
 }
 
 function getVerdictDisplay(verdict: CompareVerdict, verdictLabel: string) {

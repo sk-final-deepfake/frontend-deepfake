@@ -38,6 +38,7 @@ import {
   Pencil,
   Play,
   Plus,
+  ShieldCheck,
   Square,
   Trash2,
   UserRound,
@@ -2662,7 +2663,10 @@ function CaseWorkflowPanel({
                       className="group flex w-full items-center justify-between gap-4 text-left"
                       onClick={handleViewIntegrityCheck}
                     >
-                      <span className="shrink-0 text-sm font-bold text-muted-foreground">무결성 검증</span>
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-bold text-muted-foreground">
+                        <ShieldCheck className="size-4" aria-hidden="true" />
+                        무결성 검증
+                      </span>
                       <span className="flex min-w-0 items-center gap-1 text-sm font-bold">
                         <span className="text-emerald-600">해시값 일치</span>
                         <span className="text-muted-foreground transition-colors group-hover:text-foreground">· 상세</span>
@@ -2684,7 +2688,10 @@ function CaseWorkflowPanel({
                             : handleStartCompareVerification
                         }
                       >
-                        <span className="shrink-0 text-sm font-bold text-muted-foreground">비교검증</span>
+                        <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-bold text-muted-foreground">
+                          <GitCompare className="size-4" aria-hidden="true" />
+                          비교검증
+                        </span>
                         <span className="flex min-w-0 items-center gap-1 text-sm font-bold">
                           <span className={compareTextClassName}>{compareLabel}</span>
                           <span className="text-muted-foreground transition-colors group-hover:text-foreground">

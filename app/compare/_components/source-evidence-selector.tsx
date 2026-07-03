@@ -1,8 +1,9 @@
-import { AlertTriangle, ArrowRight, Play, Search } from "lucide-react"
+import { AlertTriangle, ArrowRight, Search } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { SourceCase, SourceEvidence } from "./compare-verification-flow"
+import { SourceEvidenceMediaPreview } from "./source-evidence-media-preview"
 
 type SourceEvidenceSelectorProps = {
   evidenceQuery: string
@@ -81,7 +82,7 @@ export function SourceEvidenceSelector({
               <input
                 value={evidenceQuery}
                 onChange={(event) => onEvidenceQueryChange(event.target.value)}
-                placeholder="파일명 또는 EVD 번호 검색"
+                placeholder="EVD 번호 또는 증거명 검색"
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold text-slate-950 outline-none transition-colors placeholder:font-medium placeholder:text-slate-400 focus:border-slate-400 dark:border-border dark:bg-card dark:text-foreground"
               />
             </span>
@@ -126,14 +127,6 @@ export function SourceEvidenceSelector({
                         {formatEvidenceId(evidence.id)}
                       </span>
                     </span>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold",
-                        getStatusBadgeClassName(evidence.dateLabel)
-                      )}
-                    >
-                      {evidence.dateLabel}
-                    </span>
                   </button>
                 )
               })
@@ -146,9 +139,9 @@ export function SourceEvidenceSelector({
             <p className="text-xs font-bold text-slate-400">선택된 기준 증거</p>
             {selectedEvidence ? (
               <>
-                <EvidencePreview evidence={selectedEvidence} className="mt-3 aspect-video w-full" />
+                <SourceEvidenceMediaPreview evidence={selectedEvidence} className="mt-3 aspect-video w-full" />
                 <p className="mt-3 truncate text-sm font-bold text-slate-950 dark:text-foreground">
-                  {selectedEvidence.name}
+                  비교검증 기준 증거
                 </p>
                 <p className="mt-0.5 font-mono text-xs font-medium text-slate-400">
                   {formatEvidenceId(selectedEvidence.id)}
@@ -157,10 +150,6 @@ export function SourceEvidenceSelector({
                   <div className="flex items-center justify-between gap-3">
                     <dt className="font-semibold text-slate-400">파일 유형</dt>
                     <dd className="font-bold text-slate-700 dark:text-foreground">{selectedEvidence.codecLabel}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="font-semibold text-slate-400">분석 상태</dt>
-                    <dd className="font-bold text-slate-700 dark:text-foreground">{selectedEvidence.dateLabel}</dd>
                   </div>
                 </dl>
               </>
@@ -196,55 +185,6 @@ function EmptyPaneMessage({ label }: { label: string }) {
   )
 }
 
-function EvidencePreview({ evidence, className }: { evidence: SourceEvidence; className?: string }) {
-  const mediaPreviewUrl = evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl
-  const thumbnailUrl = evidence.thumbnailUrl
-
-  return (
-    <span className={cn("relative block min-w-0 overflow-hidden rounded-lg bg-slate-950", className)}>
-      {thumbnailUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={thumbnailUrl}
-          alt={`${formatEvidenceId(evidence.id)} 썸네일`}
-          className="absolute inset-0 size-full object-cover"
-        />
-      ) : mediaPreviewUrl ? (
-        <video
-          src={mediaPreviewUrl}
-          className="absolute inset-0 size-full object-cover"
-          muted
-          playsInline
-          preload="metadata"
-          aria-label={`${formatEvidenceId(evidence.id)} 미리보기`}
-        />
-      ) : null}
-      <span className="absolute inset-x-0 bottom-0 h-7 bg-gradient-to-t from-slate-950/70 to-transparent" />
-      <span className="absolute left-2.5 top-2.5 flex size-7 items-center justify-center rounded-full bg-white/90 text-slate-700">
-        <Play className="ml-0.5 size-3.5 fill-current" aria-hidden="true" />
-      </span>
-      {evidence.durationLabel !== "-" ? (
-        <span className="absolute bottom-2 right-2 rounded bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
-          {evidence.durationLabel}
-        </span>
-      ) : null}
-    </span>
-  )
-}
-
 function formatEvidenceId(evidenceId: number) {
   return `EVD-${evidenceId}`
-}
-
-function getStatusBadgeClassName(statusLabel: string) {
-  if (statusLabel.includes("완료")) {
-    return "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-  }
-  if (statusLabel.includes("실패")) {
-    return "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300"
-  }
-  if (statusLabel.includes("중")) {
-    return "bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300"
-  }
-  return "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
 }
