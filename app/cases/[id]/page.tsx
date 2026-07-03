@@ -2348,7 +2348,7 @@ function CaseWorkflowPanel({
   }
 
   return (
-    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+    <section className="relative rounded-xl border border-border bg-card p-5 shadow-sm">
       {!readOnly ? (
         <input
           ref={uploadInputRef}
@@ -2359,8 +2359,14 @@ function CaseWorkflowPanel({
           onChange={(event) => void handleUploadFiles(event.target.files)}
         />
       ) : null}
+      {evidences.length > 0 ? (
+        <span
+          className="pointer-events-none absolute bottom-5 left-[calc(1.25rem+16rem)] top-5 hidden w-px bg-slate-200/80 shadow-[12px_0_24px_-16px_rgba(15,23,42,0.65)] dark:bg-border xl:block"
+          aria-hidden="true"
+        />
+      ) : null}
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end xl:absolute xl:right-5 xl:top-5 xl:z-10">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
             {(
@@ -2466,7 +2472,7 @@ function CaseWorkflowPanel({
         </div>
       ) : null}
 
-      <div className="mt-4">
+      <div className="mt-4 xl:mt-0">
         {evidences.length === 0 ? (
           readOnly ? (
             <div className="rounded-xl border border-dashed border-border px-5 py-12 text-center text-sm font-bold text-muted-foreground">
@@ -2484,14 +2490,7 @@ function CaseWorkflowPanel({
           )
         ) : (
           <div className="flex flex-col gap-4 xl:flex-row xl:gap-5">
-            <div className="relative flex flex-col bg-white dark:bg-card xl:w-64 xl:shrink-0 xl:pr-3">
-              <span
-                className={cn(
-                  "pointer-events-none absolute right-0 top-0 hidden w-px bg-slate-200/80 shadow-[10px_0_20px_-16px_rgba(15,23,42,0.6)] dark:bg-border xl:block",
-                  showEvidenceActionFooter ? "bottom-[-6.5rem]" : "bottom-0"
-                )}
-                aria-hidden="true"
-              />
+            <div className="flex flex-col bg-white dark:bg-card xl:w-64 xl:shrink-0 xl:pr-3">
               <div className="flex items-baseline gap-2 px-2 pb-4 pt-1">
                 <h2 className="text-[22px] font-bold text-foreground">증거</h2>
                 <span className="text-base font-bold text-muted-foreground">{evidences.length}개</span>
@@ -2544,7 +2543,7 @@ function CaseWorkflowPanel({
             </div>
 
             {selectedEvidence ? (
-              <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex min-w-0 flex-1 flex-col xl:pt-14">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 items-baseline gap-2">
                     <h3 className="truncate text-lg font-bold text-foreground">
