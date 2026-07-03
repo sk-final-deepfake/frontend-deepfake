@@ -10,6 +10,8 @@ import { formatDuration } from "@/lib/formatters"
 const TIMELINE_MODULE = "video_timeline"
 const HIGH_RISK_THRESHOLD = 0.6
 const REVIEW_THRESHOLD = 0.3
+/** GPU placeholder로 흔히 들어오는 미실행 모듈 점수 상한 (예: frame_edit 0.05) */
+const MIN_EXECUTED_MODULE_SCORE = 0.1
 
 export type UiRiskSignal = {
   label: string
@@ -68,8 +70,35 @@ export function isAnalysisModule(moduleName: string) {
   return moduleName.toLowerCase() !== TIMELINE_MODULE
 }
 
+type ModuleDetailsMeta = {
+  executed?: boolean
+}
+
+function parseModuleDetails(details: string | null | undefined): ModuleDetailsMeta {
+  if (!details?.trim()) return {}
+  try {
+    const parsed = JSON.parse(details) as ModuleDetailsMeta
+    return parsed && typeof parsed === "object" ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** GPU가 실제 실행·보고한 탐지 모듈만 UI에 노출합니다. */
+export function isExecutedDetectionModule(module: ModuleResult) {
+  if (!isAnalysisModule(module.moduleName)) return false
+
+  const meta = parseModuleDetails(module.details)
+  if (meta.executed === true) return true
+
+  const score = normalizeResultValue(module.score)
+  if (module.detected) return true
+  if (score >= MIN_EXECUTED_MODULE_SCORE) return true
+  return false
+}
+
 export function getDetectionModules(modules: ModuleResult[]) {
-  return modules.filter((module) => isAnalysisModule(module.moduleName))
+  return modules.filter((module) => isExecutedDetectionModule(module))
 }
 
 export function normalizeResultValue(value: number) {
@@ -184,11 +213,11 @@ export function buildRiskSignals(
   }))
 
   const primary = signals.filter((signal) => signal.score >= REVIEW_THRESHOLD || signal.tone === "danger")
-  const extra = signals.filter((signal) => signal.score < REVIEW_THRESHOLD && signal.tone === "neutral")
+  const extra = signals.filter((signal) => signal.score < REVIEW_THRESHOLD && signal.tone !== "danger")
 
   return {
-    primary: primary.length > 0 ? primary.slice(0, 4) : signals.slice(0, 2),
-    extra: primary.length > 0 ? extra : signals.slice(2),
+    primary: primary.slice(0, 4),
+    extra,
   }
 }
 
@@ -369,6 +398,9 @@ export function buildModelAnalysisSettings(
         .filter((version): version is string => Boolean(version))
     ),
   ]
+  const parsedFrameCount = parseAnalyzedFrameCount(data)
+  const analyzedFrameCount =
+    frameScores.length > 0 ? frameScores.length : parsedFrameCount
 
   return [
     {
@@ -386,7 +418,7 @@ export function buildModelAnalysisSettings(
     },
     {
       label: "분석 프레임 수",
-      value: frameScores.length > 0 ? `${frameScores.length}개` : "-",
+      value: analyzedFrameCount != null ? `${analyzedFrameCount}개` : "-",
     },
     {
       label: "영상 길이",
@@ -439,4 +471,23 @@ export function getEnsembleVerdictLabel(score: number) {
   if (score >= HIGH_RISK_THRESHOLD) return { label: "위험 신호 높음", cls: "bg-red-50 text-red-700" }
   if (score >= REVIEW_THRESHOLD) return { label: "검토 필요", cls: "bg-amber-100 text-amber-700" }
   return { label: "위험 신호 낮음", cls: "bg-emerald-100 text-emerald-700" }
+}
+
+function parseAnalyzedFrameCount(data: EvidenceDetailData | null): number | null {
+  const frameRisks = data?.analysisInfo.frameRisks ?? []
+  if (frameRisks.length > 0) return frameRisks.length
+
+  const items = data?.analysisInfo.evidenceItems ?? []
+  for (const line of items) {
+    const match = line.match(/over\s+(\d+)\s+frames?/i)
+    if (match) return Number(match[1])
+  }
+
+  const summary = data?.analysisInfo.summary?.trim()
+  if (summary) {
+    const match = summary.match(/over\s+(\d+)\s+frames?/i)
+    if (match) return Number(match[1])
+  }
+
+  return null
 }
