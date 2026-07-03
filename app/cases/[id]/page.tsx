@@ -1979,9 +1979,9 @@ function CaseWorkflowPanel({
   const [selectedAnalysisIds, setSelectedAnalysisIds] = useState<number[]>([])
   const [baseEvidenceId, setBaseEvidenceId] = useState<number | null>(null)
   const [targetEvidenceId, setTargetEvidenceId] = useState<number | null>(null)
-  const [excludeReason, setExcludeReason] = useState("잘못 업로드된 증거로 사용 제외 처리")
+  const [excludeReason, setExcludeReason] = useState("잘못 업로드된 증거로 사용제외 처리")
   const [infoTab, setInfoTab] = useState<"metadata" | "comment">("metadata")
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [editCaseOpen, setEditCaseOpen] = useState(false)
   const [caseNameDraft, setCaseNameDraft] = useState(caseData.caseName)
   const [representativeDraftId, setRepresentativeDraftId] = useState<number | null>(
@@ -2035,6 +2035,7 @@ function CaseWorkflowPanel({
     : false
   const selectedEvidenceRepresentative =
     selectedEvidence != null && caseData.representativeEvidenceId === selectedEvidence.evidenceId
+  const selectedEvidenceExcludable = selectedEvidence ? isEvidenceExcludable(selectedEvidence) : false
   const selectableAnalysisEvidences = readOnly ? [] : evidences.filter(isEvidenceSelectableForAnalysis)
   const selectedAnalysisIdSet = new Set(selectedAnalysisIds)
   const selectedAnalysisCount = selectedAnalysisIds.filter((id) =>
@@ -2043,8 +2044,8 @@ function CaseWorkflowPanel({
   const allSelectableAnalysisSelected =
     selectableAnalysisEvidences.length > 0 &&
     selectableAnalysisEvidences.every((evidence) => selectedAnalysisIdSet.has(evidence.evidenceId))
-  const showEvidenceActionFooter =
-    !readOnly && (selectedEvidenceRunning || selectedEvidenceCompleted || selectableAnalysisEvidences.length > 0)
+  const showEvidenceActionFooter = !readOnly
+  const showSelectedEvidenceResultAction = selectedAnalysisCount === 0 && selectedEvidenceCompleted
   const selectedMediaUrl =
     evidenceDetail?.evidenceInfo.videoUrl ??
     evidenceDetail?.evidenceInfo.streamUrl ??
@@ -2105,6 +2106,19 @@ function CaseWorkflowPanel({
       setStatusFilter("all")
     }
   }, [statusFilter, bucketCounts.running])
+
+  useEffect(() => {
+    if (selectedAnalysisCount === 0) return
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedAnalysisIds([])
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape)
+    return () => window.removeEventListener("keydown", handleEscape)
+  }, [selectedAnalysisCount])
 
   useEffect(() => {
     const pollIds = evidences
@@ -2294,6 +2308,11 @@ function CaseWorkflowPanel({
 
   function handleStartCompareVerification() {
     if (!selectedEvidence || !selectedEvidenceActive) return
+    if (!isEvidenceExcludable(selectedEvidence)) {
+      setDeleteConfirmOpen(false)
+      setMessage({ type: "error", text: "미분석 증거만 사용제외할 수 있습니다." })
+      return
+    }
     onStartCompare(selectedEvidence.evidenceId)
   }
 
@@ -2308,7 +2327,6 @@ function CaseWorkflowPanel({
 
     onUpdateCaseSettings(nextName, representativeDraftId)
     setEditCaseOpen(false)
-    setMenuOpen(false)
     setMessage({
       type: "success",
       text: "사건 정보가 수정되었습니다. 원본 증거와 CoC 기록은 변경되지 않습니다.",
@@ -2323,7 +2341,7 @@ function CaseWorkflowPanel({
       setDeleteConfirmOpen(false)
       setMessage({
         type: "error",
-        text: "대표는 삭제 불가능합니다. 대표 증거를 먼저 변경한 뒤 삭제해 주세요.",
+        text: "대표는 사용제외할 수 없습니다. 대표 증거를 먼저 변경해 주세요.",
       })
       return
     }
@@ -2331,12 +2349,12 @@ function CaseWorkflowPanel({
     const nextActiveEvidence = activeEvidences.find((evidence) => evidence.evidenceId !== selectedEvidence.evidenceId)
 
     await runAction(async () => {
-      await markEvidenceExcluded(selectedEvidence.evidenceId, "화면에서 삭제 처리")
+      await markEvidenceExcluded(selectedEvidence.evidenceId, "화면에서 사용제외 처리")
       if (selectedEvidenceRepresentative && !nextActiveEvidence) {
         onUpdateCaseSettings(caseData.caseName, null)
       }
       if (nextActiveEvidence) onSelectEvidence(nextActiveEvidence.evidenceId)
-    }, `${formatEvidenceTitle(selectedEvidence)}가 삭제 처리되었습니다.`)
+    }, `${formatEvidenceTitle(selectedEvidence)}가 사용제외 처리되었습니다.`)
 
     setDeleteConfirmOpen(false)
   }
@@ -2361,101 +2379,6 @@ function CaseWorkflowPanel({
           onChange={(event) => void handleUploadFiles(event.target.files)}
         />
       ) : null}
-      {evidences.length > 0 ? (
-        <span
-          className="pointer-events-none absolute bottom-5 left-[calc(1.25rem+16rem)] top-5 hidden w-px bg-slate-200/80 shadow-[12px_0_24px_-16px_rgba(15,23,42,0.65)] dark:bg-border xl:block"
-          aria-hidden="true"
-        />
-      ) : null}
-
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end xl:absolute xl:right-5 xl:top-5 xl:z-10">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            {(
-              [
-                { key: "all", label: "전체", count: evidences.length },
-                { key: "pending", label: "미분석", count: bucketCounts.pending },
-                { key: "running", label: "분석 중", count: bucketCounts.running },
-                { key: "completed", label: "완료", count: bucketCounts.completed },
-              ] as const
-            ).map((chip) =>
-              chip.key === "running" && chip.count === 0 ? null : (
-                <button
-                  key={chip.key}
-                  type="button"
-                  onClick={() => setStatusFilter(chip.key)}
-                  className={cn(
-                    "rounded-full px-3 py-1.5 text-[13px] font-bold transition-colors",
-                    statusFilter === chip.key
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  {chip.label} {chip.count}
-                </button>
-              )
-            )}
-          </div>
-          {readOnly ? (
-            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[13px] font-bold text-slate-600">
-              검토 전용
-            </span>
-          ) : (
-            <div className="relative">
-              <button
-                type="button"
-                className="flex size-10 items-center justify-center rounded-md bg-transparent text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={isWorking}
-                aria-label="증거 작업 메뉴"
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((open) => !open)}
-              >
-                <MoreVertical className="size-5" aria-hidden="true" />
-              </button>
-              {menuOpen ? (
-                <div className="absolute right-0 top-12 z-20 w-52 overflow-hidden rounded-xl border border-border bg-card py-1 text-sm font-bold shadow-lg">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-4 py-3 text-left text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={isWorking}
-                    onClick={() => {
-                      setMenuOpen(false)
-                      setCaseNameDraft(caseData.caseName)
-                      setRepresentativeDraftId(caseData.representativeEvidenceId ?? selectedEvidence?.evidenceId ?? null)
-                      setEditCaseOpen(true)
-                      setDeleteConfirmOpen(false)
-                    }}
-                  >
-                    수정하기
-                    <Pencil className="size-4" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-4 py-3 text-left text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!selectedEvidence || isWorking || (selectedEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
-                    onClick={() => {
-                      setMenuOpen(false)
-                      if (selectedEvidenceRepresentative && activeEvidences.length > 1) {
-                        setDeleteConfirmOpen(false)
-                        setMessage({
-                          type: "error",
-                          text: "대표는 삭제 불가능합니다. 대표 증거를 먼저 변경한 뒤 삭제해 주세요.",
-                        })
-                        return
-                      }
-                      setDeleteConfirmOpen(true)
-                    }}
-                  >
-                    삭제하기
-                    <Trash2 className="size-4" aria-hidden="true" />
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </div>
-
       {message ? (
         <div
           className={cn(
@@ -2492,13 +2415,95 @@ function CaseWorkflowPanel({
           )
         ) : (
           <div className="flex flex-col gap-4 xl:flex-row xl:gap-5">
-            <div className="flex flex-col bg-white dark:bg-card xl:w-64 xl:shrink-0 xl:pr-3">
-              <div className="flex items-baseline gap-2 px-2 pb-4 pt-1">
-                <h2 className="text-[22px] font-bold text-foreground">증거</h2>
-                <span className="text-base font-bold text-muted-foreground">{evidences.length}개</span>
+            <div className="flex flex-col bg-white dark:bg-card xl:w-64 xl:shrink-0 xl:border-r xl:border-slate-200/80 xl:pr-4 xl:dark:border-border">
+              <div className="relative flex items-center justify-between gap-3 px-2 pb-2 pt-1">
+                <div className="flex items-baseline gap-2">
+                  <h2 className="text-[22px] font-bold text-foreground">증거</h2>
+                  <span className="text-base font-bold text-muted-foreground">{evidences.length}개</span>
+                </div>
+                {!readOnly ? (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={isWorking}
+                      aria-label="증거 작업 더보기"
+                      aria-expanded={actionMenuOpen}
+                      onClick={() => setActionMenuOpen((open) => !open)}
+                    >
+                      <MoreVertical className="size-4" aria-hidden="true" />
+                    </button>
+                    {actionMenuOpen ? (
+                      <div className="absolute right-0 top-10 z-30 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 text-sm font-bold shadow-[0_18px_40px_rgba(15,23,42,0.16)] ring-1 ring-slate-950/5 dark:border-border dark:bg-card">
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                          onClick={() => {
+                            setActionMenuOpen(false)
+                            setCaseNameDraft(caseData.caseName)
+                            setRepresentativeDraftId(caseData.representativeEvidenceId ?? selectedEvidence?.evidenceId ?? null)
+                            setEditCaseOpen(true)
+                            setDeleteConfirmOpen(false)
+                          }}
+                        >
+                          사건 수정
+                          <Pencil className="size-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!selectedEvidence || isWorking || !selectedEvidenceExcludable}
+                          onClick={() => {
+                            setActionMenuOpen(false)
+                            if (selectedEvidenceRepresentative && activeEvidences.length > 1) {
+                              setMessage({
+                                type: "error",
+                                text: "대표는 사용제외할 수 없습니다. 대표 증거를 먼저 변경해 주세요.",
+                              })
+                              return
+                            }
+                            setDeleteConfirmOpen(true)
+                          }}
+                        >
+                          사용제외
+                          <Trash2 className="size-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
-              <div className="flex max-h-[360px] flex-col gap-0.5 overflow-y-auto pr-1">
+              {!readOnly && selectableAnalysisEvidences.length > 0 ? (
+                <div className="mb-2 flex items-center justify-between gap-2 px-2">
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[12px] font-bold text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isWorking}
+                    onClick={toggleAllSelectableAnalysis}
+                  >
+                    <span
+                      className={cn(
+                        "flex size-3.5 items-center justify-center rounded-[4px] border",
+                        allSelectableAnalysisSelected
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-slate-300 bg-white"
+                      )}
+                      aria-hidden="true"
+                    >
+                      {allSelectableAnalysisSelected ? <Check className="size-2.5" strokeWidth={3} /> : null}
+                    </span>
+                    전체 선택
+                  </button>
+                  {selectedAnalysisCount > 0 ? (
+                    <span className="text-[12px] font-bold text-muted-foreground">
+                      {selectedAnalysisCount}개 선택
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="flex h-[320px] flex-col overflow-y-auto pr-1">
                 {filteredEvidences.length === 0 ? (
                   <p className="flex min-h-[220px] items-center justify-center px-3 text-center text-[13px] font-bold text-muted-foreground">
                     해당 상태의 증거가 없습니다.
@@ -2514,13 +2519,14 @@ function CaseWorkflowPanel({
                       running={getEvidenceBucket(evidence) === "running"}
                       analysisSelectable={!readOnly && isEvidenceSelectableForAnalysis(evidence)}
                       analysisSelected={selectedAnalysisIdSet.has(evidence.evidenceId)}
+                      selectionMode={selectedAnalysisCount > 0}
                       onToggleAnalysisSelect={() => toggleAnalysisEvidence(evidence.evidenceId)}
                       onViewResult={() => onViewResult(evidence.evidenceId)}
                       onSelect={() => {
                         if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return
                         onSelectEvidence(evidence.evidenceId)
                         setActionMode("idle")
-                        setMenuOpen(false)
+                        setActionMenuOpen(false)
                         setEditCaseOpen(false)
                         setDeleteConfirmOpen(false)
                       }}
@@ -2529,23 +2535,10 @@ function CaseWorkflowPanel({
                 )}
               </div>
 
-              {!readOnly ? (
-                <div className="mt-2 border-t border-slate-200/80 py-3 pr-1 shadow-[0_-10px_16px_-18px_rgba(15,23,42,0.45)] dark:border-border">
-                  <button
-                    type="button"
-                    className="flex h-11 w-full items-center gap-2 rounded-lg px-3 text-[15px] font-bold text-muted-foreground transition-colors hover:bg-slate-50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-background/70"
-                    disabled={isWorking}
-                    onClick={() => uploadInputRef.current?.click()}
-                  >
-                    <Plus className="size-4" aria-hidden="true" />
-                    증거 추가
-                  </button>
-                </div>
-              ) : null}
             </div>
 
             {selectedEvidence ? (
-              <div className="flex min-w-0 flex-1 flex-col xl:pt-14">
+              <div className="flex min-w-0 flex-1 flex-col xl:pb-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 items-baseline gap-2">
                     <h3 className="truncate text-lg font-bold text-foreground">
@@ -2560,39 +2553,41 @@ function CaseWorkflowPanel({
                       </span>
                     ) : null}
                   </div>
-                  <div className="relative grid grid-cols-2 rounded-full bg-muted/60 p-1 text-[13px] font-bold">
-                    <span
-                      className={cn(
-                        "absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full border border-border bg-card shadow-sm transition-transform duration-200 ease-out",
-                        infoTab === "comment" && "translate-x-full"
-                      )}
-                      aria-hidden="true"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setInfoTab("metadata")}
-                      className={cn(
-                        "relative z-10 rounded-full px-4 py-1.5 transition-colors duration-200",
-                        infoTab === "metadata" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      메타데이터
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setInfoTab("comment")}
-                      className={cn(
-                        "relative z-10 rounded-full px-4 py-1.5 transition-colors duration-200",
-                        infoTab === "comment" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      코멘트
-                    </button>
+                  <div className="flex items-center gap-2">
+                    <div className="relative grid grid-cols-2 rounded-full bg-muted/60 p-1 text-[13px] font-bold">
+                      <span
+                        className={cn(
+                          "absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full border border-border bg-card shadow-sm transition-transform duration-200 ease-out",
+                          infoTab === "comment" && "translate-x-full"
+                        )}
+                        aria-hidden="true"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setInfoTab("metadata")}
+                        className={cn(
+                          "relative z-10 rounded-full px-4 py-1.5 transition-colors duration-200",
+                          infoTab === "metadata" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        메타데이터
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInfoTab("comment")}
+                        className={cn(
+                          "relative z-10 rounded-full px-4 py-1.5 transition-colors duration-200",
+                          infoTab === "comment" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        코멘트
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-col gap-4 lg:flex-row">
-                  <div className="relative aspect-video w-full shrink-0 self-start overflow-hidden rounded-lg bg-slate-950 lg:w-[65%] xl:w-[66%]">
+                <div className="mt-3 flex flex-col gap-5 lg:flex-row">
+                  <div className="relative aspect-video w-full shrink-0 self-start overflow-hidden rounded-lg bg-slate-950 lg:w-[58%] xl:w-[58%]">
                 {detailLoading && !selectedMediaUrl ? (
                   <div className="flex size-full items-center justify-center text-[15px] font-bold text-white/70">
                     <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
@@ -2615,9 +2610,9 @@ function CaseWorkflowPanel({
                 )}
                   </div>
 
-                  <div className="min-h-[330px] min-w-0 flex-none lg:flex-1 lg:border-l lg:border-border lg:pl-4">
+                  <div className="min-h-[372px] min-w-0 flex-none lg:flex-1 lg:border-l lg:border-border lg:pl-5">
             {infoTab === "metadata" ? (
-              <div>
+              <div className="min-h-[372px]">
                 <dl className="space-y-3">
                   <CaseMetadataRow label="파일 유형" value={selectedEvidence.mediaType || "-"} />
                   <CaseMetadataRow
@@ -2644,7 +2639,7 @@ function CaseWorkflowPanel({
                 </dl>
 
                 {selectedEvidenceActive ? (
-                  <div className="mt-3 space-y-3 border-t border-border pt-3">
+                  <div className="mt-4 space-y-4 border-t border-border pt-4">
                     <button
                       type="button"
                       className="group flex w-full items-center justify-between gap-4 text-left"
@@ -2695,7 +2690,7 @@ function CaseWorkflowPanel({
                 ) : null}
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="min-h-[372px] space-y-3">
                 <div>
                   <label
                     htmlFor="caseAnalystComment"
@@ -2800,8 +2795,33 @@ function CaseWorkflowPanel({
       </div>
 
       {showEvidenceActionFooter ? (
-        <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4">
-            <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
+        <div className="-mx-5 mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 px-5 pt-4 dark:border-border xl:mt-0">
+            <div className="flex flex-1 flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
+                disabled={isWorking}
+                onClick={() => uploadInputRef.current?.click()}
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                증거 추가
+              </Button>
+              {selectedAnalysisCount > 0 ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
+                    disabled={isWorking}
+                    onClick={() => setSelectedAnalysisIds([])}
+                  >
+                    선택 해제 {selectedAnalysisCount}
+                  </Button>
+                </>
+              ) : null}
+            </div>
+            <div className="ml-auto flex shrink-0 items-center justify-end gap-3">
               {selectedEvidenceRunning ? (
                 <div
                   className="flex min-w-[240px] flex-col gap-2 sm:min-w-[360px]"
@@ -2840,30 +2860,19 @@ function CaseWorkflowPanel({
                   </div>
                 </div>
               ) : null}
-              {!selectedEvidenceRunning && !selectedEvidenceCompleted && selectableAnalysisEvidences.length > 1 ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
-                  disabled={isWorking}
-                  onClick={toggleAllSelectableAnalysis}
-                >
-                  {allSelectableAnalysisSelected ? "선택 해제" : "전체 선택"}
-                </Button>
-              ) : null}
               {!selectedEvidenceRunning ? (
                 <Button
                   type="button"
                   className="h-11 rounded-full bg-foreground px-6 text-sm font-bold text-background hover:bg-foreground/90"
                   disabled={
                     isWorking ||
-                    (!selectedEvidenceCompleted &&
+                    (!showSelectedEvidenceResultAction &&
                       selectedAnalysisCount === 0 &&
                       !selectedEvidenceAnalysisSelectable &&
                       selectableAnalysisEvidences.length !== 1)
                   }
                   onClick={() => {
-                    if (selectedEvidenceCompleted && selectedEvidence) {
+                    if (showSelectedEvidenceResultAction && selectedEvidence) {
                       onViewResult(selectedEvidence.evidenceId)
                       return
                     }
@@ -2871,7 +2880,11 @@ function CaseWorkflowPanel({
                   }}
                 >
                   {isWorking ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                  {selectedEvidenceCompleted ? "결과보기" : "분석하기"}
+                  {selectedAnalysisCount > 1
+                    ? "전체 분석하기"
+                    : showSelectedEvidenceResultAction
+                      ? "결과보기"
+                      : "분석하기"}
                 </Button>
               ) : null}
             </div>
@@ -3015,10 +3028,10 @@ function CaseWorkflowPanel({
               </span>
               <div>
                 <h3 id="deleteEvidenceTitle" className="text-lg font-bold text-foreground">
-                  삭제 전 확인
+                  사용제외 전 확인
                 </h3>
                 <p className="mt-1 text-sm font-bold leading-6 text-muted-foreground">
-                  {formatEvidenceTitle(selectedEvidence)}는 실제로 삭제되지 않고, 사건 기록에 사용 제외 상태로 표시됩니다.
+                  {formatEvidenceTitle(selectedEvidence)}는 원본 파일을 삭제하지 않고, 사건 기록에서 사용제외 상태로 표시됩니다.
                 </p>
               </div>
             </div>
@@ -3036,10 +3049,10 @@ function CaseWorkflowPanel({
                 type="button"
                 variant="destructive"
                 className="h-11 font-bold"
-                disabled={isWorking || (selectedEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
+                disabled={isWorking || !selectedEvidenceExcludable}
                 onClick={() => void handleConfirmDeleteEvidence()}
               >
-                삭제하기
+                사용제외
               </Button>
             </div>
           </div>
@@ -3115,6 +3128,7 @@ function EvidenceListRow({
   running,
   analysisSelectable,
   analysisSelected,
+  selectionMode,
   onSelect,
   onToggleAnalysisSelect,
   onViewResult,
@@ -3126,6 +3140,7 @@ function EvidenceListRow({
   running: boolean
   analysisSelectable: boolean
   analysisSelected: boolean
+  selectionMode: boolean
   onSelect: () => void
   onToggleAnalysisSelect: () => void
   onViewResult?: () => void
@@ -3136,60 +3151,64 @@ function EvidenceListRow({
   const statusLabel =
     lifecycle !== "ACTIVE" ? getLifecycleLabel(lifecycle) : running ? "분석 중" : getEvidenceAnalysisLabel(evidence)
   const statusClassName = getEvidenceRowStatusClassName(evidence, running)
+  const checkboxVisible = selectionMode || analysisSelected
+
+  function handleActivate() {
+    if (selectionMode) {
+      if (analysisSelectable) onToggleAnalysisSelect()
+      return
+    }
+    onSelect()
+  }
 
   return (
     <div
       role="button"
       tabIndex={disabled ? -1 : 0}
-      onClick={onSelect}
+      onClick={handleActivate}
       onKeyDown={(event) => {
         if (disabled) return
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault()
-          onSelect()
+          handleActivate()
         }
       }}
       aria-disabled={disabled}
       className={cn(
-        "flex h-full w-full cursor-pointer items-center gap-3.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-        active
-          ? "border-slate-200 bg-white shadow-[0_4px_12px_rgba(15,23,42,0.07)] dark:border-border dark:bg-background/70"
-          : "border-transparent bg-white hover:bg-slate-50 dark:bg-card dark:hover:bg-background/60",
-        disabled && "cursor-not-allowed opacity-55 hover:border-transparent hover:bg-transparent"
+        "group flex h-16 w-full shrink-0 cursor-pointer items-center gap-3 border-l-2 px-3 text-left transition-colors",
+        analysisSelected
+          ? "border-l-teal-600 bg-teal-50/70 hover:bg-teal-50 dark:bg-teal-950/25 dark:hover:bg-teal-950/35"
+          : active && !selectionMode
+            ? "border-l-slate-950 bg-slate-50/80 dark:border-l-foreground dark:bg-background/70"
+            : "border-l-transparent hover:bg-slate-50/70 dark:hover:bg-background/50",
+        disabled && "cursor-not-allowed opacity-55 hover:border-l-transparent hover:bg-transparent"
       )}
     >
-      {analysisSelectable ? (
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={analysisSelected}
-          aria-label={`${formatEvidenceTitle(evidence)} 분석 선택`}
-          onClick={(event) => {
-            event.stopPropagation()
-            onToggleAnalysisSelect()
-          }}
-          className={cn(
-            "flex size-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
-            analysisSelected
-              ? "border-foreground bg-foreground text-background"
-              : "border-slate-300 bg-transparent hover:border-slate-400"
-          )}
-        >
-          {analysisSelected ? <Check className="size-3" strokeWidth={3} aria-hidden="true" /> : null}
-        </button>
-      ) : (
-        <span className="flex size-[18px] shrink-0 items-center justify-center">
-          {running ? (
-            <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
-          ) : completed ? (
-            <Check className="size-4 text-muted-foreground" aria-hidden="true" />
-          ) : status === "FAILED" && lifecycle === "ACTIVE" ? (
-            <AlertCircle className="size-4 text-red-700" aria-hidden="true" />
-          ) : (
-            <span className="size-1.5 rounded-full bg-slate-300" aria-hidden="true" />
-          )}
-        </span>
-      )}
+      <span className="relative flex size-[18px] shrink-0 items-center justify-center">
+        {running ? (
+          <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
+        ) : analysisSelectable ? (
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={analysisSelected}
+            aria-label={`${formatEvidenceTitle(evidence)} 선택`}
+            onClick={(event) => {
+              event.stopPropagation()
+              onToggleAnalysisSelect()
+            }}
+            className={cn(
+              "absolute inset-0 flex items-center justify-center rounded-[5px] border transition-opacity",
+              analysisSelected
+                ? "border-teal-600 bg-teal-600 text-white"
+                : "border-slate-300 bg-white hover:border-slate-400 dark:border-border dark:bg-background",
+              checkboxVisible ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            )}
+          >
+            {analysisSelected ? <Check className="size-3" strokeWidth={3} aria-hidden="true" /> : null}
+          </button>
+        ) : null}
+      </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
           <span className="truncate text-[15px] font-bold text-foreground">{formatEvidenceTitle(evidence)}</span>
@@ -4290,7 +4309,7 @@ function getCocRoleClass(role: string) {
 }
 
 function getLifecycleLabel(status: string) {
-  if (status === "EXCLUDED") return "사용 제외"
+  if (status === "EXCLUDED") return "사용제외"
   if (status === "REPLACED") return "대체됨"
   return "활성"
 }
@@ -4383,6 +4402,13 @@ function isEvidenceSelectableForAnalysis(evidence: CaseEvidenceSummary) {
   const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
 
   return lifecycle === "ACTIVE" && (status === "PENDING" || status === "FAILED")
+}
+
+function isEvidenceExcludable(evidence: CaseEvidenceSummary) {
+  const lifecycle = evidence.lifecycleStatus ?? "ACTIVE"
+  const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+
+  return lifecycle === "ACTIVE" && status === "PENDING"
 }
 
 function getAnalysisTypeLabel(type: AnalysisType) {
