@@ -661,7 +661,7 @@ function ProtectedVideoPlayer({
   }
 
   const controlButtonClassName =
-    "flex size-9 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 active:bg-white/20 sm:size-10"
+    "flex size-7 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 active:bg-white/20 sm:size-8"
 
   return (
     <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
@@ -686,8 +686,8 @@ function ProtectedVideoPlayer({
           화면 캡처가 감지되었습니다 · 열람 기록이 남습니다
         </div>
       ) : null}
-      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-3 pb-3 pt-16 text-white sm:px-4 sm:pb-4 sm:pt-20">
-        <div className="relative mb-2 h-4 sm:mb-3 sm:h-5">
+      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2.5 pb-2 pt-10 text-white sm:px-3 sm:pb-2.5 sm:pt-12">
+        <div className="relative mb-1 h-3.5 sm:mb-1.5 sm:h-4">
           <input
             type="range"
             min={0}
@@ -695,7 +695,7 @@ function ProtectedVideoPlayer({
             step="0.05"
             value={Math.min(currentTime, duration || 0)}
             onChange={(event) => seekTo(event.currentTarget.value)}
-            className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 cursor-pointer appearance-none rounded-full bg-transparent accent-red-700 [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+            className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 cursor-pointer appearance-none rounded-full bg-transparent accent-red-700 [&::-moz-range-thumb]:size-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
             style={{
               background: `linear-gradient(to right, #dc2626 0%, #dc2626 ${progress}%, rgba(255,255,255,0.32) ${progress}%, rgba(255,255,255,0.32) 100%)`,
             }}
@@ -703,17 +703,17 @@ function ProtectedVideoPlayer({
           />
         </div>
         <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1 rounded-full bg-black/55 px-1.5 py-1 shadow-lg backdrop-blur-md sm:px-2">
+          <div className="flex min-w-0 items-center gap-0.5 rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md sm:px-1.5">
             <button
               type="button"
-              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white text-slate-950 shadow-sm transition-transform hover:scale-105 active:scale-95 sm:size-11"
+              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-slate-950 shadow-sm transition-transform hover:scale-105 active:scale-95 sm:size-9"
               aria-label={playing ? "일시정지" : "재생"}
               onClick={togglePlay}
             >
               {playing ? (
-                <Pause className="size-4 fill-current sm:size-5" aria-hidden="true" />
+                <Pause className="size-3.5 fill-current sm:size-4" aria-hidden="true" />
               ) : (
-                <Play className="ml-0.5 size-4 fill-current sm:size-5" aria-hidden="true" />
+                <Play className="ml-0.5 size-3.5 fill-current sm:size-4" aria-hidden="true" />
               )}
             </button>
             <button
@@ -723,23 +723,23 @@ function ProtectedVideoPlayer({
               onClick={toggleMuted}
             >
               {muted ? (
-                <VolumeX className="size-4 sm:size-5" aria-hidden="true" />
+                <VolumeX className="size-3.5 sm:size-4" aria-hidden="true" />
               ) : (
-                <Volume2 className="size-4 sm:size-5" aria-hidden="true" />
+                <Volume2 className="size-3.5 sm:size-4" aria-hidden="true" />
               )}
             </button>
-            <span className="whitespace-nowrap rounded-full bg-white/10 px-2.5 py-1.5 font-mono text-xs font-bold tabular-nums text-white shadow-inner sm:px-3 sm:py-2 sm:text-sm">
+            <span className="whitespace-nowrap rounded-full bg-white/10 px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums text-white shadow-inner sm:px-2 sm:py-1 sm:text-[11px]">
               {formatVideoClock(currentTime)} / {formatVideoClock(duration)}
             </span>
           </div>
-          <div className="flex shrink-0 items-center rounded-full bg-black/55 px-1.5 py-1 shadow-lg backdrop-blur-md sm:px-2">
+          <div className="flex shrink-0 items-center rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md sm:px-1.5">
           <button
             type="button"
             className={controlButtonClassName}
             aria-label="워터마크 포함 확대"
             onClick={() => requestProtectedFullscreen(playerRef.current)}
           >
-            <Maximize2 className="size-4 sm:size-5" aria-hidden="true" />
+            <Maximize2 className="size-3.5 sm:size-4" aria-hidden="true" />
           </button>
           </div>
         </div>
