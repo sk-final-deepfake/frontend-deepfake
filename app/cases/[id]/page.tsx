@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import {
@@ -175,6 +175,7 @@ export default function CaseDetailPage() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [caseRefreshKey, setCaseRefreshKey] = useState(0)
+  const isInitialCaseLoad = useRef(true)
   const [showResultDashboard, setShowResultDashboard] = useState(false)
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
@@ -194,7 +195,10 @@ export default function CaseDetailPage() {
     let cancelled = false
 
     async function loadCaseDetail() {
-      setCaseLoading(true)
+      const showFullScreenLoader = isInitialCaseLoad.current
+      if (showFullScreenLoader) {
+        setCaseLoading(true)
+      }
       setError(null)
 
       try {
@@ -222,7 +226,10 @@ export default function CaseDetailPage() {
         }
       } finally {
         if (!cancelled) {
-          setCaseLoading(false)
+          if (showFullScreenLoader) {
+            setCaseLoading(false)
+            isInitialCaseLoad.current = false
+          }
         }
       }
     }
@@ -287,9 +294,9 @@ export default function CaseDetailPage() {
     }
   }
 
-  function refreshCase() {
+  const refreshCase = useCallback(() => {
     setCaseRefreshKey((key) => key + 1)
-  }
+  }, [])
 
   function viewResult(evidenceId: number) {
     selectEvidence(evidenceId)
@@ -1618,7 +1625,6 @@ function CaseWorkflowPanel({
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
-  const [localAnalysisProgress, setLocalAnalysisProgress] = useState<Record<number, number>>({})
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [evidencePage, setEvidencePage] = useState(1)
 
@@ -1631,14 +1637,11 @@ function CaseWorkflowPanel({
     evidences.find((item) => item.evidenceId === selectedEvidenceId) ?? evidences[0] ?? null
   const selectedEvidenceActive = (selectedEvidence?.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
   const selectedEvidenceStatus = normalizeStatus(selectedEvidence?.analysisStatus ?? "PENDING")
-  const selectedEvidenceLocalProgress = selectedEvidence
-    ? localAnalysisProgress[selectedEvidence.evidenceId]
-    : undefined
   const selectedEvidenceRunning = selectedEvidence
-    ? isEvidenceAnalysisRunning(selectedEvidence) || selectedEvidenceLocalProgress != null
+    ? isEvidenceAnalysisRunning(selectedEvidence)
     : false
   const selectedEvidenceProgress = selectedEvidenceRunning
-    ? Math.max(selectedEvidenceLocalProgress ?? 0, selectedEvidence?.analysisProgress ?? 0)
+    ? selectedEvidence?.analysisProgress ?? 0
     : selectedEvidenceStatus === "COMPLETED"
       ? 100
       : 0
@@ -1718,15 +1721,14 @@ function CaseWorkflowPanel({
   }, [evidences, selectedEvidenceId])
 
   useEffect(() => {
-    const runningEvidenceIds = evidences
+    const pollIds = evidences
       .filter((evidence) => isEvidenceAnalysisRunning(evidence))
       .map((evidence) => evidence.evidenceId)
-    const optimisticIds = Object.keys(localAnalysisProgress).map(Number)
-    const pollIds = [...new Set([...runningEvidenceIds, ...optimisticIds])]
 
     if (pollIds.length === 0) return
 
     let cancelled = false
+    let lastRefreshAt = 0
 
     async function pollAnalysisStatuses() {
       const statuses = await Promise.all(
@@ -1735,29 +1737,13 @@ function CaseWorkflowPanel({
 
       if (cancelled) return
 
-      let shouldRefresh = false
+      const hasTerminalStatus = statuses.some(
+        (status) => status?.status === "COMPLETED" || status?.status === "FAILED"
+      )
+      const now = Date.now()
 
-      setLocalAnalysisProgress((current) => {
-        const next = { ...current }
-        for (const status of statuses) {
-          if (!status) continue
-          if (
-            status.status === "COMPLETED" ||
-            status.status === "FAILED" ||
-            (status.status === "PENDING" && status.analysisRequestId === 0)
-          ) {
-            delete next[status.evidenceId]
-            shouldRefresh = true
-          }
-        }
-        return next
-      })
-
-      if (statuses.some((status) => status?.status === "PROCESSING" || status?.status === "COMPLETED")) {
-        shouldRefresh = true
-      }
-
-      if (shouldRefresh) {
+      if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
+        lastRefreshAt = now
         onRefresh()
       }
     }
@@ -1773,7 +1759,7 @@ function CaseWorkflowPanel({
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [evidences, localAnalysisProgress, onRefresh])
+  }, [evidences, onRefresh])
 
   async function runAction(
     action: () => Promise<void>,
@@ -1877,11 +1863,6 @@ function CaseWorkflowPanel({
           targetEvidenceId,
         })
         if (targetIds[0]) onSelectEvidence(targetIds[0])
-        setLocalAnalysisProgress((current) => {
-          const next = { ...current }
-          for (const id of targetIds) next[id] = Math.max(next[id] ?? 0, 8)
-          return next
-        })
         setSelectedAnalysisIds([])
         setActionMode("idle")
       },
@@ -1909,10 +1890,6 @@ function CaseWorkflowPanel({
           evidenceIds: [selectedEvidence.evidenceId],
         })
         onSelectEvidence(selectedEvidence.evidenceId)
-        setLocalAnalysisProgress((current) => ({
-          ...current,
-          [selectedEvidence.evidenceId]: Math.max(current[selectedEvidence.evidenceId] ?? 0, 8),
-        }))
       },
       `${formatEvidenceTitle(selectedEvidence)} 분석 요청이 등록되었습니다.`,
       { showSuccess: false, refresh: true }
@@ -1931,11 +1908,6 @@ function CaseWorkflowPanel({
 
     await runAction(async () => {
       await cancelCaseAnalysis(selectedEvidence.evidenceId)
-      setLocalAnalysisProgress((current) => {
-        const next = { ...current }
-        delete next[selectedEvidence.evidenceId]
-        return next
-      })
       onSelectEvidence(selectedEvidence.evidenceId)
     }, `${formatEvidenceTitle(selectedEvidence)} 분석이 중단되었습니다.`)
   }
