@@ -555,7 +555,7 @@ function EvidenceWatermarkOverlay({
           {centerText}
         </span>
       </div>
-      <span className="absolute bottom-14 left-3 rounded-md bg-black/40 px-2 py-1 font-mono text-[10px] font-bold text-white/60 backdrop-blur-sm">
+      <span className="absolute bottom-24 left-4 rounded-lg bg-black/45 px-2.5 py-1.5 font-mono text-[10px] font-bold text-white/65 backdrop-blur-md">
         {primaryText}
       </span>
     </div>
@@ -601,6 +601,7 @@ function ProtectedVideoPlayer({
   const [duration, setDuration] = useState(0)
   const [muted, setMuted] = useState(false)
   const [captureAlert, setCaptureAlert] = useState(false)
+  const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0
 
   // PrintScreen 감지 — 경고 표시 + 클립보드 덮어쓰기. 캡처 자체는 브라우저에서 차단 불가(추적·억제 목적)
   useEffect(() => {
@@ -659,6 +660,9 @@ function ProtectedVideoPlayer({
     setMuted(video.muted)
   }
 
+  const controlButtonClassName =
+    "flex size-9 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 active:bg-white/20 sm:size-10"
+
   return (
     <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
       <video
@@ -682,23 +686,8 @@ function ProtectedVideoPlayer({
           화면 캡처가 감지되었습니다 · 열람 기록이 남습니다
         </div>
       ) : null}
-      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/75 via-black/35 to-transparent px-3 pb-3 pt-10 text-white">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-black/35 text-white transition-colors hover:bg-black/55"
-            aria-label={playing ? "일시정지" : "재생"}
-            onClick={togglePlay}
-          >
-            {playing ? (
-              <Pause className="size-4 fill-current" aria-hidden="true" />
-            ) : (
-              <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
-            )}
-          </button>
-          <span className="w-[86px] shrink-0 font-mono text-sm font-semibold">
-            {formatVideoClock(currentTime)} / {formatVideoClock(duration)}
-          </span>
+      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-3 pb-3 pt-16 text-white sm:px-4 sm:pb-4 sm:pt-20">
+        <div className="relative mb-2 h-4 sm:mb-3 sm:h-5">
           <input
             type="range"
             min={0}
@@ -706,25 +695,53 @@ function ProtectedVideoPlayer({
             step="0.05"
             value={Math.min(currentTime, duration || 0)}
             onChange={(event) => seekTo(event.currentTarget.value)}
-            className="min-w-0 flex-1 accent-white"
+            className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 cursor-pointer appearance-none rounded-full bg-transparent accent-red-700 [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+            style={{
+              background: `linear-gradient(to right, #dc2626 0%, #dc2626 ${progress}%, rgba(255,255,255,0.32) ${progress}%, rgba(255,255,255,0.32) 100%)`,
+            }}
             aria-label="재생 위치"
           />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1 rounded-full bg-black/55 px-1.5 py-1 shadow-lg backdrop-blur-md sm:px-2">
+            <button
+              type="button"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white text-slate-950 shadow-sm transition-transform hover:scale-105 active:scale-95 sm:size-11"
+              aria-label={playing ? "일시정지" : "재생"}
+              onClick={togglePlay}
+            >
+              {playing ? (
+                <Pause className="size-4 fill-current sm:size-5" aria-hidden="true" />
+              ) : (
+                <Play className="ml-0.5 size-4 fill-current sm:size-5" aria-hidden="true" />
+              )}
+            </button>
+            <button
+              type="button"
+              className={controlButtonClassName}
+              aria-label={muted ? "음소거 해제" : "음소거"}
+              onClick={toggleMuted}
+            >
+              {muted ? (
+                <VolumeX className="size-4 sm:size-5" aria-hidden="true" />
+              ) : (
+                <Volume2 className="size-4 sm:size-5" aria-hidden="true" />
+              )}
+            </button>
+            <span className="whitespace-nowrap rounded-full bg-white/10 px-2.5 py-1.5 font-mono text-xs font-bold tabular-nums text-white shadow-inner sm:px-3 sm:py-2 sm:text-sm">
+              {formatVideoClock(currentTime)} / {formatVideoClock(duration)}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center rounded-full bg-black/55 px-1.5 py-1 shadow-lg backdrop-blur-md sm:px-2">
           <button
             type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-black/30 text-white transition-colors hover:bg-black/55"
-            aria-label={muted ? "음소거 해제" : "음소거"}
-            onClick={toggleMuted}
-          >
-            {muted ? <VolumeX className="size-4" aria-hidden="true" /> : <Volume2 className="size-4" aria-hidden="true" />}
-          </button>
-          <button
-            type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-black/30 text-white transition-colors hover:bg-black/55"
+            className={controlButtonClassName}
             aria-label="워터마크 포함 확대"
             onClick={() => requestProtectedFullscreen(playerRef.current)}
           >
-            <Maximize2 className="size-4" aria-hidden="true" />
+            <Maximize2 className="size-4 sm:size-5" aria-hidden="true" />
           </button>
+          </div>
         </div>
       </div>
     </div>
@@ -928,13 +945,14 @@ function CaseResultView({
                   <ProtectedVideoPlayer src={visibleVideoUrl} videoRef={videoRef} objectFit="cover">
                     {mediaMode === "overlay" && !overlayVideoUrl ? <MockAnalysisOverlay /> : null}
                     {mediaMode === "heatmap" ? <HeatmapLayer heatmapImageUrl={heatmapImageUrl} /> : null}
-                    <EvidenceWatermarkOverlay
-                      caseId={caseData.caseId}
-                      evidenceId={selectedEvidence?.evidenceId ?? selectedEvidenceId}
-                      viewerName={currentSession?.name ?? null}
-                      viewerLoginId={currentSession?.loginId ?? null}
-                      mode={mediaMode === "original" ? "full" : "review"}
-                    />
+                    {mediaMode === "original" ? (
+                      <EvidenceWatermarkOverlay
+                        caseId={caseData.caseId}
+                        evidenceId={selectedEvidence?.evidenceId ?? selectedEvidenceId}
+                        viewerName={currentSession?.name ?? null}
+                        viewerLoginId={currentSession?.loginId ?? null}
+                      />
+                    ) : null}
                     {mediaMode !== "original" ? (
                       <div className="absolute left-4 top-4 z-20 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
                         {mediaMode === "overlay" ? "탐지 오버레이" : "히트맵"}
