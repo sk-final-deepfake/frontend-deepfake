@@ -51,6 +51,23 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
+  buildModelAnalysisSettings,
+  buildModelInsights,
+  buildModelRadarModels,
+  buildResultSummaryLines,
+  buildRiskSignals,
+  buildSummaryFocusLabels,
+  buildTopRiskFrames,
+  formatModuleLabel,
+  formatScoreOutOf100,
+  getDetectionModules,
+  getEnsembleVerdictLabel,
+  getModelVerdictLabel,
+  getPriorityReviewRange,
+  normalizeResultValue,
+  type UiRiskSignal,
+} from "@/lib/api/analysis-result-ui"
+import {
   type AnalysisType,
   fetchCaseDetail,
   fetchEvidenceDetail,
@@ -135,45 +152,6 @@ function getPreferredEvidenceId(evidences: CaseEvidenceSummary[], preferredEvide
 }
 
 type EvidenceStatusBucket = "pending" | "running" | "completed" | "inactive"
-const PRIORITY_REVIEW_START_SEC = 15.8
-const PRIORITY_REVIEW_END_SEC = 23.8
-const PRIORITY_REVIEW_RANGE_LABEL = "00:15.800 ~ 00:23.800"
-const PEAK_FRAME_TIME_LABEL = "00:19.800"
-
-const RESULT_RISK_SIGNALS = [
-  {
-    label: "얼굴 경계 불연속",
-    badge: "높은 위험 신호",
-    score: 0.7,
-    description: "프레임 간 얼굴 랜드마크와 주변 영역의 연결성을 분석했습니다.",
-    basis: "얼굴 윤곽선과 주변 배경의 연결성이 낮게 측정됨",
-    interval: PRIORITY_REVIEW_RANGE_LABEL,
-    tone: "danger",
-  },
-  {
-    label: "압축 아티팩트",
-    badge: "검토 필요",
-    score: 0.6,
-    description: "얼굴 주변 영역의 압축 패턴이 배경 영역과 다르게 나타나는지 분석했습니다.",
-    basis: "얼굴 주변 압축 패턴이 주변 영역보다 높게 나타남",
-    interval: "00:00.400 ~ 00:08.400",
-    tone: "warning",
-  },
-] as const
-
-const RESULT_EXTRA_SIGNALS = [
-  { label: "얼굴 질감 이상", score: 0.48, note: "뚜렷한 위험 신호는 제한적으로 관찰됨" },
-  { label: "시간적 일관성 저하", score: 0.52, note: "일부 변화는 있으나 주요 위험 신호로 분류되지는 않음" },
-  { label: "얼굴 움직임 이상 보조 신호", score: 0.43, note: "GMFlow 기반 참고 지표이며 단독 판단 근거로 사용하지 않음" },
-] as const
-
-const TOP_RISK_FRAMES = [
-  { time: PEAK_FRAME_TIME_LABEL, seconds: 19.8, score: 82, signal: "얼굴 경계 불연속" },
-  { time: "00:17.600", seconds: 17.6, score: 78, signal: "압축 패턴 이상" },
-  { time: "00:21.400", seconds: 21.4, score: 74, signal: "얼굴 경계 불연속" },
-  { time: "00:06.200", seconds: 6.2, score: 67, signal: "압축 아티팩트" },
-  { time: "00:08.400", seconds: 8.4, score: 63, signal: "압축 아티팩트" },
-] as const
 
 export default function CaseDetailPage() {
   const { id } = useParams()
@@ -784,8 +762,8 @@ function CaseResultView({
   const resultVerdict = getManipulationSuspicionLabel(riskTone)
   const riskScore = formatResultScore(evidenceDetail?.analysisInfo.riskScore ?? null)
   const confidenceScore = formatResultScore(evidenceDetail?.analysisInfo.confidenceScore ?? null)
-  const riskScoreLabel = riskScore ? `${riskScore} / 100` : "70 / 100"
-  const confidenceScoreLabel = confidenceScore ? `${confidenceScore}%` : "86%"
+  const riskScoreLabel = riskScore ? `${riskScore} / 100` : "- / 100"
+  const confidenceScoreLabel = confidenceScore ? `${confidenceScore}%` : "-"
   const resultEvidenceIdLabel = selectedEvidence ? `EVD-${selectedEvidence.evidenceId}` : caseData.caseId
   const analyzedAt = evidenceDetail?.analysisInfo.completedAt ?? evidenceDetail?.analysisInfo.requestedAt ?? caseData.createdAt
   const resultMediaUrl =
@@ -807,17 +785,23 @@ function CaseResultView({
     evidenceDetail?.analysisInfo.representativeFrames?.find((frame) => Boolean(frame.heatmapUrl))?.heatmapUrl ??
     null
   const visibleVideoUrl = mediaMode === "overlay" && overlayVideoUrl ? overlayVideoUrl : resultMediaUrl
+  const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
   const summaryLines = buildResultSummaryLines(evidenceDetail)
-  const detectionModules = [...(evidenceDetail?.analysisInfo.moduleResults ?? [])].sort(
+  const summaryFocusLabels = buildSummaryFocusLabels(evidenceDetail)
+  const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail, frameScores)
+  const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
   const detectedModuleCount = detectionModules.filter((module) => module.detected).length
-  const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
+  const topRiskFrames = buildTopRiskFrames(evidenceDetail, frameScores)
+  const priorityReviewRange = getPriorityReviewRange(evidenceDetail, frameScores)
   const representativeFrames = evidenceDetail?.analysisInfo.representativeFrames ?? []
   const peakFrame = frameScores.reduce<FrameScore | null>(
     (peak, frame) => (peak == null || frame.score > peak.score ? frame : peak),
     null
   )
+  const peakFrameTimeLabel =
+    peakFrame?.timeSec != null ? formatDuration(peakFrame.timeSec) : peakFrame?.timestamp ?? "-"
   const avgFrameScore =
     frameScores.length > 0
       ? frameScores.reduce((sum, frame) => sum + normalizeResultValue(frame.score), 0) / frameScores.length
@@ -825,35 +809,12 @@ function CaseResultView({
   const highRiskFrameCount = frameScores.filter((frame) => normalizeResultValue(frame.score) >= 0.6).length
   const modelInsights = buildModelInsights(evidenceDetail, frameScores)
   const modelSettings = buildModelAnalysisSettings(evidenceDetail, frameScores)
-  const timesFormerScore = modelInsights.primaryModels.find((model) => model.name === "TimesFormer")?.score ?? 0
-  const xceptionScore = modelInsights.primaryModels.find((model) => model.name === "Xception")?.score ?? 0
-  const modelRadarModels = [
-    {
-      label: "시간적 일관성",
-      source: "TimesFormer",
-      score: timesFormerScore,
-    },
-    {
-      label: "얼굴 경계부",
-      source: "Xception",
-      score: xceptionScore,
-    },
-    {
-      label: "질감 패턴",
-      source: "Xception",
-      score: xceptionScore,
-    },
-    {
-      label: "움직임 벡터",
-      source: "GMFlow",
-      score: modelInsights.gmflow.score,
-    },
-    {
-      label: "프레임 위험 집중",
-      source: "Frame score",
-      score: peakFrame ? normalizeResultValue(peakFrame.score) : modelInsights.ensembleScore,
-    },
-  ]
+  const ensembleVerdict = getEnsembleVerdictLabel(modelInsights.ensembleScore)
+  const modelRadarModels = buildModelRadarModels(
+    modelInsights,
+    frameScores,
+    peakFrame ? normalizeResultValue(peakFrame.score) : null
+  )
   function seekResultVideo(seconds: number, mode: ResultMediaMode = mediaMode) {
     setMediaMode(mode)
     requestAnimationFrame(() => {
@@ -1025,17 +986,20 @@ function CaseResultView({
                     <FrameMetricCard
                       label="분석 신뢰도"
                       value={confidenceScoreLabel}
-                      sub="유효 프레임 · 점수 일관성 기준"
+                      sub="GPU 워커 confidenceScore"
                     />
-                    <FrameMetricCard label="품질 점수" value="68 / 100" sub="해상도 · 얼굴 검출 안정성 기준" />
+                    <FrameMetricCard
+                      label="탐지 모듈"
+                      value={`${detectedModuleCount} / ${detectionModules.length}`}
+                      sub="detected 모듈 수"
+                    />
                   </div>
 
                   <section className="rounded-xl border border-slate-100 bg-slate-50/70 p-6 dark:border-border dark:bg-background">
                     <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">핵심 요약</h3>
                     <p className="mt-2 text-sm font-semibold text-slate-500">
-                      <strong className="font-bold text-slate-700">얼굴 경계부</strong>,{" "}
-                      <strong className="font-bold text-slate-700">압축 패턴</strong>,{" "}
-                      <strong className="font-bold text-slate-700">프레임 연속성</strong>을 기준으로 분석했습니다.
+                      <strong className="font-bold text-slate-700">{summaryFocusLabels.join(" · ")}</strong>
+                      을 기준으로 GPU 분석 결과를 표시합니다.
                     </p>
                     <ol className="mt-6 space-y-4">
                       {summaryLines.map((line, index) => (
@@ -1043,7 +1007,7 @@ function CaseResultView({
                           <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-slate-500 ring-1 ring-slate-200 dark:bg-card dark:ring-border">
                             {index + 1}
                           </span>
-                          <span>{renderSummaryLine(line, index)}</span>
+                          <span>{line}</span>
                         </li>
                       ))}
                     </ol>
@@ -1060,31 +1024,39 @@ function CaseResultView({
                       </p>
                     </div>
                     <span className="shrink-0 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
-                      주요 위험 신호 2개
+                      주요 위험 신호 {primaryRiskSignals.length}개
                     </span>
                   </div>
-                  <ul className="mt-5 space-y-3">
-                    {RESULT_RISK_SIGNALS.map((signal, index) => (
-                      <RiskSignalCard key={signal.label} signal={signal} delayMs={index * 120} />
-                    ))}
-                  </ul>
+                  {primaryRiskSignals.length > 0 ? (
+                    <ul className="mt-5 space-y-3">
+                      {primaryRiskSignals.map((signal, index) => (
+                        <RiskSignalCard key={`${signal.label}-${index}`} signal={signal} delayMs={index * 120} />
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
+                      표시할 위험 신호가 없습니다. (모듈 점수가 모두 낮음)
+                    </p>
+                  )}
 
+                  {extraRiskSignals.length > 0 ? (
                   <details className="mt-4 rounded-xl border border-slate-100 bg-white p-4 dark:border-border dark:bg-card">
                     <summary className="cursor-pointer text-sm font-bold text-slate-700">
                       기타 분석 항목 보기
                     </summary>
                     <div className="mt-4 space-y-3">
-                      {RESULT_EXTRA_SIGNALS.map((item) => (
+                      {extraRiskSignals.map((item) => (
                         <div key={item.label} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border">
                           <div>
                             <p className="text-sm font-bold text-slate-950 dark:text-foreground">{item.label}</p>
-                            <p className="mt-1 text-xs font-semibold text-slate-500">{item.note}</p>
+                            <p className="mt-1 text-xs font-semibold text-slate-500">{item.basis}</p>
                           </div>
                           <span className="font-mono text-sm font-bold text-slate-700">{formatScoreOutOf100(item.score)}</span>
                         </div>
                       ))}
                     </div>
                   </details>
+                  ) : null}
                 </section>
               ) : resultTab === "frames" ? (
                 <section>
@@ -1106,16 +1078,22 @@ function CaseResultView({
                         <FrameMetricCard
                           label="최고 위험"
                           value={formatScoreOutOf100(peakFrame?.score)}
-                          sub={`${peakFrame?.timeSec != null ? formatDuration(peakFrame.timeSec) : PEAK_FRAME_TIME_LABEL} 지점`}
+                          sub={`${peakFrameTimeLabel} 지점`}
                           tone={peakFrame != null && normalizeResultValue(peakFrame.score) >= 0.6 ? "danger" : "neutral"}
                         />
                         <FrameMetricCard
                           label="의심 구간"
                           value={
-                            highRiskFrameCount > 0 ? `${PRIORITY_REVIEW_START_SEC}초 ~ ${PRIORITY_REVIEW_END_SEC}초` : "-"
+                            priorityReviewRange
+                              ? `${priorityReviewRange.startSec.toFixed(1)}초 ~ ${priorityReviewRange.endSec.toFixed(1)}초`
+                              : "-"
                           }
                           sub={
-                            highRiskFrameCount > 0 ? `${highRiskFrameCount}개 프레임 연속 감지` : "임계값 초과 구간 없음"
+                            priorityReviewRange
+                              ? priorityReviewRange.label
+                              : highRiskFrameCount > 0
+                                ? `${highRiskFrameCount}개 프레임 연속 감지`
+                                : "임계값 초과 구간 없음"
                           }
                           tone={highRiskFrameCount > 0 ? "danger" : "neutral"}
                         />
@@ -1144,7 +1122,7 @@ function CaseResultView({
                           </p>
                         </div>
                         <div className="mt-2 divide-y divide-slate-100 dark:divide-border">
-                          {TOP_RISK_FRAMES.map((frame, index) => {
+                          {topRiskFrames.map((frame, index) => {
                             const representative = representativeFrames.find(
                               (item) =>
                                 (item.timeSec != null && Math.abs(item.timeSec - frame.seconds) < 0.35) ||
@@ -1220,12 +1198,12 @@ function CaseResultView({
                           {formatScoreOutOf100(modelInsights.ensembleScore)}
                         </p>
                       </div>
-                      <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
-                        위험 신호 높음
+                      <span className={cn("rounded-full px-3 py-1 text-xs font-bold", ensembleVerdict.cls)}>
+                        {ensembleVerdict.label}
                       </span>
                     </div>
                     <p className="mt-3 text-sm font-medium leading-6 text-slate-500">
-                      주 모델 2개 중 2개에서 위험 신호가 확인되었습니다. GMFlow는 보조 지표로만 참고합니다.
+                      {modelInsights.headline}
                     </p>
                   </div>
 
@@ -1240,19 +1218,15 @@ function CaseResultView({
                           score: model.score,
                           aux: false,
                         })),
-                        {
-                          name: "GMFlow",
-                          role: "Optical Flow 기반 얼굴 움직임 (보조)",
-                          score: modelInsights.gmflow.score,
+                        ...modelInsights.auxiliaryModels.map((model) => ({
+                          name: model.name,
+                          role: model.role,
+                          score: model.score,
                           aux: true,
-                        },
+                        })),
                       ].map((row) => {
                         const percent = Math.round(row.score * 100)
-                        const verdict = row.aux
-                          ? { label: "참고", cls: "bg-teal-100 text-teal-700" }
-                          : row.score >= 0.5
-                            ? { label: "위험", cls: "bg-red-50 text-red-700" }
-                            : { label: "정상", cls: "bg-emerald-100 text-emerald-700" }
+                        const verdict = getModelVerdictLabel(row.score, row.aux)
                         return (
                           <div
                             key={row.name}
@@ -1284,19 +1258,13 @@ function CaseResultView({
                       모델별 상세 근거 · 분석 설정
                     </summary>
                     <div className="mt-4 space-y-2.5">
-                      {[
-                        ...modelInsights.primaryModels.map((model) => ({
-                          name: model.name,
-                          text: model.interpretation,
-                        })),
-                        { name: "GMFlow", text: modelInsights.gmflow.description },
-                      ].map((row) => (
+                      {[...modelInsights.primaryModels, ...modelInsights.auxiliaryModels].map((row) => (
                         <p key={row.name} className="text-sm font-medium leading-6 text-slate-500">
-                          <strong className="font-bold text-slate-700 dark:text-foreground">{row.name}</strong> — {row.text}
+                          <strong className="font-bold text-slate-700 dark:text-foreground">{row.name}</strong> — {row.interpretation}
                         </p>
                       ))}
                     </div>
-                    <ModelRadarChart models={modelRadarModels} />
+                    {modelRadarModels.length > 0 ? <ModelRadarChart models={modelRadarModels} /> : null}
                     <div className="mt-4 border-t border-slate-100 pt-4 dark:border-border">
                       <p className="text-xs font-semibold text-slate-400">분석 설정</p>
                       <div className="mt-3 grid gap-x-8 gap-y-2.5 sm:grid-cols-2">
@@ -3284,7 +3252,7 @@ function RiskSignalCard({
   signal,
   delayMs = 0,
 }: {
-  signal: (typeof RESULT_RISK_SIGNALS)[number]
+  signal: UiRiskSignal
   delayMs?: number
 }) {
   const value = normalizeResultValue(signal.score)
@@ -3293,7 +3261,9 @@ function RiskSignalCard({
   const toneClassName =
     signal.tone === "danger"
       ? "bg-red-50 text-red-700"
-      : "bg-amber-100 text-amber-700"
+      : signal.tone === "warning"
+        ? "bg-amber-100 text-amber-700"
+        : "bg-emerald-100 text-emerald-700"
 
   useEffect(() => {
     setBarWidth(0)
@@ -3325,7 +3295,7 @@ function RiskSignalCard({
         <div
           className={cn(
             "h-full rounded-full transition-[width] duration-700 ease-out",
-            signal.tone === "danger" ? "bg-red-700" : "bg-amber-400"
+            signal.tone === "danger" ? "bg-red-700" : signal.tone === "warning" ? "bg-amber-400" : "bg-emerald-500"
           )}
           style={{ width: `${barWidth}%` }}
         />
@@ -3419,37 +3389,6 @@ function RepresentativeFrameDetailCard({ frame, index }: { frame: Representative
       </div>
     </div>
   )
-}
-
-function renderSummaryLine(line: string, index: number): ReactNode {
-  if (index === 0) {
-    return (
-      <>
-        <strong className="font-bold text-slate-950">{PRIORITY_REVIEW_RANGE_LABEL}</strong> 구간에서{" "}
-        <strong className="font-bold text-slate-950">얼굴 경계부의 연결성</strong>이 낮게 측정되었습니다.
-      </>
-    )
-  }
-
-  if (index === 1) {
-    return (
-      <>
-        일부 구간에서는 <strong className="font-bold text-slate-950">압축 흔적</strong>이 주변 영역보다 높게
-        나타나 <strong className="font-bold text-slate-950">조작 의심도</strong>가 상승했습니다.
-      </>
-    )
-  }
-
-  if (index === 2) {
-    return (
-      <>
-        연속 프레임에서 유사한 <strong className="font-bold text-slate-950">위험 신호</strong>가 반복되어 해당
-        구간에 대한 <strong className="font-bold text-slate-950">우선 검토</strong>가 권장됩니다.
-      </>
-    )
-  }
-
-  return line
 }
 
 function SummaryMetricRow({
@@ -3550,17 +3489,19 @@ function AnimatedRiskBar({
 }
 
 function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
-  const fallbackScores = [0.18, 0.24, 0.31, 0.48, 0.63, 0.76, 0.7, 0.58, 0.42, 0.28, 0.2, 0.16]
   const [drawProgress, setDrawProgress] = useState(0)
   const [markersVisible, setMarkersVisible] = useState(false)
   const [measuredLineLength, setMeasuredLineLength] = useState(1)
   const linePathRef = useRef<SVGPathElement | null>(null)
-  const items =
-    scores.length > 0
-      ? scores.slice(0, 36).map((item) => ({ value: normalizeResultValue(item.score), timeSec: item.timeSec ?? null }))
-      : fallbackScores.map((value) => ({ value, timeSec: null }))
-  const peakIndex = items.reduce((peak, item, index) => (item.value > items[peak].value ? index : peak), 0)
-  const peakItem = items[peakIndex]
+  const items = scores.slice(0, 36).map((item) => ({
+    value: normalizeResultValue(item.score),
+    timeSec: item.timeSec ?? null,
+  }))
+  const hasScores = items.length > 0
+  const peakIndex = hasScores
+    ? items.reduce((peak, item, index) => (item.value > items[peak].value ? index : peak), 0)
+    : 0
+  const peakItem = hasScores ? items[peakIndex] : { value: 0, timeSec: 0 }
   const toX = (index: number) => (items.length <= 1 ? 50 : 2 + (index / (items.length - 1)) * 96)
   const toY = (value: number) => 92 - Math.max(0, Math.min(1, value)) * 76
   const pointCoordinates = items.map((item, index) => ({ x: toX(index), y: toY(item.value) }))
@@ -3594,6 +3535,14 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
       window.clearTimeout(markerTimer)
     }
   }, [linePath])
+
+  if (!hasScores) {
+    return (
+      <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
+        프레임별 위험 점수가 아직 없습니다. GPU 워커가 frameRisks를 반환하면 표시됩니다.
+      </p>
+    )
+  }
 
   return (
     <div>
@@ -3818,11 +3767,6 @@ function formatSecondsForViewer(seconds: number) {
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}초`
 }
 
-function formatScoreOutOf100(score: number | null | undefined) {
-  if (score == null || !Number.isFinite(score)) return "-"
-  return `${Math.round(normalizeResultValue(score) * 100)} / 100`
-}
-
 function ResultDetailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rounded-xl border border-border bg-muted/20 p-4">
@@ -3891,20 +3835,15 @@ function buildResultSummaryParagraph(data: EvidenceDetailData | null, verdict: s
     return data.analysisInfo.summary
   }
 
-  const displayScore = Number.isFinite(score) && score > 0 ? score : 70
-  return `AI 기반 분석 결과 ${verdict} 신호가 확인되었으며, 위험 점수는 ${displayScore} / 100입니다. 얼굴 경계부와 압축 패턴을 중심으로 전문가 검토가 필요합니다.`
-}
+  if (Number.isFinite(score) && score > 0) {
+    return `AI 기반 분석 결과 ${verdict} 신호가 확인되었으며, 위험 점수는 ${Math.round(score)} / 100입니다.`
+  }
 
-function buildResultSummaryLines(_data: EvidenceDetailData | null) {
-  return [
-    `${PRIORITY_REVIEW_RANGE_LABEL} 구간에서 얼굴 경계부의 연결성이 낮게 측정되었습니다.`,
-    "일부 구간에서는 압축 흔적이 주변 영역보다 높게 나타나 조작 의심도가 상승했습니다.",
-    "연속 프레임에서 유사한 위험 신호가 반복되어 해당 구간에 대한 우선 검토가 권장됩니다.",
-  ]
+  return "분석이 완료되었습니다."
 }
 
 function buildResultDetectionBars(data: EvidenceDetailData | null) {
-  const modules = data?.analysisInfo.moduleResults ?? []
+  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
   if (modules.length > 0) {
     return modules.slice(0, 4).map((module) => ({
       label: formatModuleLabel(module.moduleName),
@@ -3912,56 +3851,7 @@ function buildResultDetectionBars(data: EvidenceDetailData | null) {
     }))
   }
 
-  return [
-    { label: "얼굴 경계 불연속", value: 0.91 },
-    { label: "시간축 일관성 저하", value: 0.84 },
-    { label: "압축 아티팩트", value: 0.79 },
-  ]
-}
-
-function buildModelInsights(_data: EvidenceDetailData | null, _frameScores: FrameScore[]) {
-  return {
-    ensembleScore: 0.71,
-    primaryModels: [
-      {
-        name: "TimesFormer",
-        role: "연속 프레임 기반 시간적 일관성 분석",
-        score: 0.7,
-        interpretation: "일부 구간에서 얼굴 움직임과 프레임 흐름의 연속성이 낮게 측정되었습니다.",
-      },
-      {
-        name: "Xception",
-        role: "얼굴 crop 기반 공간적 합성 흔적 분석",
-        score: 0.7,
-        interpretation: "얼굴 경계부와 질감 패턴에서 합성 의심 신호가 확인되었습니다.",
-      },
-    ],
-    gmflow: {
-      score: 0.68,
-      status: "보조 신호",
-      description:
-        "프레임 간 얼굴 움직임 벡터에서 일부 불안정 패턴이 관찰되었습니다. 이 결과는 단독 판단 근거가 아니라, Xception 및 TimesFormer 결과를 보강하는 참고 신호로 사용됩니다.",
-    },
-  }
-}
-
-function buildModelAnalysisSettings(data: EvidenceDetailData | null, frameScores: FrameScore[]) {
-  const metadata = data?.evidenceInfo.technicalMetadata
-  const width = metadata?.width
-  const height = metadata?.height
-  const fps = metadata?.fps
-  const durationSec = metadata?.durationSec
-
-  return [
-    { label: "분석 모델", value: "TimesFormer + Xception" },
-    { label: "보조 지표", value: "GMFlow" },
-    { label: "입력 해상도", value: width && height ? `${width} x ${height}` : "1920 x 1080" },
-    { label: "분석 프레임 수", value: `${frameScores.length || 14}개` },
-    { label: "프레임 추출 간격", value: "2.2초" },
-    { label: "영상 길이", value: durationSec ? formatDuration(durationSec) : "00:24.000" },
-    { label: "프레임레이트", value: fps ? `${fps} fps` : "29.97 fps" },
-    { label: "모델 버전", value: "v2.4.1" },
-  ]
+  return []
 }
 
 function findModuleByKeywords(modules: EvidenceDetailData["analysisInfo"]["moduleResults"], keywords: string[]) {
@@ -3982,19 +3872,6 @@ function getDetectionTone(value: number): { level: string; badgeClass: string; b
   if (value >= 0.6) return { level: "높음", badgeClass: "bg-red-50 text-red-700", barClass: "bg-red-700" }
   if (value >= 0.3) return { level: "보통", badgeClass: "bg-amber-100 text-amber-700", barClass: "bg-amber-500" }
   return { level: "낮음", badgeClass: "bg-emerald-100 text-emerald-700", barClass: "bg-emerald-500" }
-}
-
-function formatModuleLabel(name: string) {
-  const normalized = name.toLowerCase()
-  if (normalized.includes("boundary") || normalized.includes("face")) return "얼굴 경계 불연속"
-  if (normalized.includes("timeline") || normalized.includes("temporal")) return "시간축 일관성 저하"
-  if (normalized.includes("metadata")) return "메타데이터 기반 이상"
-  if (normalized.includes("compression") || normalized.includes("artifact")) return "압축 아티팩트"
-  if (normalized.includes("vision")) return "모델 A (Vision Transformer)"
-  if (normalized.includes("cnn")) return "모델 B (CNN 기반)"
-  if (normalized.includes("xception")) return "모델 C (Xception 기반)"
-  if (normalized.includes("swin")) return "모델 D (Swin Transformer)"
-  return name
 }
 
 function buildDetectionContext(moduleName: string, index: number, frameScores: FrameScore[]) {
@@ -4033,11 +3910,6 @@ function buildDetectionInterval(index: number, frameScores: FrameScore[]) {
   const end = Math.min(Math.max(target.timeSec + windowSec, start + 1), Math.max(maxTime, target.timeSec + 1))
 
   return `${formatDuration(start)} - ${formatDuration(end)}`
-}
-
-function normalizeResultValue(value: number) {
-  if (value > 0 && value <= 1) return value
-  return Math.max(0, Math.min(100, value)) / 100
 }
 
 function formatResultScore(score: number | null) {

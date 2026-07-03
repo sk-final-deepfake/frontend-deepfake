@@ -64,6 +64,9 @@ export type ModuleResult = {
   detected: boolean
   score: number
   deepfakeScore?: number | null
+  confidence?: number | null
+  modelName?: string | null
+  modelVersion?: string | null
   details: string
 }
 
@@ -89,6 +92,8 @@ export type SuspiciousSegment = {
 }
 
 export type ModelScore = {
+  moduleName: string
+  detected?: boolean
   modelName: string
   score: number
   confidence?: number | null
