@@ -25,7 +25,7 @@ export interface InviteCode {
   usedBy?: string
 }
 
-export type LogCategory = "AUTH" | "ANALYSIS" | "ADMIN" | "COC"
+export type LogCategory = "AUTH" | "ANALYSIS" | "ADMIN" | "COC" | "SECURITY"
 
 export interface AdminLog {
   id: string

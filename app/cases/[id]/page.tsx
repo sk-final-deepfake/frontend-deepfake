@@ -1,13 +1,28 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
+import {
+  CategoryScale,
+  Chart as ChartJS,
+  Filler,
+  Legend,
+  LineElement,
+  LinearScale,
+  PointElement,
+  Tooltip,
+  type ChartData,
+  type ChartOptions,
+  type Plugin,
+} from "chart.js"
+import { Line } from "react-chartjs-2"
 import {
   AlertCircle,
   ArrowLeft,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Download,
@@ -71,6 +86,7 @@ import {
   type AnalysisType,
   fetchCaseDetail,
   fetchEvidenceDetail,
+  recordEvidenceSecurityEvent,
   type CaseDetailData,
   type CaseEvidenceSummary,
   type EvidenceDetailData,
@@ -94,6 +110,8 @@ import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeEvidenceDetailForUi } from "@/lib/api/normalize-analysis"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -152,6 +170,53 @@ function getPreferredEvidenceId(evidences: CaseEvidenceSummary[], preferredEvide
 }
 
 type EvidenceStatusBucket = "pending" | "running" | "completed" | "inactive"
+const EVIDENCE_PAGE_SIZE = 5
+const PRIORITY_REVIEW_START_SEC = 15.8
+const PRIORITY_REVIEW_END_SEC = 23.8
+const PRIORITY_REVIEW_RANGE_LABEL = "00:15.800 ~ 00:23.800"
+const PEAK_FRAME_TIME_LABEL = "00:19.800"
+
+function getEvidenceBucket(evidence: CaseEvidenceSummary): EvidenceStatusBucket {
+  if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return "inactive"
+  if (isEvidenceAnalysisRunning(evidence)) return "running"
+  if (normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED") return "completed"
+  return "pending"
+}
+
+const RESULT_RISK_SIGNALS = [
+  {
+    label: "얼굴 경계 불연속",
+    badge: "높은 위험 신호",
+    score: 0.7,
+    description: "프레임 간 얼굴 랜드마크와 주변 영역의 연결성을 분석했습니다.",
+    basis: "얼굴 윤곽선과 주변 배경의 연결성이 낮게 측정됨",
+    interval: PRIORITY_REVIEW_RANGE_LABEL,
+    tone: "danger",
+  },
+  {
+    label: "압축 아티팩트",
+    badge: "검토 필요",
+    score: 0.6,
+    description: "얼굴 주변 영역의 압축 패턴이 배경 영역과 다르게 나타나는지 분석했습니다.",
+    basis: "얼굴 주변 압축 패턴이 주변 영역보다 높게 나타남",
+    interval: "00:00.400 ~ 00:08.400",
+    tone: "warning",
+  },
+] as const
+
+const RESULT_EXTRA_SIGNALS = [
+  { label: "얼굴 질감 이상", score: 0.48, note: "뚜렷한 위험 신호는 제한적으로 관찰됨" },
+  { label: "시간적 일관성 저하", score: 0.52, note: "일부 변화는 있으나 주요 위험 신호로 분류되지는 않음" },
+  { label: "얼굴 움직임 이상 보조 신호", score: 0.43, note: "GMFlow 기반 참고 지표이며 단독 판단 근거로 사용하지 않음" },
+] as const
+
+const TOP_RISK_FRAMES = [
+  { time: PEAK_FRAME_TIME_LABEL, seconds: 19.8, score: 82, signal: "얼굴 경계 불연속" },
+  { time: "00:17.600", seconds: 17.6, score: 78, signal: "압축 패턴 이상" },
+  { time: "00:21.400", seconds: 21.4, score: 74, signal: "얼굴 경계 불연속" },
+  { time: "00:06.200", seconds: 6.2, score: 67, signal: "압축 아티팩트" },
+  { time: "00:08.400", seconds: 8.4, score: 63, signal: "압축 아티팩트" },
+] as const
 
 export default function CaseDetailPage() {
   const { id } = useParams()
@@ -561,19 +626,27 @@ function requestProtectedFullscreen(element: HTMLElement | null) {
   void requestFullscreen?.call(fullscreenTarget)
 }
 
+type ProtectedSecurityEvent = {
+  eventType: "PRINT_SCREEN" | "SCREEN_CAPTURE_SHORTCUT"
+  detail: string
+}
+
 function ProtectedVideoPlayer({
   src,
   videoRef,
   objectFit = "cover",
   children,
+  onSecurityEvent,
 }: {
   src: string
   videoRef?: { current: HTMLVideoElement | null }
   objectFit?: "cover" | "contain"
   children?: ReactNode
+  onSecurityEvent?: (event: ProtectedSecurityEvent) => void
 }) {
   const playerRef = useRef<HTMLDivElement | null>(null)
   const internalVideoRef = useRef<HTMLVideoElement | null>(null)
+  const captureAlertTimerRef = useRef<number | undefined>(undefined)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -581,27 +654,49 @@ function ProtectedVideoPlayer({
   const [captureAlert, setCaptureAlert] = useState(false)
   const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0
 
-  // PrintScreen 감지 — 경고 표시 + 클립보드 덮어쓰기. 캡처 자체는 브라우저에서 차단 불가(추적·억제 목적)
-  useEffect(() => {
-    let timer: number | undefined
+  const showCaptureAlert = useCallback((event: ProtectedSecurityEvent) => {
+    setCaptureAlert(true)
+    window.clearTimeout(captureAlertTimerRef.current)
+    captureAlertTimerRef.current = window.setTimeout(() => setCaptureAlert(false), 4000)
+    onSecurityEvent?.(event)
+  }, [onSecurityEvent])
 
+  // 캡처 자체는 브라우저에서 완전히 차단할 수 없어 감지 가능한 키 이벤트를 추적·기록한다.
+  useEffect(() => {
     function handleKeyUp(event: KeyboardEvent) {
       if (event.key !== "PrintScreen") return
-      setCaptureAlert(true)
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => setCaptureAlert(false), 4000)
+      showCaptureAlert({
+        eventType: "PRINT_SCREEN",
+        detail: "PrintScreen 키 입력 감지",
+      })
       void navigator.clipboard
         ?.writeText("ForenShield AI: 증거 화면 캡처가 감지되어 열람 기록이 남습니다.")
         .catch(() => undefined)
       console.warn("[ForenShield] 증거 화면 캡처 시도 감지 — 열람 기록 저장 대상")
     }
 
+    function handleKeyDown(event: KeyboardEvent) {
+      const key = event.key.toLowerCase()
+      const isMacScreenshotShortcut =
+        event.metaKey && event.shiftKey && (key === "3" || key === "4" || key === "5")
+      const isBrowserScreenshotShortcut = event.ctrlKey && event.shiftKey && key === "s"
+
+      if (!isMacScreenshotShortcut && !isBrowserScreenshotShortcut) return
+
+      showCaptureAlert({
+        eventType: "SCREEN_CAPTURE_SHORTCUT",
+        detail: isMacScreenshotShortcut ? "macOS 화면 캡처 단축키 감지" : "브라우저 화면 캡처 단축키 감지",
+      })
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
     window.addEventListener("keyup", handleKeyUp)
     return () => {
+      window.removeEventListener("keydown", handleKeyDown)
       window.removeEventListener("keyup", handleKeyUp)
-      window.clearTimeout(timer)
+      window.clearTimeout(captureAlertTimerRef.current)
     }
-  }, [])
+  }, [showCaptureAlert])
 
   function setVideoElement(element: HTMLVideoElement | null) {
     internalVideoRef.current = element
@@ -639,7 +734,7 @@ function ProtectedVideoPlayer({
   }
 
   const controlButtonClassName =
-    "flex size-7 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 active:bg-white/20 sm:size-8"
+    "flex size-6 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 active:bg-white/20 sm:size-7"
 
   return (
     <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
@@ -664,8 +759,8 @@ function ProtectedVideoPlayer({
           화면 캡처가 감지되었습니다 · 열람 기록이 남습니다
         </div>
       ) : null}
-      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2.5 pb-2 pt-10 text-white sm:px-3 sm:pb-2.5 sm:pt-12">
-        <div className="relative mb-1 h-3.5 sm:mb-1.5 sm:h-4">
+      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-1.5 pt-8 text-white sm:px-2.5 sm:pb-2 sm:pt-10">
+        <div className="relative mb-1 h-3 sm:h-3.5">
           <input
             type="range"
             min={0}
@@ -673,7 +768,7 @@ function ProtectedVideoPlayer({
             step="0.05"
             value={Math.min(currentTime, duration || 0)}
             onChange={(event) => seekTo(event.currentTarget.value)}
-            className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 cursor-pointer appearance-none rounded-full bg-transparent accent-red-700 [&::-moz-range-thumb]:size-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+            className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 cursor-pointer appearance-none rounded-full bg-transparent accent-red-700 [&::-moz-range-thumb]:size-2.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-thumb]:size-2.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
             style={{
               background: `linear-gradient(to right, #dc2626 0%, #dc2626 ${progress}%, rgba(255,255,255,0.32) ${progress}%, rgba(255,255,255,0.32) 100%)`,
             }}
@@ -681,17 +776,17 @@ function ProtectedVideoPlayer({
           />
         </div>
         <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-0.5 rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md sm:px-1.5">
+          <div className="flex min-w-0 items-center gap-0.5 rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md">
             <button
               type="button"
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-slate-950 shadow-sm transition-transform hover:scale-105 active:scale-95 sm:size-9"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-slate-950 shadow-sm transition-transform hover:scale-105 active:scale-95 sm:size-8"
               aria-label={playing ? "일시정지" : "재생"}
               onClick={togglePlay}
             >
               {playing ? (
-                <Pause className="size-3.5 fill-current sm:size-4" aria-hidden="true" />
+                <Pause className="size-3 fill-current sm:size-3.5" aria-hidden="true" />
               ) : (
-                <Play className="ml-0.5 size-3.5 fill-current sm:size-4" aria-hidden="true" />
+                <Play className="ml-0.5 size-3 fill-current sm:size-3.5" aria-hidden="true" />
               )}
             </button>
             <button
@@ -701,23 +796,23 @@ function ProtectedVideoPlayer({
               onClick={toggleMuted}
             >
               {muted ? (
-                <VolumeX className="size-3.5 sm:size-4" aria-hidden="true" />
+                <VolumeX className="size-3 sm:size-3.5" aria-hidden="true" />
               ) : (
-                <Volume2 className="size-3.5 sm:size-4" aria-hidden="true" />
+                <Volume2 className="size-3 sm:size-3.5" aria-hidden="true" />
               )}
             </button>
-            <span className="whitespace-nowrap rounded-full bg-white/10 px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums text-white shadow-inner sm:px-2 sm:py-1 sm:text-[11px]">
+            <span className="whitespace-nowrap rounded-full bg-white/10 px-1.5 py-0.5 font-mono text-[9px] font-bold tabular-nums text-white shadow-inner sm:text-[10px]">
               {formatVideoClock(currentTime)} / {formatVideoClock(duration)}
             </span>
           </div>
-          <div className="flex shrink-0 items-center rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md sm:px-1.5">
+          <div className="flex shrink-0 items-center rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md">
           <button
             type="button"
             className={controlButtonClassName}
             aria-label="워터마크 포함 확대"
             onClick={() => requestProtectedFullscreen(playerRef.current)}
           >
-            <Maximize2 className="size-3.5 sm:size-4" aria-hidden="true" />
+            <Maximize2 className="size-3 sm:size-3.5" aria-hidden="true" />
           </button>
           </div>
         </div>
@@ -754,6 +849,7 @@ function CaseResultView({
   const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
   const [resultTab, setResultTab] = useState<"summary" | "detection" | "frames" | "models">("summary")
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const lastSecurityEventRef = useRef<{ key: string; recordedAt: number } | null>(null)
   const selectedEvidence =
     caseData.evidences.find((evidence) => evidence.evidenceId === selectedEvidenceId) ??
     caseData.evidences[0] ??
@@ -806,6 +902,26 @@ function CaseResultView({
     frameScores.length > 0
       ? frameScores.reduce((sum, frame) => sum + normalizeResultValue(frame.score), 0) / frameScores.length
       : null
+
+  const reportSecurityEvent = useCallback((event: ProtectedSecurityEvent) => {
+    if (!selectedEvidenceId) return
+
+    const now = Date.now()
+    const eventKey = `${selectedEvidenceId}:${mediaMode}:${event.eventType}`
+    const lastEvent = lastSecurityEventRef.current
+    if (lastEvent?.key === eventKey && now - lastEvent.recordedAt < 5000) {
+      return
+    }
+
+    lastSecurityEventRef.current = { key: eventKey, recordedAt: now }
+    void recordEvidenceSecurityEvent(selectedEvidenceId, {
+      eventType: event.eventType,
+      detail: event.detail,
+      mediaMode,
+      pagePath: `${window.location.pathname}${window.location.search}`,
+      clientTimestamp: new Date().toISOString(),
+    }).catch(() => undefined)
+  }, [mediaMode, selectedEvidenceId])
   const highRiskFrameCount = frameScores.filter((frame) => normalizeResultValue(frame.score) >= 0.6).length
   const modelInsights = buildModelInsights(evidenceDetail, frameScores)
   const modelSettings = buildModelAnalysisSettings(evidenceDetail, frameScores)
@@ -903,7 +1019,12 @@ function CaseResultView({
               </div>
               <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
                 {visibleVideoUrl ? (
-                  <ProtectedVideoPlayer src={visibleVideoUrl} videoRef={videoRef} objectFit="cover">
+                  <ProtectedVideoPlayer
+                    src={visibleVideoUrl}
+                    videoRef={videoRef}
+                    objectFit="cover"
+                    onSecurityEvent={reportSecurityEvent}
+                  >
                     {mediaMode === "overlay" && !overlayVideoUrl ? <MockAnalysisOverlay /> : null}
                     {mediaMode === "heatmap" ? <HeatmapLayer heatmapImageUrl={heatmapImageUrl} /> : null}
                     {mediaMode === "original" ? (
@@ -1873,15 +1994,10 @@ function CaseWorkflowPanel({
   const [isWorking, setIsWorking] = useState(false)
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [statusFilter, setStatusFilter] = useState<EvidenceStatusBucket | "all">("all")
+  const [evidencePage, setEvidencePage] = useState(1)
 
   const evidences = caseData.evidences
   const activeEvidences = evidences.filter((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE")
-  const getEvidenceBucket = (evidence: CaseEvidenceSummary): EvidenceStatusBucket => {
-    if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return "inactive"
-    if (isEvidenceAnalysisRunning(evidence)) return "running"
-    if (normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED") return "completed"
-    return "pending"
-  }
   const bucketCounts = evidences.reduce(
     (counts, evidence) => {
       counts[getEvidenceBucket(evidence)] += 1
@@ -1889,10 +2005,17 @@ function CaseWorkflowPanel({
     },
     { pending: 0, running: 0, completed: 0, inactive: 0 } as Record<EvidenceStatusBucket, number>
   )
-  const filteredEvidences =
-    statusFilter === "all"
-      ? evidences
-      : evidences.filter((evidence) => getEvidenceBucket(evidence) === statusFilter)
+  const filteredEvidences = useMemo(
+    () =>
+      statusFilter === "all"
+        ? evidences
+        : evidences.filter((evidence) => getEvidenceBucket(evidence) === statusFilter),
+    [evidences, statusFilter]
+  )
+  const evidencePageCount = Math.max(1, Math.ceil(filteredEvidences.length / EVIDENCE_PAGE_SIZE))
+  const evidencePageStart = (evidencePage - 1) * EVIDENCE_PAGE_SIZE
+  const visibleEvidences = filteredEvidences.slice(evidencePageStart, evidencePageStart + EVIDENCE_PAGE_SIZE)
+  const showEvidencePager = filteredEvidences.length > EVIDENCE_PAGE_SIZE
   const selectedEvidence =
     evidences.find((item) => item.evidenceId === selectedEvidenceId) ?? evidences[0] ?? null
   const selectedEvidenceActive = (selectedEvidence?.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
@@ -1984,6 +2107,14 @@ function CaseWorkflowPanel({
       setStatusFilter("all")
     }
   }, [statusFilter, bucketCounts.running])
+
+  useEffect(() => {
+    setEvidencePage(1)
+  }, [statusFilter])
+
+  useEffect(() => {
+    setEvidencePage((current) => Math.min(current, evidencePageCount))
+  }, [evidencePageCount])
 
   useEffect(() => {
     const pollIds = evidences
@@ -2358,35 +2489,71 @@ function CaseWorkflowPanel({
           )
         ) : (
           <div className="flex flex-col gap-4 xl:flex-row">
-            <div className="flex max-h-[520px] flex-col gap-0.5 overflow-y-auto xl:w-64 xl:shrink-0 xl:border-r xl:border-border xl:pr-4">
-              {filteredEvidences.length === 0 ? (
-                <p className="px-3 py-10 text-center text-xs font-bold text-muted-foreground">
-                  해당 상태의 증거가 없습니다.
-                </p>
-              ) : (
-                filteredEvidences.map((evidence) => (
-                  <EvidenceListRow
-                    key={evidence.evidenceId}
-                    evidence={evidence}
-                    active={selectedEvidence?.evidenceId === evidence.evidenceId}
-                    representative={caseData.representativeEvidenceId === evidence.evidenceId}
-                    disabled={(evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
-                    running={getEvidenceBucket(evidence) === "running"}
-                    analysisSelectable={!readOnly && isEvidenceSelectableForAnalysis(evidence)}
-                    analysisSelected={selectedAnalysisIdSet.has(evidence.evidenceId)}
-                    onToggleAnalysisSelect={() => toggleAnalysisEvidence(evidence.evidenceId)}
-                    onViewResult={() => onViewResult(evidence.evidenceId)}
-                    onSelect={() => {
-                      if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return
-                      onSelectEvidence(evidence.evidenceId)
-                      setActionMode("idle")
-                      setMenuOpen(false)
-                      setEditCaseOpen(false)
-                      setDeleteConfirmOpen(false)
-                    }}
-                  />
-                ))
-              )}
+            <div className="flex flex-col xl:w-56 xl:shrink-0 xl:border-r xl:border-border xl:pr-3">
+              <div className="grid auto-rows-[4rem] gap-px overflow-hidden">
+                {filteredEvidences.length === 0 ? (
+                  <p className="row-span-5 flex items-center justify-center px-3 text-center text-xs font-bold text-muted-foreground">
+                    해당 상태의 증거가 없습니다.
+                  </p>
+                ) : (
+                  Array.from({ length: EVIDENCE_PAGE_SIZE }).map((_, index) => {
+                    const evidence = visibleEvidences[index]
+
+                    if (!evidence) {
+                      return <div key={`evidence-empty-slot-${index}`} aria-hidden="true" />
+                    }
+
+                    return (
+                      <EvidenceListRow
+                        key={evidence.evidenceId}
+                        evidence={evidence}
+                        active={selectedEvidence?.evidenceId === evidence.evidenceId}
+                        representative={caseData.representativeEvidenceId === evidence.evidenceId}
+                        disabled={(evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
+                        running={getEvidenceBucket(evidence) === "running"}
+                        analysisSelectable={!readOnly && isEvidenceSelectableForAnalysis(evidence)}
+                        analysisSelected={selectedAnalysisIdSet.has(evidence.evidenceId)}
+                        onToggleAnalysisSelect={() => toggleAnalysisEvidence(evidence.evidenceId)}
+                        onViewResult={() => onViewResult(evidence.evidenceId)}
+                        onSelect={() => {
+                          if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return
+                          onSelectEvidence(evidence.evidenceId)
+                          setActionMode("idle")
+                          setMenuOpen(false)
+                          setEditCaseOpen(false)
+                          setDeleteConfirmOpen(false)
+                        }}
+                      />
+                    )
+                  })
+                )}
+              </div>
+
+              {showEvidencePager ? (
+                <div className="mt-2 grid h-12 grid-cols-[72px_1fr_72px] items-center border-t border-border pt-2 text-xs font-bold text-muted-foreground">
+                  <button
+                    type="button"
+                    disabled={evidencePage === 1}
+                    onClick={() => setEvidencePage((current) => Math.max(1, current - 1))}
+                    className="inline-flex h-8 w-[72px] items-center justify-start gap-1 rounded-md px-2 transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronLeft className="size-3.5" aria-hidden="true" />
+                    이전
+                  </button>
+                  <span className="justify-self-center">
+                    {evidencePage} / {evidencePageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={evidencePage === evidencePageCount}
+                    onClick={() => setEvidencePage((current) => Math.min(evidencePageCount, current + 1))}
+                    className="inline-flex h-8 w-[72px] items-center justify-end gap-1 rounded-md px-2 transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    다음
+                    <ChevronRight className="size-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             {selectedEvidence ? (
@@ -2436,8 +2603,8 @@ function CaseWorkflowPanel({
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-col gap-5 lg:flex-row">
-                  <div className="relative aspect-video w-full shrink-0 self-start overflow-hidden rounded-lg bg-slate-950 lg:w-[63%]">
+                <div className="mt-3 flex flex-col gap-4 lg:flex-row">
+                  <div className="relative aspect-video w-full shrink-0 self-start overflow-hidden rounded-lg bg-slate-950 lg:w-[65%] xl:w-[66%]">
                 {detailLoading && !selectedMediaUrl ? (
                   <div className="flex size-full items-center justify-center text-sm font-bold text-white/70">
                     <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
@@ -2460,7 +2627,7 @@ function CaseWorkflowPanel({
                 )}
                   </div>
 
-                  <div className="min-h-[330px] min-w-0 flex-none lg:flex-1 lg:border-l lg:border-border lg:pl-5">
+                  <div className="min-h-[330px] min-w-0 flex-none lg:flex-1 lg:border-l lg:border-border lg:pl-4">
             {infoTab === "metadata" ? (
               <div>
                 <dl className="space-y-3">
@@ -3010,7 +3177,7 @@ function EvidenceListRow({
       }}
       aria-disabled={disabled}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+        "flex h-full w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
         active ? "bg-muted/70" : "hover:bg-muted/40",
         disabled && "cursor-not-allowed opacity-55 hover:bg-transparent"
       )}
@@ -3489,52 +3656,185 @@ function AnimatedRiskBar({
 }
 
 function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
-  const [drawProgress, setDrawProgress] = useState(0)
-  const [markersVisible, setMarkersVisible] = useState(false)
-  const [measuredLineLength, setMeasuredLineLength] = useState(1)
-  const linePathRef = useRef<SVGPathElement | null>(null)
-  const items = scores.slice(0, 36).map((item) => ({
-    value: normalizeResultValue(item.score),
-    timeSec: item.timeSec ?? null,
-  }))
-  const hasScores = items.length > 0
-  const peakIndex = hasScores
-    ? items.reduce((peak, item, index) => (item.value > items[peak].value ? index : peak), 0)
-    : 0
-  const peakItem = hasScores ? items[peakIndex] : { value: 0, timeSec: 0 }
-  const toX = (index: number) => (items.length <= 1 ? 50 : 2 + (index / (items.length - 1)) * 96)
-  const toY = (value: number) => 92 - Math.max(0, Math.min(1, value)) * 76
-  const pointCoordinates = items.map((item, index) => ({ x: toX(index), y: toY(item.value) }))
-  const points = pointCoordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ")
-  const linePath = pointCoordinates
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-    .join(" ")
-  const areaPoints = `2,92 ${points} 98,92`
-  const thresholdY = toY(0.6)
-  const endTime = items[items.length - 1]?.timeSec
-  const peakLabelLeft = Math.min(86, Math.max(14, toX(peakIndex)))
-  const peakLabelTop = Math.max(3, toY(peakItem.value) - 14)
-  const timelineStart = items[0]?.timeSec ?? 0
-  const timelineEnd = endTime ?? Math.max(items.length - 1, 0)
-  const timelineTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) =>
-    formatSecondsForViewer(timelineStart + (timelineEnd - timelineStart) * ratio)
-  )
+  const fallbackScores = [0.18, 0.24, 0.31, 0.48, 0.63, 0.76, 0.7, 0.58, 0.42, 0.28, 0.2, 0.16]
+  const items =
+    scores.length > 0
+      ? scores.slice(0, 36).map((item) => ({ value: normalizeResultValue(item.score), timeSec: item.timeSec ?? null }))
+      : fallbackScores.map((value) => ({ value, timeSec: null }))
+  const peakIndex = items.reduce((peak, item, index) => (item.value > items[peak].value ? index : peak), 0)
+  const labels = items.map((item, index) => formatSecondsForViewer(item.timeSec ?? index))
+  const riskScores = items.map((item) => Math.round(item.value * 100))
+  const thresholdScores = items.map(() => 60)
+  const peakScores = items.map((_, index) => (index === peakIndex ? riskScores[index] : null))
+  const tickIndexSet = new Set([0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round((items.length - 1) * ratio)))
 
-  useEffect(() => {
-    setDrawProgress(0)
-    setMarkersVisible(false)
+  const data: ChartData<"line", (number | null)[], string> = {
+    labels,
+    datasets: [
+      {
+        label: "위험 점수",
+        data: riskScores,
+        borderColor: "#dc2626",
+        backgroundColor: "rgba(220, 38, 38, 0.09)",
+        borderWidth: 3,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        pointHitRadius: 10,
+        pointBackgroundColor: "#dc2626",
+        pointBorderColor: "#ffffff",
+        tension: 0.35,
+        fill: true,
+      },
+      {
+        label: "임계값 60 / 100",
+        data: thresholdScores,
+        borderColor: "rgba(220, 38, 38, 0.36)",
+        borderWidth: 1.5,
+        borderDash: [8, 8],
+        pointRadius: 0,
+        pointHitRadius: 0,
+        tension: 0,
+      },
+      {
+        label: "최고 위험 프레임",
+        data: peakScores,
+        borderColor: "transparent",
+        backgroundColor: "#dc2626",
+        pointBackgroundColor: "#dc2626",
+        pointBorderColor: "#ffffff",
+        pointBorderWidth: 4,
+        pointRadius: 8,
+        pointHoverRadius: 9,
+        showLine: false,
+      },
+    ],
+  }
 
-    const pathLength = linePathRef.current?.getTotalLength() ?? 1
-    setMeasuredLineLength(pathLength)
+  const peakLabelPlugin: Plugin<"line"> = {
+    id: "frameRiskPeakLabel",
+    afterDatasetsDraw(chart) {
+      const peakDatasetIndex = chart.data.datasets.findIndex((dataset) => dataset.label === "최고 위험 프레임")
+      if (peakDatasetIndex < 0) return
 
-    const frame = window.requestAnimationFrame(() => setDrawProgress(1))
-    const markerTimer = window.setTimeout(() => setMarkersVisible(true), 1040)
+      const peakDataset = chart.data.datasets[peakDatasetIndex]
+      const peakDataIndex = peakDataset.data.findIndex((value) => typeof value === "number")
+      const peakValue = peakDataset.data[peakDataIndex]
+      const peakPoint = chart.getDatasetMeta(peakDatasetIndex).data[peakDataIndex]
+      const peakValueNumber = Number(peakValue)
+      if (!Number.isFinite(peakValueNumber) || !peakPoint) return
 
-    return () => {
-      window.cancelAnimationFrame(frame)
-      window.clearTimeout(markerTimer)
-    }
-  }, [linePath])
+      const { x, y } = peakPoint.tooltipPosition(true)
+      const xPosition = Number(x)
+      const yPosition = Number(y)
+      if (!Number.isFinite(xPosition) || !Number.isFinite(yPosition)) return
+      const { ctx, chartArea } = chart
+      ctx.save()
+      ctx.font = "700 14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+      ctx.fillStyle = "#dc2626"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "bottom"
+      ctx.fillText(
+        `${Math.round(peakValueNumber)} / 100`,
+        xPosition,
+        Math.max(chartArea.top + 18, yPosition - 18)
+      )
+      ctx.restore()
+    },
+  }
+
+  const options: ChartOptions<"line"> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: {
+      duration: 650,
+      easing: "easeOutQuart",
+    },
+    interaction: {
+      intersect: false,
+      mode: "index",
+    },
+    layout: {
+      padding: {
+        top: 28,
+        right: 14,
+        bottom: 0,
+        left: 4,
+      },
+    },
+    scales: {
+      x: {
+        border: {
+          display: false,
+        },
+        grid: {
+          display: false,
+          drawTicks: false,
+        },
+        ticks: {
+          color: "#94a3b8",
+          font: {
+            size: 12,
+            weight: 700,
+          },
+          maxRotation: 0,
+          autoSkip: false,
+          callback(_value, index) {
+            return tickIndexSet.has(index) ? labels[index] : ""
+          },
+        },
+      },
+      y: {
+        min: 0,
+        max: 100,
+        border: {
+          display: false,
+        },
+        grid: {
+          color: "rgba(148, 163, 184, 0.22)",
+          drawTicks: false,
+        },
+        ticks: {
+          stepSize: 20,
+          color(context) {
+            return Number(context.tick.value) === 60 ? "#dc2626" : "#94a3b8"
+          },
+          font(context) {
+            return {
+              size: Number(context.tick.value) === 60 ? 13 : 12,
+              weight: 700,
+            }
+          },
+          padding: 12,
+          callback(value) {
+            const numericValue = Number(value)
+            return numericValue === 0 || numericValue === 60 || numericValue === 100 ? String(numericValue) : ""
+          },
+        },
+      },
+    },
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        backgroundColor: "rgba(15, 23, 42, 0.92)",
+        borderColor: "rgba(255, 255, 255, 0.14)",
+        borderWidth: 1,
+        displayColors: false,
+        padding: 10,
+        callbacks: {
+          title(items) {
+            return items[0]?.label ?? ""
+          },
+          label(context) {
+            const value = typeof context.raw === "number" ? context.raw : Number(context.parsed.y)
+            if (context.dataset.label === "임계값 60 / 100") return "임계값: 60 / 100"
+            return `${context.dataset.label}: ${Math.round(value)} / 100`
+          },
+        },
+      },
+    },
+  }
 
   if (!hasScores) {
     return (
@@ -3560,98 +3860,8 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
           최고 위험 프레임
         </span>
       </div>
-      <div className="relative mt-3 h-48 rounded-lg bg-slate-50 py-4 pl-12 pr-4 dark:bg-background">
-        <div className="relative h-full w-full">
-          <svg
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            role="img"
-            aria-label="프레임별 위험도 선 그래프"
-            className="absolute inset-0 size-full overflow-visible"
-          >
-            <line x1="2" y1="16" x2="98" y2="16" className="stroke-slate-200 dark:stroke-border" strokeWidth="0.35" />
-            <line x1="2" y1="54" x2="98" y2="54" className="stroke-slate-200 dark:stroke-border" strokeWidth="0.35" />
-            <line x1="2" y1="92" x2="98" y2="92" className="stroke-slate-300 dark:stroke-border" strokeWidth="0.45" />
-            <line
-              x1="2"
-              y1={thresholdY}
-              x2="98"
-              y2={thresholdY}
-              className="stroke-red-700/35"
-              strokeWidth="0.45"
-              strokeDasharray="2 2"
-            />
-            <polygon
-              points={areaPoints}
-              className="fill-red-700/[0.08] transition-opacity duration-500"
-              style={{ opacity: markersVisible ? 1 : 0 }}
-            />
-            <path
-              ref={linePathRef}
-              d={linePath}
-              fill="none"
-              className="stroke-red-700"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-              strokeDasharray={measuredLineLength}
-              strokeDashoffset={measuredLineLength * (1 - drawProgress)}
-              style={{ transition: "stroke-dashoffset 980ms cubic-bezier(0.22, 1, 0.36, 1)" }}
-            />
-          </svg>
-          {[
-            { label: "100", top: 16 },
-            { label: "60", top: thresholdY, danger: true },
-            { label: "0", top: 92 },
-          ].map((tick) => (
-            <span
-              key={tick.label}
-              className={cn(
-                "absolute -translate-x-full -translate-y-1/2 text-[11px] font-semibold text-slate-400",
-                tick.danger && "text-red-700"
-              )}
-              style={{ left: -10, top: `${tick.top}%` }}
-            >
-              {tick.label}
-            </span>
-          ))}
-          <span
-            className="absolute -translate-x-1/2 whitespace-nowrap text-xs font-bold text-red-700 transition-opacity duration-300"
-            style={{ left: `${peakLabelLeft}%`, top: `${peakLabelTop}%`, opacity: markersVisible ? 1 : 0 }}
-          >
-            {formatScoreOutOf100(peakItem?.value)}
-          </span>
-          {items.map((item, index) => {
-            const x = toX(index)
-            const y = toY(item.value)
-            const isPeak = index === peakIndex
-            const timeLabel = item.timeSec != null ? formatDuration(item.timeSec) : `#${index + 1}`
-            return (
-              <span
-                key={`${index}-${item.value}`}
-                title={`${timeLabel} · 위험 점수 ${formatScoreOutOf100(item.value)}`}
-                className={cn(
-                  "absolute -translate-x-1/2 -translate-y-1/2 rounded-full",
-                  isPeak
-                    ? "size-3.5 bg-red-700 ring-2 ring-white transition-opacity duration-300 dark:ring-card"
-                    : "size-3 bg-red-700 opacity-0 ring-2 ring-white transition-opacity hover:opacity-100 dark:ring-card"
-                )}
-                style={{ left: `${x}%`, top: `${y}%`, opacity: isPeak ? (markersVisible ? 1 : 0) : undefined }}
-              />
-            )
-          })}
-        </div>
-      </div>
-      <div className="mt-2 grid grid-cols-5 pl-12 pr-4 text-xs font-semibold text-slate-400">
-        {timelineTicks.map((label, index) => (
-          <span
-            key={`${label}-${index}`}
-            className={cn(index === 0 && "text-left", index === 4 && "text-right", index > 0 && index < 4 && "text-center")}
-          >
-            {label}
-          </span>
-        ))}
+      <div className="relative mt-3 h-56 rounded-lg bg-slate-50 px-3 py-4 dark:bg-background sm:px-5">
+        <Line data={data} options={options} plugins={[peakLabelPlugin]} aria-label="프레임별 위험도 선 그래프" />
       </div>
     </div>
   )

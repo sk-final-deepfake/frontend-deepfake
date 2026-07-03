@@ -208,6 +208,26 @@ export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceD
   return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`)
 }
 
+export type EvidenceSecurityEventPayload = {
+  eventType: "PRINT_SCREEN" | "SCREEN_CAPTURE_SHORTCUT"
+  detail?: string
+  mediaMode?: string
+  pagePath?: string
+  clientTimestamp?: string
+}
+
+export async function recordEvidenceSecurityEvent(
+  evidenceId: number,
+  payload: EvidenceSecurityEventPayload
+): Promise<void> {
+  if (features.mockApi) return
+
+  await apiRequest<void>(`/api/v1/evidences/${evidenceId}/security-events`, {
+    method: "POST",
+    body: payload,
+  })
+}
+
 export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {
   if (features.mockApi) {
     return mockFetchCaseDetail(caseId)

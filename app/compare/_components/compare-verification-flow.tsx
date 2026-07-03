@@ -148,7 +148,7 @@ export function CompareVerificationFlow() {
             if (hasPreselectedEvidence && preferredEvidenceId === preselectedEvidenceId) {
               setStep("upload")
             } else if (hasPreselectedEvidence) {
-              setSourceError("선택한 사건에서 해당 기준 증거를 찾지 못했습니다. 기준 증거를 다시 선택해 주세요.")
+              setSourceError("선택한 사건에서 비교 가능한 완료 증거를 찾지 못했습니다. 완료된 기준 증거를 선택해 주세요.")
             }
           } catch (detailError) {
             if (cancelled) return
@@ -453,12 +453,18 @@ function ResultStep({ result, onReset }: { result: CompareResult | null; onReset
 }
 
 function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
+  const completedEvidences = caseDetail.evidences.filter(
+    (evidence) =>
+      (evidence.lifecycleStatus ?? "ACTIVE") === "ACTIVE" &&
+      evidence.analysisStatus === "COMPLETED"
+  )
+
   return {
     id: caseDetail.caseId,
     title: caseDetail.caseName,
     department: getCaseStatusLabel(caseDetail.status),
     updatedAtLabel: formatDateTimeLabel(caseDetail.createdAt),
-    evidences: caseDetail.evidences.map((evidence, index) => ({
+    evidences: completedEvidences.map((evidence, index) => ({
       id: evidence.evidenceId,
       displayLabel: evidence.displayLabel || `기준 증거 ${index + 1}`,
       name: evidence.fileName,

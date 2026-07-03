@@ -138,7 +138,7 @@ export function SourceEvidenceSelector({
                 )
               })
             ) : (
-              <EmptyPaneMessage label="선택한 사건에서 일치하는 증거가 없습니다." />
+              <EmptyPaneMessage label="선택한 사건에서 일치하는 완료 증거가 없습니다." />
             )}
           </div>
 

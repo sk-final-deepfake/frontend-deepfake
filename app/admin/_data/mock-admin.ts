@@ -77,6 +77,7 @@ export const MOCK_INVITE_CODES: InviteCode[] = [
 ]
 
 export const MOCK_ADMIN_LOGS: AdminLog[] = [
+  { id: "l13", timestamp: "2026-06-09 11:24", category: "SECURITY", actor: "lee_forensic", actorId: "2", department: "디지털분석팀", action: "화면 캡처 감지", detail: "PrintScreen 키 입력 감지 · EVD-2024-0184" },
   { id: "l1", timestamp: "2026-06-09 09:12", category: "AUTH", actor: "admin_kim", actorId: "1", department: "사이버수사과", action: "로그인", detail: "내부망 접속" },
   { id: "l2", timestamp: "2026-06-09 09:15", category: "COC", actor: "lee_forensic", actorId: "2", department: "디지털분석팀", action: "증거 업로드", detail: "interview_clip_04.mp4" },
   { id: "l3", timestamp: "2026-06-09 09:18", category: "ANALYSIS", actor: "system", actorId: "system", department: "시스템", action: "분석 요청", detail: "CASE-2026-0412" },
