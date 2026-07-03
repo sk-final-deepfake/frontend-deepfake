@@ -3810,14 +3810,6 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
     },
   }
 
-  if (!hasScores) {
-    return (
-      <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-        프레임별 위험 점수가 아직 없습니다. GPU 워커가 frameRisks를 반환하면 표시됩니다.
-      </p>
-    )
-  }
-
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-slate-500 dark:text-muted-foreground">
