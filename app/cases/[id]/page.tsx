@@ -62,6 +62,7 @@ import {
   startCaseAnalysis,
   uploadEvidenceToCase,
 } from "@/lib/api/case-workflow"
+import { fetchAnalysisStatus } from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
@@ -1717,34 +1718,62 @@ function CaseWorkflowPanel({
   }, [evidences, selectedEvidenceId])
 
   useEffect(() => {
-    const runningIds = new Set(
-      evidences
-        .filter((evidence) => isEvidenceAnalysisRunning(evidence) || localAnalysisProgress[evidence.evidenceId] != null)
-        .map((evidence) => evidence.evidenceId)
-    )
+    const runningEvidenceIds = evidences
+      .filter((evidence) => isEvidenceAnalysisRunning(evidence))
+      .map((evidence) => evidence.evidenceId)
+    const optimisticIds = Object.keys(localAnalysisProgress).map(Number)
+    const pollIds = [...new Set([...runningEvidenceIds, ...optimisticIds])]
 
-    if (runningIds.size === 0) return
+    if (pollIds.length === 0) return
 
-    const interval = window.setInterval(() => {
+    let cancelled = false
+
+    async function pollAnalysisStatuses() {
+      const statuses = await Promise.all(
+        pollIds.map((evidenceId) => fetchAnalysisStatus(evidenceId).catch(() => null))
+      )
+
+      if (cancelled) return
+
+      let shouldRefresh = false
+
       setLocalAnalysisProgress((current) => {
-        let changed = false
         const next = { ...current }
-
-        for (const evidenceId of runningIds) {
-          const currentValue = next[evidenceId] ?? 8
-          const bumped = Math.min(92, currentValue + 4)
-          if (bumped !== currentValue) {
-            next[evidenceId] = bumped
-            changed = true
+        for (const status of statuses) {
+          if (!status) continue
+          if (
+            status.status === "COMPLETED" ||
+            status.status === "FAILED" ||
+            (status.status === "PENDING" && status.analysisRequestId === 0)
+          ) {
+            delete next[status.evidenceId]
+            shouldRefresh = true
           }
         }
-
-        return changed ? next : current
+        return next
       })
-    }, 900)
 
-    return () => window.clearInterval(interval)
-  }, [evidences, localAnalysisProgress])
+      if (statuses.some((status) => status?.status === "PROCESSING" || status?.status === "COMPLETED")) {
+        shouldRefresh = true
+      }
+
+      if (shouldRefresh) {
+        onRefresh()
+      }
+    }
+
+    void pollAnalysisStatuses()
+
+    const interval = window.setInterval(() => {
+      if (document.hidden) return
+      void pollAnalysisStatuses()
+    }, 4000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [evidences, localAnalysisProgress, onRefresh])
 
   async function runAction(
     action: () => Promise<void>,
@@ -1857,7 +1886,7 @@ function CaseWorkflowPanel({
         setActionMode("idle")
       },
       `${getAnalysisTypeLabel(analysisType)} 요청이 등록되었습니다.`,
-      { showSuccess: false, refresh: false }
+      { showSuccess: false, refresh: true }
     )
   }
 
@@ -1886,7 +1915,7 @@ function CaseWorkflowPanel({
         }))
       },
       `${formatEvidenceTitle(selectedEvidence)} 분석 요청이 등록되었습니다.`,
-      { showSuccess: false, refresh: false }
+      { showSuccess: false, refresh: true }
     )
   }
 
@@ -3882,19 +3911,15 @@ function isEvidenceAnalysisRunning(evidence: CaseEvidenceSummary) {
   const lifecycle = evidence.lifecycleStatus ?? "ACTIVE"
   const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
 
-  return lifecycle === "ACTIVE" && (
-    status === "PROCESSING" || (status === "PENDING" && evidence.analysisProgress != null)
-  )
+  // PROCESSING(=백엔드 ANALYZING)만 분석 중. PENDING+progress 0은 미요청/대기.
+  return lifecycle === "ACTIVE" && status === "PROCESSING"
 }
 
 function isEvidenceSelectableForAnalysis(evidence: CaseEvidenceSummary) {
   const lifecycle = evidence.lifecycleStatus ?? "ACTIVE"
   const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
 
-  return lifecycle === "ACTIVE" &&
-    status !== "COMPLETED" &&
-    status !== "PROCESSING" &&
-    !(status === "PENDING" && evidence.analysisProgress != null)
+  return lifecycle === "ACTIVE" && (status === "PENDING" || status === "FAILED")
 }
 
 function getAnalysisTypeLabel(type: AnalysisType) {
