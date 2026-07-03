@@ -1295,6 +1295,8 @@ function CaseResultView({
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
                       프레임 점수 데이터가 없습니다.
+                      <br />
+                      GPU 워커가 frameRisks를 publish한 뒤 영상을 다시 분석해 주세요.
                     </p>
                   )}
                 </section>
@@ -3630,11 +3632,18 @@ function AnimatedRiskBar({
 }
 
 function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
-  const fallbackScores = [0.18, 0.24, 0.31, 0.48, 0.63, 0.76, 0.7, 0.58, 0.42, 0.28, 0.2, 0.16]
-  const items =
-    scores.length > 0
-      ? scores.slice(0, 36).map((item) => ({ value: normalizeResultValue(item.score), timeSec: item.timeSec ?? null }))
-      : fallbackScores.map((value) => ({ value, timeSec: null }))
+  if (scores.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
+        프레임별 위험 점수가 없습니다. GPU 워커가 frameRisks를 반환한 뒤 새로 분석하면 표시됩니다.
+      </p>
+    )
+  }
+
+  const items = scores.slice(0, 36).map((item) => ({
+    value: normalizeResultValue(item.score),
+    timeSec: item.timeSec ?? null,
+  }))
   const peakIndex = items.reduce((peak, item, index) => (item.value > items[peak].value ? index : peak), 0)
   const labels = items.map((item, index) => formatSecondsForViewer(item.timeSec ?? index))
   const riskScores = items.map((item) => Math.round(item.value * 100))
@@ -3769,14 +3778,10 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
         },
         ticks: {
           stepSize: 20,
-          color(context) {
-            return Number(context.tick.value) === 60 ? "#dc2626" : "#94a3b8"
-          },
-          font(context) {
-            return {
-              size: Number(context.tick.value) === 60 ? 13 : 12,
-              weight: 700,
-            }
+          color: "#94a3b8",
+          font: {
+            size: 12,
+            weight: 700,
           },
           padding: 12,
           callback(value) {
