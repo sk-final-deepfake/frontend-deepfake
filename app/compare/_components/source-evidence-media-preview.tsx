@@ -18,8 +18,16 @@ export function SourceEvidenceMediaPreview({
   compact?: boolean
 }) {
   const playbackUrl = evidence.videoUrl ?? evidence.fileUrl ?? evidence.previewUrl
-  const mediaPreviewUrl = evidence.thumbnailUrl ?? evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl
-  const thumbnailUrl = evidence.thumbnailUrl
+  const [thumbnailFailed, setThumbnailFailed] = useState(false)
+  const thumbnailUrlLooksLikeVideo =
+    Boolean(evidence.thumbnailUrl) &&
+    [evidence.previewUrl, evidence.videoUrl, evidence.fileUrl].some((url) => url === evidence.thumbnailUrl)
+  const thumbnailUrl = thumbnailUrlLooksLikeVideo || thumbnailFailed ? null : evidence.thumbnailUrl
+  const mediaPreviewUrl = evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl ?? evidence.thumbnailUrl
+
+  useEffect(() => {
+    setThumbnailFailed(false)
+  }, [evidence.thumbnailUrl])
 
   if (!compact && playbackUrl) {
     return (
@@ -39,6 +47,7 @@ export function SourceEvidenceMediaPreview({
           src={thumbnailUrl}
           alt={`EVD-${evidence.id} 썸네일`}
           className="absolute inset-0 size-full object-cover"
+          onError={() => setThumbnailFailed(true)}
         />
       ) : mediaPreviewUrl ? (
         <video

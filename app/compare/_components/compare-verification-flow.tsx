@@ -226,7 +226,7 @@ export function CompareVerificationFlow() {
   }
 
   async function startCompare() {
-    if (!compareFile || selectedEvidenceId === null) return
+    if (!compareFile || selectedEvidenceId === null || !selectedEvidence.isCompareReady) return
 
     const requestId = compareRequestRef.current + 1
     const requestToken =
@@ -327,10 +327,11 @@ export function CompareVerificationFlow() {
 
   const selectedCase =
     sourceCases.find((sourceCase) => sourceCase.id === selectedCaseId) ?? sourceCases[0] ?? EMPTY_CASE
+  const compareReadyEvidences = selectedCase.evidences.filter((evidence) => evidence.isCompareReady)
   const selectedEvidence =
-    selectedCase.evidences.find((evidence) => evidence.id === selectedEvidenceId) ??
+    compareReadyEvidences.find((evidence) => evidence.id === selectedEvidenceId) ??
     EMPTY_EVIDENCE
-  const filteredEvidences = selectedCase.evidences.filter((evidence) => {
+  const filteredEvidences = compareReadyEvidences.filter((evidence) => {
     const searchValue =
       `${evidence.id} ${evidence.displayLabel} ${evidence.dateLabel}`.toLowerCase()
     return searchValue.includes(evidenceQuery.toLowerCase())
@@ -374,7 +375,14 @@ export function CompareVerificationFlow() {
           onSelectCase={selectCase}
           onSelectEvidence={setSelectedEvidenceId}
           onUnavailableEvidenceSelect={showAnalysisRequiredAlert}
-          onNext={() => setStep("upload")}
+          onNext={() => {
+            if (!selectedEvidence.isCompareReady) {
+              setSourceError("딥페이크 분석이 완료된 증거만 비교검증 기준으로 사용할 수 있습니다.")
+              return
+            }
+
+            setStep("upload")
+          }}
         />
       ) : step === "upload" ? (
         <CompareFileUploader
