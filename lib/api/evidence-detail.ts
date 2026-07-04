@@ -162,6 +162,11 @@ export type BlockchainInfo = {
   transactionHash?: string | null
   anchoredAt?: string | null
   network?: string | null
+  hashValid?: boolean | null
+  certVerified?: boolean | null
+  errorCode?: string | null
+  verificationMessage?: string | null
+  transactionExplorerUrl?: string | null
 }
 
 export type EvidenceDetailData = {

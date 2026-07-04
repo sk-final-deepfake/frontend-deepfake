@@ -81,6 +81,12 @@ import {
   type UiSummaryAction,
 } from "@/lib/api/analysis-result-ui"
 import {
+  type BlockchainAnchorRecord,
+  type BlockchainAnchorStatusResponse,
+  fetchEvidenceBlockchainStatus,
+  parseOffchainRef,
+} from "@/lib/api/blockchain"
+import {
   type AnalysisType,
   fetchCaseDetail,
   fetchEvidenceDetail,
@@ -1541,10 +1547,52 @@ function CaseIntegrityView({
   const signatureSigned = (signatureInfo?.signatureStatus ?? "").toUpperCase() === "SIGNED"
   const signatureValid = signatureInfo?.signatureValid ?? false
   const blockchainInfo = evidenceDetail?.blockchainInfo ?? null
-  const blockchainAnchored = (blockchainInfo?.status ?? "").toUpperCase() === "ANCHORED"
-  const blockchainAnchors = blockchainInfo && evidenceDetail ? buildBlockchainAnchors(blockchainInfo, evidenceDetail) : []
+  const evidenceIdForBlockchain =
+    selectedEvidenceId ?? evidenceDetail?.evidenceInfo.evidenceId ?? selectedEvidence?.evidenceId ?? null
+  const [blockchainStatus, setBlockchainStatus] = useState<BlockchainAnchorStatusResponse | null>(null)
+  const [blockchainLoading, setBlockchainLoading] = useState(false)
+  const [blockchainError, setBlockchainError] = useState<string | null>(null)
+  const blockchainAnchors = blockchainStatus ? buildBlockchainAnchorsFromStatus(blockchainStatus) : []
+  const primaryAnchor = blockchainStatus?.evidenceHashAnchor ?? null
+  const blockchainAnchored =
+    (primaryAnchor?.status ?? blockchainInfo?.status ?? "").toUpperCase() === "ANCHORED"
   const [integrityTab, setIntegrityTab] = useState<"original" | "signature" | "blockchain" | "coc">("original")
   const [openTransactionId, setOpenTransactionId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const evidenceId = evidenceIdForBlockchain
+    if (evidenceId == null) {
+      setBlockchainStatus(null)
+      setBlockchainError(null)
+      return
+    }
+
+    let cancelled = false
+    async function loadBlockchain() {
+      setBlockchainLoading(true)
+      setBlockchainError(null)
+      try {
+        const status = await fetchEvidenceBlockchainStatus(evidenceId)
+        if (!cancelled) {
+          setBlockchainStatus(status)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setBlockchainStatus(null)
+          setBlockchainError(error instanceof Error ? error.message : "블록체인 앵커 정보를 불러오지 못했습니다.")
+        }
+      } finally {
+        if (!cancelled) {
+          setBlockchainLoading(false)
+        }
+      }
+    }
+
+    void loadBlockchain()
+    return () => {
+      cancelled = true
+    }
+  }, [evidenceIdForBlockchain])
 
   return (
     <section className="space-y-6 rounded-xl bg-[#f6f8fa] px-0 py-1 text-slate-950 dark:bg-background dark:text-foreground">
@@ -1595,12 +1643,16 @@ function CaseIntegrityView({
             />
             <IntegrityStatusCard
               label="블록체인"
-              value={blockchainInfo ? getBlockchainStatusLabel(blockchainInfo.status) : "미앵커"}
-              description={blockchainInfo?.network || "블록체인 앵커링"}
+              value={
+                primaryAnchor || blockchainInfo
+                  ? getBlockchainStatusLabel(primaryAnchor?.status ?? blockchainInfo?.status ?? "")
+                  : "미앵커"
+              }
+              description={primaryAnchor?.network || blockchainInfo?.network || "블록체인 앵커링"}
               tone={
                 blockchainAnchored
                   ? "safe"
-                  : (blockchainInfo?.status ?? "").toUpperCase() === "FAILED"
+                  : (primaryAnchor?.status ?? blockchainInfo?.status ?? "").toUpperCase() === "FAILED"
                     ? "danger"
                     : "neutral"
               }
@@ -1721,9 +1773,17 @@ function CaseIntegrityView({
                 <>
                   <h2 className="text-lg font-bold text-slate-950 dark:text-foreground">블록체인 앵커링</h2>
                   <p className="mt-1 text-sm font-semibold text-slate-500">
-                    증거 원본, 분석 결과, 보고서 해시를 블록체인에 앵커링하여 처리 시점을 증명합니다.
+                    증거·보고서·Merkle Root 해시를 Fabric에 앵커링한 기록입니다. 원본 파일은 온체인에 저장되지 않습니다.
                   </p>
-                  {blockchainInfo ? (
+                  {blockchainLoading ? (
+                    <LoadingCard label="블록체인 앵커 정보를 불러오는 중입니다..." />
+                  ) : blockchainError ? (
+                    <Alert variant="destructive" className="mt-4">
+                      <AlertCircle className="size-4" />
+                      <AlertTitle>블록체인 조회 오류</AlertTitle>
+                      <AlertDescription>{blockchainError}</AlertDescription>
+                    </Alert>
+                  ) : blockchainAnchors.length > 0 ? (
                     <div className="mt-4 space-y-4">
                       <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4 dark:border-border dark:bg-background">
                         <div className="grid gap-3 md:grid-cols-3">
@@ -1735,7 +1795,9 @@ function CaseIntegrityView({
                                 blockchainAnchored ? "text-teal-700" : "text-slate-950 dark:text-foreground"
                               )}
                             >
-                              {getBlockchainStatusLabel(blockchainInfo.status)}
+                              {getBlockchainStatusLabel(
+                                primaryAnchor?.status ?? blockchainInfo?.status ?? "NOT_ANCHORED"
+                              )}
                             </p>
                           </div>
                           <div>
@@ -1747,10 +1809,40 @@ function CaseIntegrityView({
                           <div>
                             <p className="text-xs font-bold text-slate-400">네트워크</p>
                             <p className="mt-1 text-base font-bold text-slate-950 dark:text-foreground">
-                              {blockchainInfo.network || "-"}
+                              {primaryAnchor?.network || blockchainInfo?.network || "-"}
                             </p>
                           </div>
                         </div>
+                        {primaryAnchor?.certVerified != null || blockchainInfo?.hashValid != null ? (
+                          <div className="mt-3 grid gap-3 border-t border-slate-200/80 pt-3 md:grid-cols-2 dark:border-border">
+                            {primaryAnchor?.certVerified != null ? (
+                              <div>
+                                <p className="text-xs font-bold text-slate-400">서명 검증 (원장)</p>
+                                <p
+                                  className={cn(
+                                    "mt-1 text-sm font-bold",
+                                    primaryAnchor.certVerified ? "text-teal-700" : "text-rose-600"
+                                  )}
+                                >
+                                  {primaryAnchor.certVerified ? "certVerified = true" : "certVerified = false"}
+                                </p>
+                              </div>
+                            ) : null}
+                            {blockchainInfo?.hashValid != null ? (
+                              <div>
+                                <p className="text-xs font-bold text-slate-400">원본 해시 일치</p>
+                                <p
+                                  className={cn(
+                                    "mt-1 text-sm font-bold",
+                                    blockchainInfo.hashValid ? "text-teal-700" : "text-rose-600"
+                                  )}
+                                >
+                                  {blockchainInfo.hashValid ? "일치" : "불일치"}
+                                </p>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="space-y-3">
@@ -1947,14 +2039,25 @@ type BlockchainAnchorItem = {
   title: string
   target: string
   status: string
+  statusRaw: string
   subjectHash: string
-  transactionId: string
-  anchoredAt: string
+  transactionId: string | null
+  anchoredAt: string | null
   network: string
   channel: string
   chaincode: string
-  blockHeight: string
+  blockNumber: string | null
+  signature: string | null
+  signerCertHash: string | null
+  certVerified: boolean | null
+  offchainLogHash: string | null
+  offchainRefJson: string | null
+  errorCode: string | null
+  reportId: number | null
+  merkleBatchDate: string | null
+  merkleLeafCount: number | null
   verificationResult: string
+  verificationTone: "safe" | "danger" | "neutral"
 }
 
 function BlockchainAnchorCard({
@@ -1966,18 +2069,38 @@ function BlockchainAnchorCard({
   isOpen: boolean
   onToggle: () => void
 }) {
+  const offchainRef = parseOffchainRef(anchor.offchainRefJson)
+  const statusTone =
+    anchor.statusRaw === "ANCHORED"
+      ? "bg-emerald-50 text-teal-700"
+      : anchor.statusRaw === "FAILED"
+        ? "bg-rose-50 text-rose-700"
+        : "bg-slate-100 text-slate-600"
+
   return (
     <article className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-border dark:bg-card">
       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-bold text-slate-950 dark:text-foreground">{anchor.title}</h3>
-            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-teal-700">
+            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-bold", statusTone)}>
               {anchor.status}
             </span>
+            {anchor.certVerified != null ? (
+              <span
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[11px] font-bold",
+                  anchor.certVerified ? "bg-emerald-50 text-teal-700" : "bg-rose-50 text-rose-700"
+                )}
+              >
+                {anchor.certVerified ? "서명 검증됨" : "서명 미검증"}
+              </span>
+            ) : null}
           </div>
           <p className="mt-1 text-xs font-semibold text-slate-500">{anchor.target}</p>
-          <p className="mt-2 font-mono text-xs font-semibold text-slate-400">{shortHash(anchor.transactionId)}</p>
+          <p className="mt-2 font-mono text-xs font-semibold text-slate-400">
+            {anchor.transactionId ? shortHash(anchor.transactionId) : "TX 없음"}
+          </p>
         </div>
         <Button
           type="button"
@@ -1985,7 +2108,7 @@ function BlockchainAnchorCard({
           className="h-9 shrink-0 rounded-lg border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
           onClick={onToggle}
         >
-          트랜잭션 보기
+          상세 보기
           <ChevronRight className={cn("size-3.5 transition-transform", isOpen && "rotate-90")} aria-hidden="true" />
         </Button>
       </div>
@@ -1993,14 +2116,108 @@ function BlockchainAnchorCard({
       {isOpen ? (
         <div className="border-t border-slate-100 bg-slate-50/80 p-4 dark:border-border dark:bg-background">
           <div className="grid gap-x-8 gap-y-3 md:grid-cols-2">
-            <IntegrityInfoRow label="TxID" value={shortHash(anchor.transactionId)} mono copyValue={anchor.transactionId} />
-            <IntegrityInfoRow label="앵커 해시" value={shortHash(anchor.subjectHash)} mono copyValue={anchor.subjectHash} />
+            <IntegrityInfoRow
+              label="TxID"
+              value={anchor.transactionId ? shortHash(anchor.transactionId) : "-"}
+              mono
+              copyValue={anchor.transactionId ?? undefined}
+            />
+            <IntegrityInfoRow
+              label="앵커 해시 (subjectHash)"
+              value={shortHash(anchor.subjectHash)}
+              mono
+              copyValue={anchor.subjectHash}
+            />
             <IntegrityInfoRow label="Channel" value={anchor.channel} />
             <IntegrityInfoRow label="Chaincode" value={anchor.chaincode} />
-            <IntegrityInfoRow label="Block Height" value={anchor.blockHeight} />
-            <IntegrityInfoRow label="Timestamp" value={formatDateTime(anchor.anchoredAt)} />
+            <IntegrityInfoRow label="Block Number" value={anchor.blockNumber ?? "-"} />
+            <IntegrityInfoRow
+              label="Timestamp"
+              value={anchor.anchoredAt ? formatDateTime(anchor.anchoredAt) : "-"}
+            />
             <IntegrityInfoRow label="Network" value={anchor.network} />
-            <IntegrityInfoRow label="검증 결과" value={anchor.verificationResult} accent="safe" />
+            <IntegrityInfoRow
+              label="검증 결과"
+              value={anchor.verificationResult}
+              accent={
+                anchor.verificationTone === "safe"
+                  ? "safe"
+                  : anchor.verificationTone === "danger"
+                    ? "danger"
+                    : undefined
+              }
+            />
+            {anchor.certVerified != null ? (
+              <IntegrityInfoRow
+                label="certVerified"
+                value={anchor.certVerified ? "true" : "false"}
+                accent={anchor.certVerified ? "safe" : undefined}
+              />
+            ) : null}
+            {anchor.signerCertHash ? (
+              <IntegrityInfoRow
+                label="signerCertHash"
+                value={shortHash(anchor.signerCertHash)}
+                mono
+                copyValue={anchor.signerCertHash}
+              />
+            ) : null}
+            {anchor.signature ? (
+              <IntegrityInfoRow
+                label="signature"
+                value={shortHash(anchor.signature)}
+                mono
+                copyValue={anchor.signature}
+              />
+            ) : null}
+            {anchor.offchainLogHash ? (
+              <IntegrityInfoRow
+                label="offchainLogHash"
+                value={shortHash(anchor.offchainLogHash)}
+                mono
+                copyValue={anchor.offchainLogHash}
+              />
+            ) : null}
+            {anchor.reportId != null ? (
+              <IntegrityInfoRow label="reportId" value={String(anchor.reportId)} />
+            ) : null}
+            {anchor.merkleBatchDate ? (
+              <IntegrityInfoRow label="merkleBatchDate" value={anchor.merkleBatchDate} />
+            ) : null}
+            {anchor.merkleLeafCount != null ? (
+              <IntegrityInfoRow label="merkleLeafCount" value={String(anchor.merkleLeafCount)} />
+            ) : null}
+            {anchor.errorCode ? (
+              <IntegrityInfoRow label="errorCode" value={anchor.errorCode} />
+            ) : null}
+            {offchainRef.manifestStoragePath ? (
+              <IntegrityInfoRow
+                label="manifestStoragePath"
+                value={offchainRef.manifestStoragePath}
+                copyValue={offchainRef.manifestStoragePath}
+              />
+            ) : null}
+            {offchainRef.originalStoragePath ? (
+              <IntegrityInfoRow
+                label="originalStoragePath"
+                value={offchainRef.originalStoragePath}
+                copyValue={offchainRef.originalStoragePath}
+              />
+            ) : null}
+            {offchainRef.reportStoragePath ? (
+              <IntegrityInfoRow
+                label="reportStoragePath"
+                value={offchainRef.reportStoragePath}
+                copyValue={offchainRef.reportStoragePath}
+              />
+            ) : null}
+            {offchainRef.custodyLogBundleRef ? (
+              <IntegrityInfoRow
+                label="custodyLogBundleRef"
+                value={offchainRef.custodyLogBundleRef}
+                copyValue={offchainRef.custodyLogBundleRef}
+              />
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -4238,84 +4455,106 @@ function shortHash(hash: string) {
   return `${hash.slice(0, 10)}...${hash.slice(-8)}`
 }
 
-function buildBlockchainAnchors(
-  blockchainInfo: NonNullable<EvidenceDetailData["blockchainInfo"]>,
-  evidenceDetail: EvidenceDetailData
+function buildBlockchainAnchorsFromStatus(
+  status: BlockchainAnchorStatusResponse
 ): BlockchainAnchorItem[] {
-  const originalHash = evidenceDetail.integrityInfo.originalHash
-  const baseTime = blockchainInfo.anchoredAt ?? evidenceDetail.evidenceInfo.uploadedAt
-  const network = blockchainInfo.network || "ForenShield Private Chain"
-  const anchors: BlockchainAnchorItem[] = [
-    {
-      id: "evidence-anchor",
-      title: "증거 등록 앵커",
-      target: "원본 SHA-256 + 최초 CoC 체인 해시",
-      status: getBlockchainStatusLabel(blockchainInfo.status),
-      subjectHash: blockchainInfo.subjectHash || originalHash,
-      transactionId: blockchainInfo.transactionHash || buildMockTransactionId(originalHash, "evd"),
-      anchoredAt: baseTime,
-      network,
-      channel: "forenshield-evidence",
-      chaincode: "evidence-anchor",
-      blockHeight: buildMockBlockHeight(originalHash, 0),
-      verificationResult: "기록 일치",
-    },
-  ]
+  const anchors: BlockchainAnchorItem[] = []
 
-  if (evidenceDetail.analysisInfo.status === "COMPLETED") {
-    const resultHash = buildDerivedHash(originalHash, "analysis-result")
-    anchors.push({
-      id: "analysis-anchor",
-      title: "분석 결과 앵커",
-      target: "AI 분석 결과 JSON 해시",
-      status: "앵커링 완료",
-      subjectHash: resultHash,
-      transactionId: buildMockTransactionId(resultHash, "analysis"),
-      anchoredAt: evidenceDetail.analysisInfo.completedAt ?? baseTime,
-      network,
-      channel: "forenshield-evidence",
-      chaincode: "analysis-anchor",
-      blockHeight: buildMockBlockHeight(originalHash, 12),
-      verificationResult: "기록 일치",
-    })
+  if (status.evidenceHashAnchor) {
+    anchors.push(
+      mapBlockchainRecordToItem(status.evidenceHashAnchor, {
+        id: `evidence-${status.evidenceHashAnchor.anchorId}`,
+        title: "증거 등록 앵커",
+        target: "원본 SHA-256 (EVIDENCE_HASH)",
+      })
+    )
+  }
 
-    const reportLog = evidenceDetail.cocLogs.find((log) => log.eventType === "REPORT_GENERATED")
-    const reportHash = buildDerivedHash(originalHash, "report-pdf")
-    anchors.push({
-      id: "report-anchor",
-      title: "보고서 앵커",
-      target: "PDF 보고서 해시",
-      status: "앵커링 완료",
-      subjectHash: reportHash,
-      transactionId: buildMockTransactionId(reportHash, "report"),
-      anchoredAt: reportLog?.createdAt ?? evidenceDetail.analysisInfo.completedAt ?? baseTime,
-      network,
-      channel: "forenshield-evidence",
-      chaincode: "report-anchor",
-      blockHeight: buildMockBlockHeight(originalHash, 18),
-      verificationResult: "기록 일치",
-    })
+  for (const reportAnchor of status.reportHashAnchors ?? []) {
+    anchors.push(
+      mapBlockchainRecordToItem(reportAnchor, {
+        id: `report-${reportAnchor.anchorId}`,
+        title: "보고서 앵커",
+        target: reportAnchor.reportId != null
+          ? `PDF 보고서 해시 (reportId=${reportAnchor.reportId})`
+          : "PDF 보고서 해시 (REPORT_HASH)",
+      })
+    )
+  }
+
+  if (status.latestMerkleRootAnchor) {
+    anchors.push(
+      mapBlockchainRecordToItem(status.latestMerkleRootAnchor, {
+        id: `merkle-${status.latestMerkleRootAnchor.anchorId}`,
+        title: "Merkle Root 앵커",
+        target: status.latestMerkleRootAnchor.merkleBatchDate
+          ? `일별 CoC Merkle Root (${status.latestMerkleRootAnchor.merkleBatchDate})`
+          : "일별 CoC Merkle Root",
+      })
+    )
   }
 
   return anchors
 }
 
-function buildDerivedHash(seed: string, suffix: string) {
-  const compactSeed = (seed || "forenshield").replace(/[^a-fA-F0-9]/g, "")
-  const compactSuffix = Array.from(suffix)
-    .map((char) => char.charCodeAt(0).toString(16))
-    .join("")
-  return `${compactSeed}${compactSuffix}`.slice(0, 64).padEnd(64, "0")
+function mapBlockchainRecordToItem(
+  record: BlockchainAnchorRecord,
+  meta: { id: string; title: string; target: string }
+): BlockchainAnchorItem {
+  const statusRaw = (record.status ?? "").toUpperCase()
+  const verification = resolveAnchorVerification(record)
+
+  return {
+    id: meta.id,
+    title: meta.title,
+    target: meta.target,
+    status: getBlockchainStatusLabel(record.status),
+    statusRaw,
+    subjectHash: record.subjectHash || "-",
+    transactionId: record.transactionHash ?? null,
+    anchoredAt: record.anchoredAt ?? null,
+    network: record.network || "hyperledger-fabric-forenshield",
+    channel: "forenshield-evidence",
+    chaincode: "anchor",
+    blockNumber: record.blockNumber != null ? String(record.blockNumber) : null,
+    signature: record.signature ?? null,
+    signerCertHash: record.signerCertHash ?? null,
+    certVerified: record.certVerified ?? null,
+    offchainLogHash: record.offchainLogHash ?? null,
+    offchainRefJson: record.offchainRefJson ?? null,
+    errorCode: record.errorCode ?? null,
+    reportId: record.reportId ?? null,
+    merkleBatchDate: record.merkleBatchDate ?? null,
+    merkleLeafCount: record.merkleLeafCount ?? null,
+    verificationResult: verification.label,
+    verificationTone: verification.tone,
+  }
 }
 
-function buildMockTransactionId(hash: string, namespace: string) {
-  return `${namespace}-${buildDerivedHash(hash, namespace).slice(0, 48)}`
-}
-
-function buildMockBlockHeight(hash: string, offset: number) {
-  const source = buildDerivedHash(hash, "block").slice(0, 6)
-  const parsed = Number.parseInt(source, 16)
-  return String(12000 + (Number.isNaN(parsed) ? 0 : parsed % 5000) + offset)
+function resolveAnchorVerification(record: BlockchainAnchorRecord): {
+  label: string
+  tone: "safe" | "danger" | "neutral"
+} {
+  const status = (record.status ?? "").toUpperCase()
+  if (status === "FAILED") {
+    return {
+      label: record.errorCode ? `앵커링 실패 (${record.errorCode})` : "앵커링 실패",
+      tone: "danger",
+    }
+  }
+  if (status === "PENDING") {
+    return { label: "앵커링 진행 중", tone: "neutral" }
+  }
+  if (status !== "ANCHORED") {
+    return { label: "미앵커", tone: "neutral" }
+  }
+  if (record.certVerified === true) {
+    return { label: "앵커 기록·서명 검증 일치", tone: "safe" }
+  }
+  if (record.certVerified === false) {
+    return { label: "앵커 기록 있음 · 서명 미검증", tone: "danger" }
+  }
+  return { label: "앵커 기록 확인", tone: "safe" }
 }
 
 function getBlockchainStatusLabel(status: string) {
