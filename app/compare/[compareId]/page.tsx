@@ -31,6 +31,7 @@ import {
   type CompareVerdict,
 } from "@/lib/api/compare"
 import { getApiErrorMessage } from "@/lib/api/errors"
+import { getSession, isReviewerSession } from "@/lib/auth"
 import { formatDateTime } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -44,6 +45,7 @@ export default function CompareReportPage() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const isReviewer = isReviewerSession(getSession())
 
   useEffect(() => {
     let cancelled = false
@@ -125,12 +127,19 @@ export default function CompareReportPage() {
               <p className="text-base font-bold text-foreground">리포트를 열 수 없습니다.</p>
               <p className="text-sm font-semibold text-muted-foreground">{error}</p>
             </div>
-            <Button variant="outline" className="h-10 rounded-lg px-4 font-bold" onClick={() => router.push("/compare")}>
-              새 비교검증
-            </Button>
+            {!isReviewer ? (
+              <Button variant="outline" className="h-10 rounded-lg px-4 font-bold" onClick={() => router.push("/compare")}>
+                새 비교검증
+              </Button>
+            ) : null}
           </ReportStateCard>
         ) : result ? (
-          <CompareReport result={result} isDownloading={isDownloading} onDownload={handleDownloadReport} />
+          <CompareReport
+            result={result}
+            isDownloading={isDownloading}
+            onDownload={handleDownloadReport}
+            readOnly={isReviewer}
+          />
         ) : null}
 
         {downloadError ? (
@@ -156,10 +165,12 @@ function CompareReport({
   result,
   isDownloading,
   onDownload,
+  readOnly = false,
 }: {
   result: CompareResult
   isDownloading: boolean
   onDownload: () => void
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const verdict = getVerdictDisplay(result)
@@ -198,14 +209,16 @@ function CompareReport({
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-10 rounded-lg border-slate-200 bg-white px-4 text-sm font-semibold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
-            onClick={() => router.push("/compare")}
-          >
-            새 검증
-          </Button>
+          {!readOnly ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-lg border-slate-200 bg-white px-4 text-sm font-semibold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+              onClick={() => router.push("/compare")}
+            >
+              새 검증
+            </Button>
+          ) : null}
           <Button
             type="button"
             className="h-10 rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow-none hover:bg-teal-700"

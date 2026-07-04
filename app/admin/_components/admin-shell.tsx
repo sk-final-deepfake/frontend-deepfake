@@ -14,7 +14,7 @@ import {
   ClipboardCheck,
 } from "lucide-react"
 import { logoutApi } from "@/lib/auth-api"
-import { clearSession, getSession } from "@/lib/auth"
+import { clearSession, getSession, isMockAuthSession } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
 const navItems = [
@@ -38,7 +38,9 @@ export function AdminShell({ children }: AdminShellProps) {
 
   async function handleLogout() {
     try {
-      await logoutApi()
+      if (!isMockAuthSession(session)) {
+        await logoutApi()
+      }
     } finally {
       clearSession()
       router.replace("/login")

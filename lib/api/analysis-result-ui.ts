@@ -1,26 +1,34 @@
 import type {
   EvidenceDetailData,
   FrameScore,
-  ModelScore,
   ModuleResult,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
-import { formatDuration } from "@/lib/formatters"
+import { formatDateTime, formatDuration } from "@/lib/formatters"
 
 const TIMELINE_MODULE = "video_timeline"
-const HIGH_RISK_THRESHOLD = 0.6
+const DEFAULT_HIGH_RISK_THRESHOLD = 0.6
 const REVIEW_THRESHOLD = 0.3
 /** GPU placeholder로 흔히 들어오는 미실행 모듈 점수 상한 (예: frame_edit 0.05) */
 const MIN_EXECUTED_MODULE_SCORE = 0.1
 
+export type UiSignalSegment = {
+  label: string
+  startSec: number
+}
+
 export type UiRiskSignal = {
   label: string
+  /** 신호를 산출한 모델 식별 정보 (예: "Xception v2.4.1"). 백엔드 미제공 시 null */
+  modelLabel: string | null
+  /** 이 검사가 무엇을 확인하는지에 대한 한 줄 정의 (점수와 무관한 순수 설명) */
+  definition: string
   badge: string
   score: number
-  description: string
-  basis: string
-  interval: string
+  thresholdPercent: number
   tone: "danger" | "warning" | "neutral"
+  /** 모듈이 실측으로 보고한 의심 구간만 담는다. 없으면 빈 배열 */
+  segments: UiSignalSegment[]
 }
 
 export type UiTopRiskFrame = {
@@ -30,24 +38,28 @@ export type UiTopRiskFrame = {
   signal: string
 }
 
-export type UiModelRow = {
-  name: string
-  role: string
-  score: number
-  interpretation: string
-  auxiliary?: boolean
+export type UiSummaryAction = {
+  text: string
+  seekSec?: number
+  tab?: "detection" | "frames"
 }
 
-export type UiModelInsights = {
-  ensembleScore: number
-  headline: string
-  primaryModels: UiModelRow[]
-  auxiliaryModels: UiModelRow[]
+export type UiMethodologyModel = {
+  name: string
+  version: string
+  role: string
 }
 
 export type UiModelSetting = {
   label: string
   value: string
+}
+
+export type UiMethodologyInfo = {
+  models: UiMethodologyModel[]
+  settings: UiModelSetting[]
+  inputHash: string | null
+  hashAlgorithm: string | null
 }
 
 const MODULE_LABELS: Record<string, string> = {
@@ -58,12 +70,27 @@ const MODULE_LABELS: Record<string, string> = {
   re_encoding: "재인코딩 흔적",
 }
 
-const MODULE_ROLES: Record<string, string> = {
-  deepfake: "얼굴 crop 기반 공간적 합성 흔적 분석",
-  lip_sync: "음성·입술 움직임 동기화 분석",
-  frame_edit: "프레임 단위 편집·합성 흔적 분석",
-  splicing: "영상 구간 연결·절단 흔적 분석",
-  re_encoding: "재압축·트랜스코딩 흔적 분석",
+/** 신호별 한 줄 정의. 점수·판정을 만들지 않는 순수 설명 사전이다. */
+const SIGNAL_DEFINITIONS: Record<string, string> = {
+  "딥페이크(얼굴 합성)": "얼굴 영역의 생성형 합성 패턴을 공간 특징 기준으로 탐지하는 검사입니다.",
+  "얼굴 합성 흔적": "얼굴 주변 경계, 피부 질감, 배경 연결성이 자연스러운지 비교하는 검사입니다.",
+  "프레임 흐름 불일치": "프레임 사이 표정과 움직임이 자연스럽게 이어지는지 확인하는 검사입니다.",
+  "생성형 패턴 흔적": "생성 모델 특유의 질감·주파수 패턴이 남아 있는지 확인하는 검사입니다.",
+  "압축 흔적 불일치": "구간별 압축 흔적이 주변 프레임과 다르게 나타나는지 확인하는 검사입니다.",
+  "메타데이터 불일치": "파일 정보와 영상 특성이 서로 맞는지 확인하는 검사입니다.",
+  "움직임·조명 불일치": "움직임 흐름과 조명 변화가 자연스럽게 이어지는지 확인하는 검사입니다.",
+  "편집 흔적 의심": "프레임 삽입·삭제, 구간 연결 등 편집 흔적을 확인하는 검사입니다.",
+  "립싱크 불일치": "음성과 입술 움직임의 동기화가 어긋나는지 확인하는 검사입니다.",
+  "프레임 편집 흔적": "프레임 단위 삽입·삭제·합성 흔적을 확인하는 검사입니다.",
+  "구간 이어붙이기": "서로 다른 영상 구간을 연결·절단한 흔적을 확인하는 검사입니다.",
+  "재인코딩 흔적": "재압축·트랜스코딩으로 생기는 인코딩 특성 변화를 확인하는 검사입니다.",
+  "음성 합성·편집 흔적": "스펙트럼 연속성과 발화 구간에서 합성·편집 패턴을 확인하는 검사입니다.",
+}
+
+const DEFAULT_SIGNAL_DEFINITION = "영상의 조작 의심 신호를 탐지하는 검사입니다."
+
+export function getSignalDefinition(label: string) {
+  return SIGNAL_DEFINITIONS[label] ?? DEFAULT_SIGNAL_DEFINITION
 }
 
 export function isAnalysisModule(moduleName: string) {
@@ -101,7 +128,8 @@ export function getDetectionModules(modules: ModuleResult[]) {
   return modules.filter((module) => isExecutedDetectionModule(module))
 }
 
-export function normalizeResultValue(value: number) {
+export function normalizeResultValue(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return 0
   if (value > 0 && value <= 1) return value
   return Math.max(0, Math.min(100, value)) / 100
 }
@@ -117,23 +145,35 @@ export function formatModuleLabel(moduleName: string) {
   if (MODULE_LABELS[key]) return MODULE_LABELS[key]
 
   const normalized = key
-  if (normalized.includes("boundary") || normalized.includes("face")) return "얼굴 경계 불연속"
-  if (normalized.includes("timeline") || normalized.includes("temporal")) return "시간축 일관성 저하"
-  if (normalized.includes("metadata")) return "메타데이터 기반 이상"
-  if (normalized.includes("compression") || normalized.includes("artifact")) return "압축 아티팩트"
+  if (normalized.includes("gan") || normalized.includes("fingerprint")) return "생성형 패턴 흔적"
+  if (normalized.includes("temporal") || normalized.includes("timeline") || normalized.includes("consistency") || normalized.includes("lip")) return "프레임 흐름 불일치"
+  if (normalized.includes("boundary") || normalized.includes("synthesis") || normalized.includes("swap") || normalized.includes("face") || normalized.includes("deepfake")) return "얼굴 합성 흔적"
+  if (normalized.includes("compression") || normalized.includes("artifact")) return "압축 흔적 불일치"
+  if (normalized.includes("metadata")) return "메타데이터 불일치"
+  if (normalized.includes("optical") || normalized.includes("flow") || normalized.includes("pose") || normalized.includes("motion")) return "움직임·조명 불일치"
+  if (normalized.includes("copy") || normalized.includes("splice") || normalized.includes("edit")) return "편집 흔적 의심"
+  if (normalized.includes("voice") || normalized.includes("audio")) return "음성 합성·편집 흔적"
   if (normalized.includes("xception")) return "Xception 딥페이크 탐지"
   return moduleName
 }
 
-function riskTone(score: number): UiRiskSignal["tone"] {
-  if (score >= HIGH_RISK_THRESHOLD) return "danger"
+export function getDetectionThreshold(data: EvidenceDetailData | null) {
+  const threshold = data?.analysisInfo.detectionThreshold
+  if (threshold != null && Number.isFinite(threshold) && threshold > 0 && threshold <= 1) {
+    return threshold
+  }
+  return DEFAULT_HIGH_RISK_THRESHOLD
+}
+
+function riskTone(score: number, threshold: number): UiRiskSignal["tone"] {
+  if (score >= threshold) return "danger"
   if (score >= REVIEW_THRESHOLD) return "warning"
   return "neutral"
 }
 
-function riskBadge(score: number, detected: boolean) {
-  if (score >= HIGH_RISK_THRESHOLD || detected) return "높은 위험 신호"
-  if (score >= REVIEW_THRESHOLD) return "검토 필요"
+function riskBadge(score: number, detected: boolean, threshold: number) {
+  if (score >= threshold || detected) return "우선 확인"
+  if (score >= REVIEW_THRESHOLD) return "추가 검토"
   return "낮음"
 }
 
@@ -147,50 +187,26 @@ function primarySuspiciousSegment(data: EvidenceDetailData | null) {
   return [...segments].sort((a, b) => b.maxRiskScore - a.maxRiskScore)[0]
 }
 
-function buildSignalInterval(
-  data: EvidenceDetailData | null,
-  moduleIndex: number,
-  frameScores: FrameScore[]
-) {
-  const segment = data?.analysisInfo.suspiciousSegments?.[moduleIndex]
-  if (segment) return formatSegmentRange(segment)
-
-  if (frameScores.length === 0) return "대표 구간 없음"
-
-  const scoredFrames = [...frameScores].sort(
-    (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
-  )
-  const target = scoredFrames[moduleIndex % scoredFrames.length]
-  const timeSec = target.timeSec ?? moduleIndex
-  const windowSec = Math.max(0.5, Math.min(4, timeSec / 4 || 1))
-  const start = Math.max(0, timeSec - windowSec)
-  const end = timeSec + windowSec
-  return `${formatDuration(start)} ~ ${formatDuration(end)}`
+function moduleModelLabel(module: ModuleResult) {
+  const name = module.modelName?.trim()
+  if (!name) return null
+  const version = module.modelVersion?.trim()
+  return version ? `${name} ${version}` : name
 }
 
-function moduleDescription(module: ModuleResult) {
-  const label = formatModuleLabel(module.moduleName)
-  const score = normalizeResultValue(module.score)
-  const percent = Math.round(score * 100)
-
-  if (module.detected || score >= REVIEW_THRESHOLD) {
-    return `${label} 모듈에서 위험 점수 ${percent}점이 측정되었습니다.`
-  }
-  return `${label} 모듈에서는 뚜렷한 위험 신호가 관찰되지 않았습니다.`
+/** 모듈이 실측으로 보고한 구간만 UI 세그먼트로 변환한다. 추정 구간은 만들지 않는다. */
+function moduleSegments(module: ModuleResult): UiSignalSegment[] {
+  return (module.affectedSegments ?? []).map((segment) => ({
+    label: formatSegmentRange(segment),
+    startSec: segment.startTime,
+  }))
 }
 
-function moduleBasis(module: ModuleResult) {
-  const label = formatModuleLabel(module.moduleName)
-  if (module.detected) return `${label} 탐지 기준을 충족했습니다.`
-  const score = normalizeResultValue(module.score)
-  if (score >= REVIEW_THRESHOLD) return `${label} 점수가 검토 임계값 이상입니다.`
-  return `${label} 점수가 낮아 주요 위험 신호로 분류되지 않았습니다.`
-}
-
-export function buildRiskSignals(
-  data: EvidenceDetailData | null,
-  frameScores: FrameScore[]
-): { primary: UiRiskSignal[]; extra: UiRiskSignal[] } {
+export function buildRiskSignals(data: EvidenceDetailData | null): {
+  primary: UiRiskSignal[]
+  extra: UiRiskSignal[]
+} {
+  const threshold = getDetectionThreshold(data)
   const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
     .map((module) => ({
       module,
@@ -202,15 +218,19 @@ export function buildRiskSignals(
     return { primary: [], extra: [] }
   }
 
-  const signals = modules.map(({ module, score }, index) => ({
-    label: formatModuleLabel(module.moduleName),
-    badge: riskBadge(score, module.detected),
-    score,
-    description: moduleDescription(module),
-    basis: moduleBasis(module),
-    interval: buildSignalInterval(data, index, frameScores),
-    tone: riskTone(score),
-  }))
+  const signals = modules.map(({ module, score }) => {
+    const label = formatModuleLabel(module.moduleName)
+    return {
+      label,
+      modelLabel: moduleModelLabel(module),
+      definition: getSignalDefinition(label),
+      badge: riskBadge(score, module.detected, threshold),
+      score,
+      thresholdPercent: Math.round(threshold * 100),
+      tone: riskTone(score, threshold),
+      segments: moduleSegments(module),
+    }
+  })
 
   const primary = signals.filter((signal) => signal.score >= REVIEW_THRESHOLD || signal.tone === "danger")
   const extra = signals.filter((signal) => signal.score < REVIEW_THRESHOLD && signal.tone !== "danger")
@@ -247,192 +267,89 @@ export function buildTopRiskFrames(
     })
 }
 
-export function buildResultSummaryLines(data: EvidenceDetailData | null) {
-  const evidenceItems = data?.analysisInfo.evidenceItems ?? []
-  if (evidenceItems.length > 0) return evidenceItems
+/** 핵심 요약: 숫자 나열 대신 "무엇을 먼저 확인할지"를 행동 단위로 안내한다. */
+export function buildSummaryActions(
+  data: EvidenceDetailData | null,
+  frameScores: FrameScore[]
+): UiSummaryAction[] {
+  const threshold = getDetectionThreshold(data)
+  const thresholdPercent = Math.round(threshold * 100)
+  const riskScore = normalizeResultValue(data?.analysisInfo.riskScore)
+  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
+  const topModule = [...modules].sort(
+    (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
+  )[0]
+  const reviewRange = getPriorityReviewRange(data, frameScores)
+  const highRiskFrameCount = frameScores.filter(
+    (frame) => normalizeResultValue(frame.score) >= threshold
+  ).length
 
-  const summary = data?.analysisInfo.summary?.trim()
-  if (summary) {
-    const lines = summary
-      .split(/[.!?。]\s*/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-    if (lines.length > 0) return lines
+  if (riskScore >= threshold) {
+    const actions: UiSummaryAction[] = []
+    if (reviewRange) {
+      actions.push({
+        text: `위험이 가장 높은 ${reviewRange.label} 구간을 먼저 확인하세요.`,
+        seekSec: reviewRange.startSec,
+      })
+    }
+    if (topModule) {
+      const label = formatModuleLabel(topModule.moduleName)
+      const percent = Math.round(normalizeResultValue(topModule.score) * 100)
+      actions.push({
+        text: `${label} 신호가 가장 강하게 측정되었습니다 (${percent}점).`,
+        tab: "detection",
+      })
+    }
+    if (frameScores.length > 0) {
+      actions.push({
+        text: `프레임 ${frameScores.length}개 중 ${highRiskFrameCount}개가 임계값 ${thresholdPercent}점을 초과했습니다.`,
+        tab: "frames",
+      })
+    }
+    if (actions.length === 0) {
+      actions.push({ text: "분석 점수와 탐지 신호 기준으로 조작 의심 구간이 확인되었습니다." })
+    }
+    return actions
+  }
+
+  if (riskScore >= REVIEW_THRESHOLD) {
+    const actions: UiSummaryAction[] = [
+      { text: "일부 분석 지표가 검토 기준에 근접해 추가 확인이 필요합니다." },
+    ]
+    if (topModule) {
+      actions.push({
+        text: `${formatModuleLabel(topModule.moduleName)} 신호를 우선 검토하세요.`,
+        tab: "detection",
+      })
+    }
+    if (reviewRange) {
+      actions.push({
+        text: `${reviewRange.label} 구간의 프레임 위험도가 상대적으로 높습니다.`,
+        seekSec: reviewRange.startSec,
+      })
+    }
+    return actions
+  }
+
+  if (data?.analysisInfo.status === "COMPLETED") {
+    return [
+      { text: "주요 분석 지표에서 높은 조작 의심 신호는 확인되지 않았습니다." },
+      { text: "자동 분석 결과이므로 최종 판단은 원본 자료와 검토 의견을 함께 확인해야 합니다." },
+    ]
   }
 
   const segment = primarySuspiciousSegment(data)
   if (segment?.reason) {
     return [
-      segment.reason,
-      `${formatSegmentRange(segment)} 구간에서 최고 위험 점수 ${Math.round(normalizeResultValue(segment.maxRiskScore) * 100)}점이 측정되었습니다.`,
+      { text: segment.reason },
+      {
+        text: `${formatSegmentRange(segment)} 구간에서 최고 위험 점수 ${Math.round(normalizeResultValue(segment.maxRiskScore) * 100)}점이 측정되었습니다.`,
+        seekSec: segment.startTime,
+      },
     ]
   }
 
-  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
-  if (modules.length > 0) {
-    const top = [...modules].sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))[0]
-    const label = formatModuleLabel(top.moduleName)
-    const percent = Math.round(normalizeResultValue(top.score) * 100)
-    return [`${label} 모듈 기준 위험 점수는 ${percent}점이며, GPU 워커 분석 결과를 반영했습니다.`]
-  }
-
-  return ["분석이 완료되었으나 표시할 요약 문구가 아직 없습니다."]
-}
-
-export function buildSummaryFocusLabels(data: EvidenceDetailData | null) {
-  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
-  if (modules.length === 0) {
-    return ["딥페이크 탐지", "프레임 위험도", "모델 신뢰도"]
-  }
-  return modules.slice(0, 3).map((module) => formatModuleLabel(module.moduleName))
-}
-
-function modelRowFromModule(module: ModuleResult): UiModelRow {
-  const score = normalizeResultValue(module.score)
-  const key = module.moduleName.toLowerCase()
-  return {
-    name: module.modelName?.trim() || formatModuleLabel(module.moduleName),
-    role: MODULE_ROLES[key] ?? "영상 딥페이크 탐지 모듈",
-    score,
-    auxiliary: score < REVIEW_THRESHOLD && !module.detected,
-    interpretation:
-      module.detected || score >= REVIEW_THRESHOLD
-        ? `${formatModuleLabel(module.moduleName)}에서 위험 신호가 확인되었습니다.`
-        : `${formatModuleLabel(module.moduleName)}에서는 유의미한 위험 신호가 낮게 측정되었습니다.`,
-  }
-}
-
-function modelRowFromScore(item: ModelScore): UiModelRow {
-  const score = normalizeResultValue(item.score)
-  const key = item.moduleName.toLowerCase()
-  return {
-    name: item.modelName?.trim() || formatModuleLabel(item.moduleName),
-    role: MODULE_ROLES[key] ?? "영상 딥페이크 탐지 모듈",
-    score,
-    interpretation:
-      item.detected || score >= REVIEW_THRESHOLD
-        ? `${formatModuleLabel(item.moduleName)} 모듈 점수 ${Math.round(score * 100)}점`
-        : `${formatModuleLabel(item.moduleName)} 모듈은 보조 참고 수준입니다.`,
-    auxiliary: score < REVIEW_THRESHOLD && !item.detected,
-  }
-}
-
-export function buildModelInsights(
-  data: EvidenceDetailData | null,
-  frameScores: FrameScore[]
-): UiModelInsights {
-  const modelScores = data?.analysisInfo.modelScores ?? []
-  const moduleRows =
-    modelScores.length > 0
-      ? modelScores.map(modelRowFromScore)
-      : getDetectionModules(data?.analysisInfo.moduleResults ?? []).map(modelRowFromModule)
-
-  const primaryModels = moduleRows.filter((row) => !row.auxiliary)
-  const auxiliaryModels = moduleRows.filter((row) => row.auxiliary)
-
-  const riskScore = data?.analysisInfo.riskScore
-  const maxModuleScore = moduleRows.reduce((max, row) => Math.max(max, row.score), 0)
-  const peakFrameScore =
-    frameScores.length > 0
-      ? Math.max(...frameScores.map((frame) => normalizeResultValue(frame.score)))
-      : 0
-  const ensembleScore =
-    riskScore != null
-      ? normalizeResultValue(riskScore)
-      : Math.max(maxModuleScore, peakFrameScore)
-
-  const detectedCount = moduleRows.filter((row) => row.score >= REVIEW_THRESHOLD).length
-  const headline =
-    detectedCount > 0
-      ? `탐지 모듈 ${moduleRows.length}개 중 ${detectedCount}개에서 위험 신호가 확인되었습니다.`
-      : `탐지 모듈 ${moduleRows.length}개 모두 낮은 위험 점수를 보였습니다.`
-
-  return {
-    ensembleScore,
-    headline,
-    primaryModels: primaryModels.length > 0 ? primaryModels : moduleRows.slice(0, 2),
-    auxiliaryModels,
-  }
-}
-
-export function buildModelRadarModels(
-  insights: UiModelInsights,
-  frameScores: FrameScore[],
-  peakFrameScore: number | null
-) {
-  const rows = [...insights.primaryModels, ...insights.auxiliaryModels].slice(0, 4)
-  if (rows.length > 0) {
-    return rows.map((row) => ({
-      label: row.name,
-      source: row.role,
-      score: row.score,
-    }))
-  }
-
-  if (peakFrameScore != null) {
-    return [{ label: "프레임 위험 집중", source: "Frame score", score: peakFrameScore }]
-  }
-
-  return frameScores.length > 0
-    ? [{ label: "프레임 평균 위험", source: "Frame score", score: insights.ensembleScore }]
-    : []
-}
-
-export function buildModelAnalysisSettings(
-  data: EvidenceDetailData | null,
-  frameScores: FrameScore[]
-): UiModelSetting[] {
-  const metadata = data?.evidenceInfo.technicalMetadata
-  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
-  const modelNames = [
-    ...new Set(
-      modules
-        .map((module) => module.modelName?.trim())
-        .filter((name): name is string => Boolean(name))
-    ),
-  ]
-  const modelVersions = [
-    ...new Set(
-      modules
-        .map((module) => module.modelVersion?.trim())
-        .filter((version): version is string => Boolean(version))
-    ),
-  ]
-  const parsedFrameCount = parseAnalyzedFrameCount(data)
-  const analyzedFrameCount =
-    frameScores.length > 0 ? frameScores.length : parsedFrameCount
-
-  return [
-    {
-      label: "분석 모델",
-      value: modelNames.length > 0 ? modelNames.join(" · ") : modules.map((m) => formatModuleLabel(m.moduleName)).join(" · ") || "-",
-    },
-    {
-      label: "모델 버전",
-      value: modelVersions.length > 0 ? modelVersions.join(" · ") : "-",
-    },
-    {
-      label: "입력 해상도",
-      value:
-        metadata?.width && metadata?.height ? `${metadata.width} x ${metadata.height}` : "-",
-    },
-    {
-      label: "분석 프레임 수",
-      value: analyzedFrameCount != null ? `${analyzedFrameCount}개` : "-",
-    },
-    {
-      label: "영상 길이",
-      value: metadata?.durationSec != null ? formatDuration(metadata.durationSec) : "-",
-    },
-    {
-      label: "프레임레이트",
-      value: metadata?.fps != null ? `${metadata.fps} fps` : "-",
-    },
-    {
-      label: "코덱",
-      value: metadata?.codec?.trim() || "-",
-    },
-  ]
+  return [{ text: "분석이 완료되었으나 표시할 요약 정보가 아직 없습니다." }]
 }
 
 export function getPriorityReviewRange(data: EvidenceDetailData | null, frameScores: FrameScore[]) {
@@ -445,8 +362,9 @@ export function getPriorityReviewRange(data: EvidenceDetailData | null, frameSco
     }
   }
 
+  const threshold = getDetectionThreshold(data)
   const highRiskFrames = frameScores
-    .filter((frame) => normalizeResultValue(frame.score) >= HIGH_RISK_THRESHOLD)
+    .filter((frame) => normalizeResultValue(frame.score) >= threshold)
     .sort((a, b) => (a.timeSec ?? 0) - (b.timeSec ?? 0))
 
   if (highRiskFrames.length === 0) return null
@@ -460,17 +378,58 @@ export function getPriorityReviewRange(data: EvidenceDetailData | null, frameSco
   }
 }
 
-export function getModelVerdictLabel(score: number, auxiliary = false) {
-  if (auxiliary) return { label: "참고", cls: "bg-teal-100 text-teal-700" }
-  if (score >= HIGH_RISK_THRESHOLD) return { label: "위험", cls: "bg-red-50 text-red-700" }
-  if (score >= REVIEW_THRESHOLD) return { label: "검토", cls: "bg-amber-100 text-amber-700" }
-  return { label: "정상", cls: "bg-emerald-100 text-emerald-700" }
-}
+/**
+ * 분석 방법론 탭: 실제 실행된 모델과 재현에 필요한 파라미터만 담는다.
+ * 백엔드가 제공하지 않은 값은 "-"로 표시하고 UI에서 만들어내지 않는다.
+ */
+export function buildMethodologyInfo(
+  data: EvidenceDetailData | null,
+  frameScores: FrameScore[]
+): UiMethodologyInfo {
+  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
+  const metadata = data?.evidenceInfo.technicalMetadata
+  const threshold = getDetectionThreshold(data)
 
-export function getEnsembleVerdictLabel(score: number) {
-  if (score >= HIGH_RISK_THRESHOLD) return { label: "위험 신호 높음", cls: "bg-red-50 text-red-700" }
-  if (score >= REVIEW_THRESHOLD) return { label: "검토 필요", cls: "bg-amber-100 text-amber-700" }
-  return { label: "위험 신호 낮음", cls: "bg-emerald-100 text-emerald-700" }
+  const modelMap = new Map<string, { name: string; version: string; roles: Set<string> }>()
+  for (const module of modules) {
+    const name = module.modelName?.trim()
+    if (!name) continue
+    const version = module.modelVersion?.trim() || "-"
+    const key = `${name}::${version}`
+    const entry = modelMap.get(key) ?? { name, version, roles: new Set<string>() }
+    entry.roles.add(formatModuleLabel(module.moduleName))
+    modelMap.set(key, entry)
+  }
+  const models: UiMethodologyModel[] = [...modelMap.values()].map((entry) => ({
+    name: entry.name,
+    version: entry.version,
+    role: [...entry.roles].join(" · "),
+  }))
+
+  const analyzedFrameCount =
+    frameScores.length > 0 ? frameScores.length : parseAnalyzedFrameCount(data)
+  const analyzedAt = data?.analysisInfo.completedAt
+
+  const settings: UiModelSetting[] = [
+    { label: "분석 ID", value: data?.analysisInfo.analysisId?.trim() || "-" },
+    { label: "분석 일시", value: analyzedAt ? formatDateTime(analyzedAt) : "-" },
+    { label: "판정 임계값", value: `${Math.round(threshold * 100)} / 100` },
+    {
+      label: "입력 해상도",
+      value: metadata?.width && metadata?.height ? `${metadata.width} x ${metadata.height}` : "-",
+    },
+    { label: "분석 프레임 수", value: analyzedFrameCount != null ? `${analyzedFrameCount}개` : "-" },
+    { label: "영상 길이", value: metadata?.durationSec != null ? formatDuration(metadata.durationSec) : "-" },
+    { label: "프레임레이트", value: metadata?.fps != null ? `${metadata.fps} fps` : "-" },
+    { label: "코덱", value: metadata?.codec?.trim() || "-" },
+  ]
+
+  return {
+    models,
+    settings,
+    inputHash: data?.integrityInfo.originalHash?.trim() || null,
+    hashAlgorithm: data?.integrityInfo.hashAlgorithm?.trim() || null,
+  }
 }
 
 function parseAnalyzedFrameCount(data: EvidenceDetailData | null): number | null {

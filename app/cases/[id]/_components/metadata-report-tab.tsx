@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import {
   Check,
@@ -27,6 +27,9 @@ type MetadataReportTabProps = {
 }
 
 type PdfStatus = "NOT_CREATED" | "GENERATING" | "CREATED" | "FAILED"
+
+// 백엔드 PDF 생성 API 연동 전까지 사용하는 샘플 보고서. 연동 시 다운로드 URL만 교체하면 된다.
+const SAMPLE_REPORT_URL = "/mock/report-sample.pdf"
 type ReportTypeId = "full" | "deepfake" | "integrity" | "metadata" | "summary"
 
 type ReportType = {
@@ -126,12 +129,36 @@ export function MetadataReportTab({
     reportReady ? (analysisInfo.completedAt ?? evidenceInfo.uploadedAt) : null
   )
 
+  const [reviewApproved, setReviewApproved] = useState(false)
+
   const currentType = REPORT_TYPES.find((type) => type.id === reportType) ?? REPORT_TYPES[0]
   const selectedCount = REPORT_ITEMS.filter((item) => selectedItems[item]).length
-  const fileName = `report_EVD-${evidenceInfo.evidenceId}.pdf`
+  const fileDate = (generatedAt ?? new Date().toISOString()).slice(0, 10)
+  const fileName = `ForenShield_Report_EVD-${evidenceInfo.evidenceId}_${fileDate}.pdf`
   const reportHash = makeReportHash(`${fileName}:${verificationCode}`)
   const isCreated = pdfStatus === "CREATED"
   const isGenerating = pdfStatus === "GENERATING"
+
+  // 검토자 승인 여부 — 검토 화면의 승인 버튼이 localStorage에 기록하고 이벤트로 알린다
+  useEffect(() => {
+    const approvalKey = `fs-report-approval:${evidenceInfo.evidenceId}`
+
+    function syncApproval() {
+      try {
+        setReviewApproved(window.localStorage.getItem(approvalKey) === "1")
+      } catch {
+        setReviewApproved(false)
+      }
+    }
+
+    syncApproval()
+    window.addEventListener("storage", syncApproval)
+    window.addEventListener("fs-report-approval-change", syncApproval)
+    return () => {
+      window.removeEventListener("storage", syncApproval)
+      window.removeEventListener("fs-report-approval-change", syncApproval)
+    }
+  }, [evidenceInfo.evidenceId])
 
   function handleReportTypeChange(nextType: ReportTypeId) {
     setReportType(nextType)
@@ -145,6 +172,21 @@ export function MetadataReportTab({
       setGeneratedAt(new Date().toISOString())
       setPdfStatus("CREATED")
     }, 1400)
+  }
+
+  function handleDownload() {
+    if (!isCreated || !reviewApproved) return
+    const link = document.createElement("a")
+    link.href = SAMPLE_REPORT_URL
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  }
+
+  function handlePreview() {
+    if (!isCreated) return
+    window.open(SAMPLE_REPORT_URL, "_blank", "noopener")
   }
 
   return (
@@ -256,6 +298,9 @@ export function MetadataReportTab({
           fileName={fileName}
           isCreated={isCreated}
           isGenerating={isGenerating}
+          reviewApproved={reviewApproved}
+          onDownload={handleDownload}
+          onPreview={handlePreview}
         />
       </StepSection>
 
@@ -376,12 +421,18 @@ function ReportResult({
   fileName,
   isCreated,
   isGenerating,
+  reviewApproved,
+  onDownload,
+  onPreview,
 }: {
   status: PdfStatus
   generatedAt: string | null
   fileName: string
   isCreated: boolean
   isGenerating: boolean
+  reviewApproved: boolean
+  onDownload: () => void
+  onPreview: () => void
 }) {
   const meta = STATUS_META[status]
   return (
@@ -400,9 +451,27 @@ function ReportResult({
             {isGenerating ? <Loader2 className="size-6 animate-spin" aria-hidden="true" /> : <FileCheck2 className="size-6" aria-hidden="true" />}
           </span>
           <div>
-            <StatusBadge status={status} />
+            <span className="inline-flex flex-wrap items-center gap-2">
+              <StatusBadge status={status} />
+              {isCreated ? (
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full px-3 py-1 text-xs font-bold",
+                    reviewApproved
+                      ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300"
+                      : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                  )}
+                >
+                  {reviewApproved ? "검토 승인 완료" : "검토 승인 대기"}
+                </span>
+              ) : null}
+            </span>
             <p className="mt-3 text-base font-bold text-foreground">{meta.message}</p>
-            <p className="mt-1 text-sm font-semibold text-muted-foreground">{meta.helper}</p>
+            <p className="mt-1 text-sm font-semibold text-muted-foreground">
+              {isCreated && !reviewApproved
+                ? "검토자가 분석 결과를 승인하면 PDF를 다운로드할 수 있습니다."
+                : meta.helper}
+            </p>
             {isGenerating ? <div className="mt-4 h-2 w-72 max-w-full overflow-hidden rounded-full bg-muted"><div className="h-full w-2/3 rounded-full bg-blue-500" /></div> : null}
           </div>
         </div>
@@ -410,15 +479,17 @@ function ReportResult({
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
-            disabled={!isCreated}
+            disabled={!isCreated || !reviewApproved}
+            onClick={onDownload}
+            title={isCreated && !reviewApproved ? "검토자 승인 후 다운로드할 수 있습니다" : undefined}
             className="h-11 bg-teal-600 font-bold hover:bg-teal-700 disabled:bg-muted disabled:text-muted-foreground"
           >
             <Download className="size-4" aria-hidden="true" />
-            PDF 리포트 다운로드
+            PDF 다운로드
           </Button>
-          <Button type="button" variant="outline" disabled={!isCreated} className="h-11 font-bold">
+          <Button type="button" variant="outline" disabled={!isCreated} onClick={onPreview} className="h-11 font-bold">
             <ExternalLink className="size-4" aria-hidden="true" />
-            검증 페이지 열기
+            미리보기
           </Button>
         </div>
       </div>

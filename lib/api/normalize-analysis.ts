@@ -1,19 +1,112 @@
-import type { EvidenceDetailData, FrameScore, ModuleResult } from "@/lib/api/evidence-detail"
+import type {
+  AnalysisInfo,
+  EvidenceDetailData,
+  FrameScore,
+  ModelScore,
+  ModuleResult,
+  RepresentativeFrame,
+  SuspiciousSegment,
+} from "@/lib/api/evidence-detail"
 
 const VIDEO_TIMELINE_MODULE = "video_timeline"
+const ANALYSIS_SUMMARY_FALLBACK = "분석 결과 요약이 아직 제공되지 않았습니다."
 
 type UiFlags = {
   useMockFrames: boolean
   useMockDetectionSignals: boolean
   useMockModelInsights: boolean
+  hasUnknownAnalysisStatus: boolean
+  analysisStatusLabel: string
 }
 
 export type NormalizedEvidenceDetail = EvidenceDetailData & {
   ui: UiFlags
 }
 
+type AnalysisStatus = AnalysisInfo["status"]
+type RiskLevel = AnalysisInfo["riskLevel"]
+
+export function normalizeScore(value: unknown): number | null {
+  if (value == null) return null
+
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value.trim().replace("%", ""))
+        : Number.NaN
+
+  if (!Number.isFinite(parsed)) return null
+
+  const outOf100 = parsed >= 0 && parsed <= 1 ? parsed * 100 : parsed
+  return Math.max(0, Math.min(100, Number(outOf100.toFixed(2))))
+}
+
+export function normalizeAnalysisStatus(value: unknown): AnalysisStatus {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase() : ""
+
+  if (normalized === "PENDING" || normalized === "WAITING" || normalized === "QUEUED") return "PENDING"
+  if (normalized === "PROCESSING" || normalized === "ANALYZING" || normalized === "RUNNING") return "PROCESSING"
+  if (normalized === "COMPLETED" || normalized === "COMPLETE" || normalized === "DONE" || normalized === "SUCCESS") {
+    return "COMPLETED"
+  }
+  if (normalized === "FAILED" || normalized === "FAIL" || normalized === "ERROR") return "FAILED"
+
+  return "PENDING"
+}
+
+function isUnknownAnalysisStatus(value: unknown) {
+  if (value == null || value === "") return false
+  const normalized = typeof value === "string" ? value.trim().toUpperCase() : ""
+  return ![
+    "PENDING",
+    "WAITING",
+    "QUEUED",
+    "PROCESSING",
+    "ANALYZING",
+    "RUNNING",
+    "COMPLETED",
+    "COMPLETE",
+    "DONE",
+    "SUCCESS",
+    "FAILED",
+    "FAIL",
+    "ERROR",
+  ].includes(normalized)
+}
+
+function normalizeRiskLevel(value: unknown, score: number | null): RiskLevel {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase() : ""
+
+  if (["HIGH", "DANGER", "RISK", "위험"].includes(normalized)) return "HIGH"
+  if (["MEDIUM", "MIDDLE", "REVIEW", "WARNING", "주의", "검토"].includes(normalized)) return "MEDIUM"
+  if (["LOW", "NORMAL", "SAFE", "정상", "낮음"].includes(normalized)) return "LOW"
+
+  if (score == null) return null
+  if (score >= 70) return "HIGH"
+  if (score >= 45) return "MEDIUM"
+  return "LOW"
+}
+
+function normalizeTimeSec(value: unknown, fallback: number | null = null) {
+  const parsed = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback
+  return parsed
+}
+
+function normalizeText(value: unknown): string
+function normalizeText(value: unknown, fallback: null): string | null
+function normalizeText(value: unknown, fallback: string): string
+function normalizeText(value: unknown, fallback: string | null | undefined = "") {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback
+}
+
+function scoreOrZero(value: unknown) {
+  return normalizeScore(value) ?? 0
+}
+
 function readFrameRisksFromTimelineModule(modules: ModuleResult[]): FrameScore[] {
-  const timeline = modules.find((module) => module.moduleName.toLowerCase() === VIDEO_TIMELINE_MODULE)
+  const timeline = modules.find((module) => String(module.moduleName ?? "").toLowerCase() === VIDEO_TIMELINE_MODULE)
   if (!timeline?.details?.trim()) return []
 
   try {
@@ -22,8 +115,8 @@ function readFrameRisksFromTimelineModule(modules: ModuleResult[]): FrameScore[]
     if (!Array.isArray(risks) || risks.length === 0) return []
 
     return risks.map((risk, index) => ({
-      timeSec: typeof risk.timestampSec === "number" ? risk.timestampSec : index,
-      score: typeof risk.riskScore === "number" ? risk.riskScore : 0,
+      timeSec: normalizeTimeSec(risk.timestampSec, index),
+      score: scoreOrZero(risk.riskScore),
     }))
   } catch {
     return []
@@ -35,21 +128,107 @@ function mapFrameRisksToFrameScores(detail: EvidenceDetailData): FrameScore[] {
   const risks = detail.analysisInfo.frameRisks ?? []
   if (Array.isArray(risks) && risks.length > 0) {
     return risks.map((r) => ({
-      timeSec: r.timestampSec,
-      score: r.riskScore,
+      timeSec: normalizeTimeSec(r.timestampSec, r.frameIndex),
+      score: scoreOrZero(r.riskScore),
     }))
   }
 
   const fromTimeline = readFrameRisksFromTimelineModule(detail.analysisInfo.moduleResults ?? [])
   if (fromTimeline.length > 0) return fromTimeline
 
-  return detail.analysisInfo.frameScores ?? []
+  return normalizeFrameScores(detail.analysisInfo.frameScores ?? [])
+}
+
+function normalizeFrameScores(frames: FrameScore[]): FrameScore[] {
+  return frames
+    .map((frame, index) => ({
+      timeSec: normalizeTimeSec(frame.timeSec, index),
+      timestamp: normalizeText(frame.timestamp, null),
+      score: scoreOrZero(frame.score),
+    }))
+    .filter((frame) => frame.timeSec != null || frame.timestamp != null)
+}
+
+function normalizeModuleResults(modules: ModuleResult[]): ModuleResult[] {
+  return modules.map((module, index) => {
+    const moduleName = normalizeText(module.moduleName, `module_${index + 1}`)
+    return {
+      ...module,
+      moduleName,
+      detected: Boolean(module.detected),
+      score: scoreOrZero(module.score),
+      deepfakeScore: module.deepfakeScore == null ? null : normalizeScore(module.deepfakeScore),
+      confidence: module.confidence == null ? null : normalizeScore(module.confidence),
+      modelName: normalizeText(module.modelName, null),
+      modelVersion: normalizeText(module.modelVersion, null),
+      details: typeof module.details === "string" ? module.details : "",
+    }
+  })
+}
+
+function normalizeModelScores(models: ModelScore[]): ModelScore[] {
+  return models.map((model, index) => {
+    const moduleName = normalizeText(model.moduleName, `model_${index + 1}`)
+    return {
+      ...model,
+      moduleName,
+      modelName: normalizeText(model.modelName, moduleName),
+      detected: Boolean(model.detected),
+      score: scoreOrZero(model.score),
+      confidence: model.confidence == null ? null : normalizeScore(model.confidence),
+      modelVersion: normalizeText(model.modelVersion, null),
+    }
+  })
+}
+
+function normalizeSuspiciousSegments(segments: SuspiciousSegment[]): SuspiciousSegment[] {
+  return segments
+    .map((segment) => {
+      const startTime = normalizeTimeSec(segment.startTime, 0) ?? 0
+      const endTime = normalizeTimeSec(segment.endTime, startTime) ?? startTime
+      return {
+        startTime,
+        endTime: Math.max(endTime, startTime),
+        maxRiskScore: scoreOrZero(segment.maxRiskScore),
+        reason: normalizeText(segment.reason, "의심 구간으로 표시되었습니다."),
+      }
+    })
+    .filter((segment) => segment.endTime >= segment.startTime)
+}
+
+function normalizeRepresentativeFrames(frames: RepresentativeFrame[]): RepresentativeFrame[] {
+  return frames.map((frame, index) => ({
+    ...frame,
+    timeSec: normalizeTimeSec(frame.timeSec, null),
+    timestamp: normalizeText(frame.timestamp, null),
+    frameNumber:
+      typeof frame.frameNumber === "number" && Number.isFinite(frame.frameNumber)
+        ? frame.frameNumber
+        : index + 1,
+    score: frame.score == null ? null : normalizeScore(frame.score),
+    imageUrl: normalizeText(frame.imageUrl, null),
+    heatmapUrl: normalizeText(frame.heatmapUrl, null),
+  }))
+}
+
+function normalizeEvidenceItems(items: string[] | null | undefined) {
+  return Array.isArray(items)
+    ? items.map((item) => normalizeText(item)).filter(Boolean)
+    : []
 }
 
 export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): NormalizedEvidenceDetail {
+  const rawStatus = detail.analysisInfo.status
+  const hasUnknownAnalysisStatus = isUnknownAnalysisStatus(rawStatus)
+  const status = normalizeAnalysisStatus(rawStatus)
+  const riskScore = normalizeScore(detail.analysisInfo.riskScore)
+  const confidenceScore = normalizeScore(detail.analysisInfo.confidenceScore)
   const frameScores = mapFrameRisksToFrameScores(detail)
-  const moduleResults = detail.analysisInfo.moduleResults ?? []
-  const modelScores = detail.analysisInfo.modelScores ?? []
+  const moduleResults = normalizeModuleResults(detail.analysisInfo.moduleResults ?? [])
+  const modelScores = normalizeModelScores(detail.analysisInfo.modelScores ?? [])
+  const suspiciousSegments = normalizeSuspiciousSegments(detail.analysisInfo.suspiciousSegments ?? [])
+  const representativeFrames = normalizeRepresentativeFrames(detail.analysisInfo.representativeFrames ?? [])
+  const evidenceItems = normalizeEvidenceItems(detail.analysisInfo.evidenceItems)
 
   const useMockFrames = frameScores.length === 0
   const useMockDetectionSignals = moduleResults.length === 0
@@ -59,13 +238,24 @@ export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): Normal
     ...detail,
     analysisInfo: {
       ...detail.analysisInfo,
+      status,
+      riskScore,
+      confidenceScore,
+      riskLevel: normalizeRiskLevel(detail.analysisInfo.riskLevel, riskScore),
+      summary: normalizeText(detail.analysisInfo.summary, ANALYSIS_SUMMARY_FALLBACK),
+      evidenceItems,
+      moduleResults,
+      modelScores,
+      suspiciousSegments,
       frameScores,
+      representativeFrames,
     },
     ui: {
       useMockFrames,
       useMockDetectionSignals,
       useMockModelInsights,
+      hasUnknownAnalysisStatus,
+      analysisStatusLabel: hasUnknownAnalysisStatus ? "상태 확인 필요" : "",
     },
   }
 }
-

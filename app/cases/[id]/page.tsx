@@ -19,6 +19,7 @@ import {
 import { Line } from "react-chartjs-2"
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   Check,
   CheckCircle2,
@@ -51,7 +52,6 @@ import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
 import { MetadataReportTab } from "./_components/metadata-report-tab"
-import { ModelRadarChart } from "./_components/model-radar-chart"
 import { SummaryTab } from "./_components/summary-tab"
 import {
   buildProgressSteps,
@@ -66,21 +66,18 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
-  buildModelAnalysisSettings,
-  buildModelInsights,
-  buildModelRadarModels,
-  buildResultSummaryLines,
+  buildMethodologyInfo,
   buildRiskSignals,
-  buildSummaryFocusLabels,
+  buildSummaryActions,
   buildTopRiskFrames,
   formatModuleLabel,
   formatScoreOutOf100,
   getDetectionModules,
-  getEnsembleVerdictLabel,
-  getModelVerdictLabel,
+  getDetectionThreshold,
   getPriorityReviewRange,
   normalizeResultValue,
   type UiRiskSignal,
+  type UiSummaryAction,
 } from "@/lib/api/analysis-result-ui"
 import {
   type AnalysisType,
@@ -107,7 +104,7 @@ import { getLatestCompareResultSummary, type StoredCompareResultSummary } from "
 import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
-import { normalizeEvidenceDetailForUi } from "@/lib/api/normalize-analysis"
+import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 
@@ -127,9 +124,8 @@ function getErrorMessage(error: unknown, fallback: string) {
   return getApiErrorMessage(error, fallback)
 }
 
-function normalizeStatus(status: string): AnalysisStatus {
-  if (status === "PROCESSING" || status === "COMPLETED" || status === "FAILED") return status
-  return "PENDING"
+function normalizeStatus(status: string | null | undefined): AnalysisStatus {
+  return normalizeAnalysisStatus(status)
 }
 
 function getFileExtension(fileName: string, mediaType?: string) {
@@ -263,6 +259,12 @@ export default function CaseDetailPage() {
 
         const result = await fetchCaseDetail(caseId)
         if (cancelled) return
+
+        const currentSession = getSession()
+        const currentUser = getAppUserFromSession(currentSession)
+        if (isReviewerSession(currentSession) && result.reviewerId !== currentUser?.id) {
+          throw new Error("배정된 검토 사건만 열람할 수 있습니다.")
+        }
 
         const sorted = sortEvidences(result.evidences ?? [])
         setCaseData({ ...result, evidences: sorted })
@@ -651,6 +653,7 @@ function ProtectedVideoPlayer({
   const [duration, setDuration] = useState(0)
   const [muted, setMuted] = useState(false)
   const [captureAlert, setCaptureAlert] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
   const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0
 
   const showCaptureAlert = useCallback((event: ProtectedSecurityEvent) => {
@@ -659,6 +662,13 @@ function ProtectedVideoPlayer({
     captureAlertTimerRef.current = window.setTimeout(() => setCaptureAlert(false), 4000)
     onSecurityEvent?.(event)
   }, [onSecurityEvent])
+
+  useEffect(() => {
+    setLoadFailed(false)
+    setPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
+  }, [src])
 
   // 캡처 자체는 브라우저에서 완전히 차단할 수 없어 감지 가능한 키 이벤트를 추적·기록한다.
   useEffect(() => {
@@ -737,28 +747,43 @@ function ProtectedVideoPlayer({
 
   return (
     <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
-      <video
-        ref={setVideoElement}
-        src={src}
-        playsInline
-        preload="metadata"
-        className={cn("absolute inset-0 size-full", objectFit === "cover" ? "object-cover" : "object-contain")}
-        onClick={togglePlay}
-        onDoubleClick={() => requestProtectedFullscreen(playerRef.current)}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
-      />
-      {children}
-      {captureAlert ? (
+      {loadFailed ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
+          <FileVideo className="mb-3 size-8" aria-hidden="true" />
+          미리보기 가능한 영상이 없습니다.
+        </div>
+      ) : (
+        <>
+          <video
+            ref={setVideoElement}
+            src={src}
+            playsInline
+            preload="metadata"
+            className={cn("absolute inset-0 size-full", objectFit === "cover" ? "object-cover" : "object-contain")}
+            onClick={togglePlay}
+            onDoubleClick={() => requestProtectedFullscreen(playerRef.current)}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onError={() => {
+              setPlaying(false)
+              setLoadFailed(true)
+              setVideoElement(null)
+            }}
+            onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+            onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
+          />
+          {children}
+        </>
+      )}
+      {!loadFailed && captureAlert ? (
         <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-red-600/90 px-4 py-2 text-xs font-bold text-white shadow-lg">
           <AlertCircle className="size-4" aria-hidden="true" />
           화면 캡처가 감지되었습니다 · 열람 기록이 남습니다
         </div>
       ) : null}
-      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-1.5 pt-8 text-white sm:px-2.5 sm:pb-2 sm:pt-10">
+      {!loadFailed ? (
+        <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-1.5 pt-8 text-white sm:px-2.5 sm:pb-2 sm:pt-10">
         <div className="relative mb-1 h-3 sm:h-3.5">
           <input
             type="range"
@@ -816,6 +841,7 @@ function ProtectedVideoPlayer({
           </div>
         </div>
       </div>
+      ) : null}
     </div>
   )
 }
@@ -846,7 +872,7 @@ function CaseResultView({
   onBack: () => void
 }) {
   const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
-  const [resultTab, setResultTab] = useState<"summary" | "detection" | "frames" | "models">("summary")
+  const [resultTab, setResultTab] = useState<"summary" | "detection" | "frames" | "models" | "report">("summary")
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const lastSecurityEventRef = useRef<{ key: string; recordedAt: number } | null>(null)
   const selectedEvidence =
@@ -881,13 +907,15 @@ function CaseResultView({
     null
   const visibleVideoUrl = mediaMode === "overlay" && overlayVideoUrl ? overlayVideoUrl : resultMediaUrl
   const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
-  const summaryLines = buildResultSummaryLines(evidenceDetail)
-  const summaryFocusLabels = buildSummaryFocusLabels(evidenceDetail)
-  const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail, frameScores)
+  const detectionThreshold = getDetectionThreshold(evidenceDetail)
+  const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
+  const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
-  const detectedModuleCount = detectionModules.filter((module) => module.detected).length
+  const overThresholdSignalCount = detectionModules.filter(
+    (module) => normalizeResultValue(module.score) >= detectionThreshold
+  ).length
   const topRiskFrames = buildTopRiskFrames(evidenceDetail, frameScores)
   const priorityReviewRange = getPriorityReviewRange(evidenceDetail, frameScores)
   const representativeFrames = evidenceDetail?.analysisInfo.representativeFrames ?? []
@@ -921,15 +949,11 @@ function CaseResultView({
       clientTimestamp: new Date().toISOString(),
     }).catch(() => undefined)
   }, [mediaMode, selectedEvidenceId])
-  const highRiskFrameCount = frameScores.filter((frame) => normalizeResultValue(frame.score) >= 0.6).length
-  const modelInsights = buildModelInsights(evidenceDetail, frameScores)
-  const modelSettings = buildModelAnalysisSettings(evidenceDetail, frameScores)
-  const ensembleVerdict = getEnsembleVerdictLabel(modelInsights.ensembleScore)
-  const modelRadarModels = buildModelRadarModels(
-    modelInsights,
-    frameScores,
-    peakFrame ? normalizeResultValue(peakFrame.score) : null
-  )
+  const highRiskFrameCount = frameScores.filter(
+    (frame) => normalizeResultValue(frame.score) >= detectionThreshold
+  ).length
+  const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
+
   function seekResultVideo(seconds: number, mode: ResultMediaMode = mediaMode) {
     setMediaMode(mode)
     requestAnimationFrame(() => {
@@ -1065,12 +1089,65 @@ function CaseResultView({
             </section>
 
             <section className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none lg:h-full dark:border-border dark:bg-card">
-            <div className="relative grid shrink-0 grid-cols-4 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-border">
+              <div className="flex min-w-0 items-start gap-3">
+                {riskTone === "red" ? (
+                  <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-700 dark:text-red-400" aria-hidden="true" />
+                ) : riskTone === "orange" ? (
+                  <AlertCircle className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-teal-600 dark:text-teal-300" aria-hidden="true" />
+                )}
+                <div className="min-w-0">
+                  <p
+                    className={cn(
+                      "text-base font-bold",
+                      riskTone === "red"
+                        ? "text-red-700 dark:text-red-400"
+                        : riskTone === "orange"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-teal-700 dark:text-teal-300"
+                    )}
+                  >
+                    {resultVerdict}
+                  </p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs font-semibold text-slate-500">
+                    <span>기준 초과 신호 {overThresholdSignalCount}개</span>
+                    {priorityReviewRange ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <button
+                          type="button"
+                          onClick={() => seekResultVideo(priorityReviewRange.startSec)}
+                          className="inline-flex items-center gap-1 font-bold text-teal-700 hover:underline dark:text-teal-300"
+                        >
+                          의심 구간 {priorityReviewRange.label}
+                          <Play className="size-3" aria-hidden="true" />
+                        </button>
+                      </>
+                    ) : null}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p
+                  className={cn(
+                    "text-xl font-bold leading-none",
+                    riskTone === "red" ? "text-red-700 dark:text-red-400" : "text-slate-950 dark:text-foreground"
+                  )}
+                >
+                  {riskScoreLabel}
+                </p>
+                <p className="mt-1 text-[11px] font-semibold text-slate-400">종합 위험 점수</p>
+              </div>
+            </div>
+            <div className="relative grid shrink-0 grid-cols-5 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
               {([
                 ["summary", "분석 요약"],
                 ["detection", "위험 신호"],
                 ["frames", "프레임 분석"],
-                ["models", "모델 근거"],
+                ["models", "분석 방법론"],
+                ["report", "보고서"],
               ] as const).map(([tab, label]) => (
                 <button
                   key={tab}
@@ -1088,8 +1165,8 @@ function CaseResultView({
                 aria-hidden="true"
                 className="pointer-events-none absolute bottom-[-1px] z-10 h-0.5 bg-slate-950 transition-[left] duration-300 ease-out dark:bg-foreground"
                 style={{
-                  left: `${(resultTab === "summary" ? 0 : resultTab === "detection" ? 1 : resultTab === "frames" ? 2 : 3) * 25}%`,
-                  width: "25%",
+                  left: `${(resultTab === "summary" ? 0 : resultTab === "detection" ? 1 : resultTab === "frames" ? 2 : resultTab === "models" ? 3 : 4) * 20}%`,
+                  width: "20%",
                 }}
               />
             </div>
@@ -1098,36 +1175,60 @@ function CaseResultView({
                 <div className="space-y-5">
                   <div className="grid gap-3 sm:grid-cols-3">
                     <FrameMetricCard
-                      label="위험 점수"
+                      label="종합 위험 점수"
                       value={riskScoreLabel}
                       sub={resultVerdict}
                       tone={riskTone === "red" ? "danger" : "neutral"}
                     />
                     <FrameMetricCard
-                      label="분석 신뢰도"
+                      label="모델 산출 확신도"
                       value={confidenceScoreLabel}
-                      sub="GPU 워커 confidenceScore"
+                      sub="분석 모델이 보고한 확신도"
                     />
                     <FrameMetricCard
-                      label="탐지 모듈"
-                      value={`${detectedModuleCount} / ${detectionModules.length}`}
-                      sub="detected 모듈 수"
+                      label="기준 초과 신호"
+                      value={`${overThresholdSignalCount} / ${detectionModules.length}개`}
+                      sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
+                      tone={overThresholdSignalCount > 0 ? "danger" : "neutral"}
                     />
                   </div>
 
                   <section className="rounded-xl border border-slate-100 bg-slate-50/70 p-6 dark:border-border dark:bg-background">
-                    <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">핵심 요약</h3>
+                    <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">확인 순서</h3>
                     <p className="mt-2 text-sm font-semibold text-slate-500">
-                      <strong className="font-bold text-slate-700">{summaryFocusLabels.join(" · ")}</strong>
-                      을 기준으로 GPU 분석 결과를 표시합니다.
+                      분석 결과를 검토할 때 먼저 볼 것부터 순서대로 안내합니다.
                     </p>
                     <ol className="mt-6 space-y-4">
-                      {summaryLines.map((line, index) => (
-                        <li key={line} className="flex gap-4 text-base font-semibold leading-7 text-slate-700 dark:text-muted-foreground">
+                      {summaryActions.map((action, index) => (
+                        <li
+                          key={action.text}
+                          className="flex gap-4 text-base font-semibold leading-7 text-slate-700 dark:text-muted-foreground"
+                        >
                           <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-slate-500 ring-1 ring-slate-200 dark:bg-card dark:ring-border">
                             {index + 1}
                           </span>
-                          <span>{line}</span>
+                          <span className="min-w-0">
+                            {action.text}
+                            {action.seekSec != null ? (
+                              <button
+                                type="button"
+                                onClick={() => seekResultVideo(action.seekSec as number)}
+                                className="ml-2 inline-flex items-center gap-1 text-sm font-bold text-teal-700 hover:underline dark:text-teal-300"
+                              >
+                                <Play className="size-3.5" aria-hidden="true" />
+                                구간 재생
+                              </button>
+                            ) : action.tab ? (
+                              <button
+                                type="button"
+                                onClick={() => setResultTab(action.tab as "detection" | "frames")}
+                                className="ml-2 inline-flex items-center gap-1 text-sm font-bold text-teal-700 hover:underline dark:text-teal-300"
+                              >
+                                {action.tab === "detection" ? "위험 신호 보기" : "프레임 분석 보기"}
+                                <ChevronRight className="size-3.5" aria-hidden="true" />
+                              </button>
+                            ) : null}
+                          </span>
                         </li>
                       ))}
                     </ol>
@@ -1140,22 +1241,27 @@ function CaseResultView({
                     <div>
                       <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위험 신호</h3>
                       <p className="mt-1 text-sm font-semibold text-slate-500">
-                        위험도가 높은 항목을 우선 표시했습니다.
+                        AI가 먼저 확인해야 할 조작 의심 근거를 정리했습니다.
                       </p>
                     </div>
                     <span className="shrink-0 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
-                      주요 위험 신호 {primaryRiskSignals.length}개
+                      우선 확인 {primaryRiskSignals.length}개
                     </span>
                   </div>
                   {primaryRiskSignals.length > 0 ? (
                     <ul className="mt-5 space-y-3">
                       {primaryRiskSignals.map((signal, index) => (
-                        <RiskSignalCard key={`${signal.label}-${index}`} signal={signal} delayMs={index * 120} />
+                        <RiskSignalCard
+                          key={`${signal.label}-${index}`}
+                          signal={signal}
+                          delayMs={index * 120}
+                          onSeek={seekResultVideo}
+                        />
                       ))}
                     </ul>
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                      표시할 위험 신호가 없습니다. (모듈 점수가 모두 낮음)
+                      우선 확인할 조작 의심 신호가 없습니다.
                     </p>
                   )}
 
@@ -1168,8 +1274,15 @@ function CaseResultView({
                       {extraRiskSignals.map((item) => (
                         <div key={item.label} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border">
                           <div>
-                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">{item.label}</p>
-                            <p className="mt-1 text-xs font-semibold text-slate-500">{item.basis}</p>
+                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                              {item.label}
+                              {item.modelLabel ? (
+                                <span className="ml-1.5 font-mono text-[11px] font-semibold text-slate-400">
+                                  {item.modelLabel}
+                                </span>
+                              ) : null}
+                            </p>
+                            <p className="mt-1 text-xs font-semibold text-slate-500">{item.definition}</p>
                           </div>
                           <span className="font-mono text-sm font-bold text-slate-700">{formatScoreOutOf100(item.score)}</span>
                         </div>
@@ -1199,7 +1312,11 @@ function CaseResultView({
                           label="최고 위험"
                           value={formatScoreOutOf100(peakFrame?.score)}
                           sub={`${peakFrameTimeLabel} 지점`}
-                          tone={peakFrame != null && normalizeResultValue(peakFrame.score) >= 0.6 ? "danger" : "neutral"}
+                          tone={
+                            peakFrame != null && normalizeResultValue(peakFrame.score) >= detectionThreshold
+                              ? "danger"
+                              : "neutral"
+                          }
                         />
                         <FrameMetricCard
                           label="의심 구간"
@@ -1215,7 +1332,6 @@ function CaseResultView({
                                 ? `${highRiskFrameCount}개 프레임 연속 감지`
                                 : "임계값 초과 구간 없음"
                           }
-                          tone={highRiskFrameCount > 0 ? "danger" : "neutral"}
                         />
                         <FrameMetricCard
                           label="평균 위험도"
@@ -1225,7 +1341,7 @@ function CaseResultView({
                         <FrameMetricCard
                           label="임계값 초과"
                           value={`${highRiskFrameCount} / ${frameScores.length} 프레임`}
-                          sub="위험 점수 60 이상"
+                          sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
                           tone={highRiskFrameCount > 0 ? "danger" : "neutral"}
                         />
                       </div>
@@ -1296,110 +1412,84 @@ function CaseResultView({
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
                       프레임 점수 데이터가 없습니다.
                       <br />
-                      GPU 워커가 frameRisks를 publish한 뒤 영상을 다시 분석해 주세요.
+                      분석 서버가 프레임 데이터를 제공한 뒤 다시 분석하면 표시됩니다.
                     </p>
                   )}
                 </section>
-              ) : (
+              ) : resultTab === "models" ? (
                 <section>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">모델 근거</h3>
+                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">분석 방법론</h3>
                       <p className="mt-1 text-sm font-medium text-slate-500">
-                        주 모델 결과와 보조 신호를 분리해 표시합니다.
+                        어떤 모델과 설정으로 분석했는지, 재현에 필요한 정보를 제공합니다.
                       </p>
                     </div>
                   </div>
 
-                  {/* 헤드라인: 종합 점수 하나만 강조 */}
-                  <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50/70 p-5 dark:border-border dark:bg-background">
-                    <div className="flex flex-wrap items-end justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold text-slate-400">종합 위험 점수</p>
-                        <p className="mt-1.5 text-4xl font-bold text-slate-950 dark:text-foreground">
-                          {formatScoreOutOf100(modelInsights.ensembleScore)}
-                        </p>
-                      </div>
-                      <span className={cn("rounded-full px-3 py-1 text-xs font-bold", ensembleVerdict.cls)}>
-                        {ensembleVerdict.label}
-                      </span>
-                    </div>
-                    <p className="mt-3 text-sm font-medium leading-6 text-slate-500">
-                      {modelInsights.headline}
-                    </p>
-                  </div>
-
-                  {/* 모델별 결과: 표로 스캔 가능하게 */}
-                  <section className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-                    <h4 className="text-base font-bold text-slate-950 dark:text-foreground">모델별 결과</h4>
-                    <div className="mt-2">
-                      {[
-                        ...modelInsights.primaryModels.map((model) => ({
-                          name: model.name,
-                          role: model.role,
-                          score: model.score,
-                          aux: false,
-                        })),
-                        ...modelInsights.auxiliaryModels.map((model) => ({
-                          name: model.name,
-                          role: model.role,
-                          score: model.score,
-                          aux: true,
-                        })),
-                      ].map((row) => {
-                        const percent = Math.round(row.score * 100)
-                        const verdict = getModelVerdictLabel(row.score, row.aux)
-                        return (
-                          <div
-                            key={row.name}
-                            className="flex items-center gap-3 border-b border-slate-100 py-3.5 last:border-b-0 dark:border-border"
-                          >
-                            <div className="w-36 shrink-0 sm:w-48">
-                              <p className="truncate text-sm font-bold text-slate-950 dark:text-foreground">{row.name}</p>
-                              <p className="mt-0.5 truncate text-xs font-medium text-slate-500">{row.role}</p>
+                  <section className="mt-5 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
+                    <h4 className="border-b border-slate-100 px-5 py-3.5 text-sm font-bold text-slate-950 dark:border-border dark:text-foreground">
+                      사용 모델
+                    </h4>
+                    {methodology.models.length > 0 ? (
+                      <div className="divide-y divide-slate-50 dark:divide-border">
+                        {methodology.models.map((model) => (
+                          <div key={`${model.name}-${model.version}`} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                                {model.name}
+                                <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">{model.version}</span>
+                              </p>
+                              <p className="mt-0.5 text-xs font-semibold text-slate-500">{model.role}</p>
                             </div>
-                            <AnimatedRiskBar percent={percent} aux={row.aux} />
-                            <span className="w-10 shrink-0 text-right font-mono text-sm font-bold text-slate-950 dark:text-foreground">
-                              {percent}
-                            </span>
-                            <span className={cn("w-11 shrink-0 rounded-full py-0.5 text-center text-[11px] font-bold", verdict.cls)}>
-                              {verdict.label}
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    <p className="mt-3 text-xs font-medium text-slate-400">
-                      ▼ 표시는 위험 기준(60점) · 점수는 100점 만점 위험 신호 기준입니다.
-                    </p>
-                  </section>
-
-                  {/* 상세 근거·설정은 접어서 숨김 */}
-                  <details className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-                    <summary className="cursor-pointer text-sm font-bold text-slate-700 dark:text-foreground">
-                      모델별 상세 근거 · 분석 설정
-                    </summary>
-                    <div className="mt-4 space-y-2.5">
-                      {[...modelInsights.primaryModels, ...modelInsights.auxiliaryModels].map((row) => (
-                        <p key={row.name} className="text-sm font-medium leading-6 text-slate-500">
-                          <strong className="font-bold text-slate-700 dark:text-foreground">{row.name}</strong> — {row.interpretation}
-                        </p>
-                      ))}
-                    </div>
-                    {modelRadarModels.length > 0 ? <ModelRadarChart models={modelRadarModels} /> : null}
-                    <div className="mt-4 border-t border-slate-100 pt-4 dark:border-border">
-                      <p className="text-xs font-semibold text-slate-400">분석 설정</p>
-                      <div className="mt-3 grid gap-x-8 gap-y-2.5 sm:grid-cols-2">
-                        {modelSettings.map((item) => (
-                          <div key={item.label} className="flex items-center justify-between gap-4">
-                            <span className="text-sm font-medium text-slate-500">{item.label}</span>
-                            <span className="text-right text-sm font-bold text-slate-950 dark:text-foreground">{item.value}</span>
                           </div>
                         ))}
                       </div>
+                    ) : (
+                      <p className="px-5 py-6 text-center text-sm font-semibold text-slate-400">
+                        모델 식별 정보가 아직 제공되지 않았습니다. 백엔드가 모델명·버전을 보고하면 이 영역에 표시됩니다.
+                      </p>
+                    )}
+                  </section>
+
+                  <section className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
+                    <h4 className="border-b border-slate-100 px-5 py-3.5 text-sm font-bold text-slate-950 dark:border-border dark:text-foreground">
+                      재현 정보
+                    </h4>
+                    <div className="grid gap-x-8 gap-y-2.5 px-5 py-4 sm:grid-cols-2">
+                      {methodology.settings.map((item) => (
+                        <div key={item.label} className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-4">
+                          <span className="whitespace-nowrap text-sm font-medium text-slate-500">{item.label}</span>
+                          <span className="min-w-0 break-keep text-right text-sm font-bold leading-6 text-slate-950 dark:text-foreground">
+                            {item.value}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  </details>
+                    {methodology.inputHash ? (
+                      <div className="border-t border-slate-100 px-5 py-3.5 dark:border-border">
+                        <p className="text-xs font-semibold text-slate-400">
+                          입력 파일 해시 ({methodology.hashAlgorithm ?? "해시"}) · 무결성 검증 탭과 동일한 값입니다.
+                        </p>
+                        <p className="mt-1 break-all font-mono text-xs font-semibold text-slate-600 dark:text-muted-foreground">
+                          {methodology.inputHash}
+                        </p>
+                      </div>
+                    ) : null}
+                  </section>
+
+                  <p className="mt-4 text-xs font-medium leading-5 text-slate-400">
+                    위 정보와 동일한 파일·모델·임계값으로 분석하면 같은 결과를 재현할 수 있습니다. AI 분석 점수는
+                    참고 소견이며, 저해상도·높은 압축률·얼굴 가림 환경에서는 정확도가 낮아질 수 있습니다.
+                  </p>
                 </section>
+              ) : (
+                <MetadataReportTab
+                  data={evidenceDetail}
+                  extension={getFileExtension(evidenceDetail.evidenceInfo.fileName, evidenceDetail.evidenceInfo.mediaType)}
+                  reportReady={false}
+                  verificationCode={`VF-${String(evidenceDetail.evidenceInfo.evidenceId).padStart(8, "0")}`}
+                />
               )}
             </div>
           </section>
@@ -2044,7 +2134,7 @@ function CaseWorkflowPanel({
   const allSelectableAnalysisSelected =
     selectableAnalysisEvidences.length > 0 &&
     selectableAnalysisEvidences.every((evidence) => selectedAnalysisIdSet.has(evidence.evidenceId))
-  const showEvidenceActionFooter = !readOnly
+  const showEvidenceActionFooter = !readOnly || selectedEvidenceCompleted
   const showSelectedEvidenceResultAction = selectedAnalysisCount === 0 && selectedEvidenceCompleted
   const selectedMediaUrl =
     evidenceDetail?.evidenceInfo.videoUrl ??
@@ -2064,7 +2154,13 @@ function CaseWorkflowPanel({
     : ""
   const analystName = getCaseActorName(caseData.assigneeId ?? caseData.createdBy) ?? (!readOnly ? currentUserName : null)
   const reviewerName = getCaseActorName(caseData.reviewerId)
-  const compareLabel = getCompareVerificationLabel(selectedCompareResult)
+  const compareLabel =
+    readOnly && !selectedCompareResult
+      ? "결과 없음"
+      : !selectedCompareResult && !selectedEvidenceCompleted
+      ? "비분석"
+      : getCompareVerificationLabel(selectedCompareResult)
+  const compareActionLabel = selectedCompareResult ? "상세" : readOnly ? "" : selectedEvidenceCompleted ? "분석" : ""
   const compareTextClassName = !selectedCompareResult
     ? "text-muted-foreground"
     : selectedCompareResult.verdict === "ORIGINAL_MATCH"
@@ -2129,6 +2225,9 @@ function CaseWorkflowPanel({
 
     let cancelled = false
     let lastRefreshAt = 0
+    let failedPollCount = 0
+    let timeoutNotified = false
+    const pollingStartedAt = Date.now()
 
     async function pollAnalysisStatuses() {
       const statuses = await Promise.all(
@@ -2137,14 +2236,35 @@ function CaseWorkflowPanel({
 
       if (cancelled) return
 
+      const validStatuses = statuses.filter((status) => status != null)
+      if (validStatuses.length === 0) {
+        failedPollCount += 1
+        if (failedPollCount >= 2) {
+          setMessage({
+            type: "error",
+            text: "분석 상태를 갱신하지 못했습니다. 잠시 후 새로고침하거나 다시 시도해 주세요.",
+          })
+        }
+        return
+      }
+
+      failedPollCount = 0
       const hasTerminalStatus = statuses.some(
-        (status) => status?.status === "COMPLETED" || status?.status === "FAILED"
+        (status) => normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
       )
       const now = Date.now()
 
       if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
         lastRefreshAt = now
         onRefresh()
+      }
+
+      if (!timeoutNotified && now - pollingStartedAt > 60000 && !hasTerminalStatus) {
+        timeoutNotified = true
+        setMessage({
+          type: "error",
+          text: "분석 상태 확인 시간이 길어지고 있습니다. 현재 화면을 새로고침해 최신 상태를 확인해 주세요.",
+        })
       }
     }
 
@@ -2308,9 +2428,8 @@ function CaseWorkflowPanel({
 
   function handleStartCompareVerification() {
     if (!selectedEvidence || !selectedEvidenceActive) return
-    if (!isEvidenceExcludable(selectedEvidence)) {
-      setDeleteConfirmOpen(false)
-      setMessage({ type: "error", text: "미분석 증거만 사용제외할 수 있습니다." })
+    if (!selectedEvidenceCompleted) {
+      setMessage({ type: "error", text: "딥페이크 분석 완료 후 비교검증에 사용할 수 있습니다." })
       return
     }
     onStartCompare(selectedEvidence.evidenceId)
@@ -2361,10 +2480,19 @@ function CaseWorkflowPanel({
 
   function handleReviewDecision(nextDecision: "APPROVED" | "REVISION") {
     setReviewDecision(nextDecision)
-    setMessage({
-      type: "success",
-      text: nextDecision === "APPROVED" ? "승인으로 표시되었습니다." : "재검토로 표시되었습니다.",
-    })
+    if (selectedEvidence) {
+      try {
+        if (nextDecision === "APPROVED") {
+          window.localStorage.setItem(`fs-report-approval:${selectedEvidence.evidenceId}`, "1")
+        } else {
+          window.localStorage.removeItem(`fs-report-approval:${selectedEvidence.evidenceId}`)
+        }
+        window.dispatchEvent(new Event("fs-report-approval-change"))
+      } catch {
+        // localStorage 접근 불가 환경에서는 보고서 다운로드 승인 연동을 건너뛴다
+      }
+    }
+    window.alert(nextDecision === "APPROVED" ? "승인되었습니다." : "재검토로 표시되었습니다.")
   }
 
   return (
@@ -2659,33 +2787,33 @@ function CaseWorkflowPanel({
                       </span>
                     </button>
 
-                    {!readOnly ? (
-                      <button
-                        type="button"
-                        className="group flex w-full items-center justify-between gap-4 text-left disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={isWorking}
-                        onClick={
-                          selectedCompareResult
-                            ? () => onViewCompareResult(selectedCompareResult.compareId)
-                            : handleStartCompareVerification
-                        }
-                      >
-                        <span className="inline-flex shrink-0 items-center gap-1.5 text-[15px] font-bold text-muted-foreground">
-                          <GitCompare className="size-4" aria-hidden="true" />
-                          비교검증
-                        </span>
-                        <span className="flex min-w-0 items-center gap-1 text-[15px] font-bold">
-                          <span className={compareTextClassName}>{compareLabel}</span>
+                    <button
+                      type="button"
+                      className="group flex w-full items-center justify-between gap-4 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={isWorking || (readOnly && !selectedCompareResult)}
+                      onClick={
+                        selectedCompareResult
+                          ? () => onViewCompareResult(selectedCompareResult.compareId)
+                          : handleStartCompareVerification
+                      }
+                    >
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-[15px] font-bold text-muted-foreground">
+                        <GitCompare className="size-4" aria-hidden="true" />
+                        비교검증
+                      </span>
+                      <span className="flex min-w-0 items-center gap-1 text-[15px] font-bold">
+                        <span className={compareTextClassName}>{compareLabel}</span>
+                        {compareActionLabel ? (
                           <span className="text-muted-foreground transition-colors group-hover:text-foreground">
-                            · {selectedCompareResult ? "상세" : "분석"}
+                            · {compareActionLabel}
                           </span>
-                          <ChevronRight
-                            className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5"
-                            aria-hidden="true"
-                          />
-                        </span>
-                      </button>
-                    ) : null}
+                        ) : null}
+                        <ChevronRight
+                          className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
                   </div>
                 ) : null}
               </div>
@@ -2774,16 +2902,7 @@ function CaseWorkflowPanel({
                   </p>
                 ) : null}
 
-                {readOnly && selectedEvidence.analysisStatus === "COMPLETED" ? (
-                  <Button
-                    type="button"
-                    className="mt-4 h-11 w-full rounded-full bg-foreground text-[15px] font-bold text-background hover:bg-foreground/90"
-                    disabled={!selectedEvidenceActive}
-                    onClick={() => onViewResult(selectedEvidence.evidenceId)}
-                  >
-                    결과보기
-                  </Button>
-                ) : readOnly ? (
+                {readOnly && !selectedEvidenceCompleted ? (
                   <p className="mt-4 text-[13px] font-bold text-muted-foreground">
                     검토 가능한 분석 결과가 아직 없습니다.
                   </p>
@@ -2797,27 +2916,29 @@ function CaseWorkflowPanel({
       {showEvidenceActionFooter ? (
         <div className="-mx-5 mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 px-5 pt-4 dark:border-border xl:mt-0">
             <div className="flex flex-1 flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
-                disabled={isWorking}
-                onClick={() => uploadInputRef.current?.click()}
-              >
-                <Plus className="size-4" aria-hidden="true" />
-                증거 추가
-              </Button>
-              {selectedAnalysisCount > 0 ? (
+              {!readOnly ? (
                 <>
                   <Button
                     type="button"
                     variant="ghost"
                     className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
                     disabled={isWorking}
-                    onClick={() => setSelectedAnalysisIds([])}
+                    onClick={() => uploadInputRef.current?.click()}
                   >
-                    선택 해제 {selectedAnalysisCount}
+                    <Plus className="size-4" aria-hidden="true" />
+                    증거 추가
                   </Button>
+                  {selectedAnalysisCount > 0 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
+                      disabled={isWorking}
+                      onClick={() => setSelectedAnalysisIds([])}
+                    >
+                      선택 해제 {selectedAnalysisCount}
+                    </Button>
+                  ) : null}
                 </>
               ) : null}
             </div>
@@ -3413,19 +3534,21 @@ function ResultBreakdownRow({
 function RiskSignalCard({
   signal,
   delayMs = 0,
+  onSeek,
 }: {
   signal: UiRiskSignal
   delayMs?: number
+  onSeek?: (seconds: number, mode?: ResultMediaMode) => void
 }) {
   const value = normalizeResultValue(signal.score)
   const percent = Math.round(value * 100)
   const [barWidth, setBarWidth] = useState(0)
-  const toneClassName =
-    signal.tone === "danger"
-      ? "bg-red-50 text-red-700"
-      : signal.tone === "warning"
-        ? "bg-amber-100 text-amber-700"
-        : "bg-emerald-100 text-emerald-700"
+  const isDanger = signal.tone === "danger"
+  const badgeClassName = isDanger
+    ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+    : signal.tone === "warning"
+      ? "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+      : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
 
   useEffect(() => {
     setBarWidth(0)
@@ -3443,38 +3566,60 @@ function RiskSignalCard({
   return (
     <li className="rounded-xl border border-slate-100 bg-slate-50/70 p-4 transition-colors hover:border-slate-200 dark:border-border dark:bg-background">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <p className="text-sm font-bold text-slate-950 dark:text-foreground">{signal.label}</p>
-          <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-bold", toneClassName)}>
+          {signal.modelLabel ? (
+            <span className="font-mono text-[11px] font-semibold text-slate-400">{signal.modelLabel}</span>
+          ) : null}
+          <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-bold", badgeClassName)}>
             {signal.badge}
           </span>
         </div>
         <span className="font-mono text-sm font-bold text-slate-950 dark:text-foreground">
           {formatScoreOutOf100(value)}
+          <span className="ml-1.5 font-sans text-[11px] font-semibold text-slate-400">
+            기준 {signal.thresholdPercent}
+          </span>
         </span>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+      <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">{signal.definition}</p>
+      <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
         <div
           className={cn(
             "h-full rounded-full transition-[width] duration-700 ease-out",
-            signal.tone === "danger" ? "bg-red-700" : signal.tone === "warning" ? "bg-amber-400" : "bg-emerald-500"
+            isDanger ? "bg-red-700 dark:bg-red-500" : signal.tone === "warning" ? "bg-amber-400" : "bg-slate-300 dark:bg-slate-600"
           )}
           style={{ width: `${barWidth}%` }}
         />
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-0 w-px bg-slate-400/80 dark:bg-slate-500"
+          style={{ left: `${signal.thresholdPercent}%` }}
+        />
       </div>
-      <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-muted-foreground">
-        {signal.description}
-      </p>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
-        <div className="rounded-lg border border-slate-100 bg-white px-3 py-2.5 dark:border-border dark:bg-card">
-          <p className="text-[11px] font-bold text-slate-400">판단 기준</p>
-          <p className="mt-1 text-xs font-bold leading-5 text-slate-700 dark:text-muted-foreground">{signal.basis}</p>
+      {signal.segments.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {signal.segments.map((segment) => (
+            <span key={`${segment.label}-${segment.startSec}`} className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
+              <button
+                type="button"
+                onClick={() => onSeek?.(segment.startSec)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:text-foreground dark:hover:bg-secondary/40"
+              >
+                <Play className="size-3 text-teal-600 dark:text-teal-300" aria-hidden="true" />
+                {segment.label}
+              </button>
+              <button
+                type="button"
+                onClick={() => onSeek?.(segment.startSec, "heatmap")}
+                className="inline-flex items-center border-l border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:border-border dark:hover:bg-secondary/40"
+              >
+                히트맵
+              </button>
+            </span>
+          ))}
         </div>
-        <div className="rounded-lg border border-slate-100 bg-white px-3 py-2.5 dark:border-border dark:bg-card">
-          <p className="text-[11px] font-bold text-slate-400">영향 구간</p>
-          <p className="mt-1 text-xs font-bold leading-5 text-slate-700 dark:text-muted-foreground">{signal.interval}</p>
-        </div>
-      </div>
+      ) : null}
     </li>
   )
 }
@@ -3606,55 +3751,11 @@ function FrameStatCard({
   )
 }
 
-function AnimatedRiskBar({
-  percent,
-  aux = false,
-  thresholdPercent = 60,
-}: {
-  percent: number
-  aux?: boolean
-  thresholdPercent?: number
-}) {
-  const [width, setWidth] = useState(0)
-
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setWidth(percent))
-    return () => cancelAnimationFrame(id)
-  }, [percent])
-
-  return (
-    <div className="relative h-2 flex-1">
-      <div className="absolute inset-0 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-        <div
-          className={cn(
-            "h-full rounded-full transition-[width] duration-700 ease-out",
-            aux ? "bg-teal-500" : "bg-red-700"
-          )}
-          style={{ width: `${width}%` }}
-        />
-      </div>
-      {/* 위험 기준(60) 플래그 마커 */}
-      <span
-        className="pointer-events-none absolute -top-4 -translate-x-1/2 text-[9px] font-bold leading-none text-slate-500 dark:text-slate-400"
-        style={{ left: `${thresholdPercent}%` }}
-        aria-hidden="true"
-      >
-        {thresholdPercent}
-      </span>
-      <span
-        className="pointer-events-none absolute -top-1.5 size-0 -translate-x-1/2 border-x-[4px] border-t-[5px] border-x-transparent border-t-slate-500 dark:border-t-slate-400"
-        style={{ left: `${thresholdPercent}%` }}
-        aria-hidden="true"
-      />
-    </div>
-  )
-}
-
 function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
   if (scores.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-        프레임별 위험 점수가 없습니다. GPU 워커가 frameRisks를 반환한 뒤 새로 분석하면 표시됩니다.
+        프레임별 위험 점수가 없습니다. 분석 서버가 프레임 데이터를 제공하면 표시됩니다.
       </p>
     )
   }
@@ -3676,21 +3777,28 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
       {
         label: "위험 점수",
         data: riskScores,
-        borderColor: "#dc2626",
-        backgroundColor: "rgba(220, 38, 38, 0.09)",
-        borderWidth: 3,
+        borderColor: "#64748b",
+        backgroundColor: "rgba(100, 116, 139, 0.08)",
+        borderWidth: 2.5,
         pointRadius: 0,
         pointHoverRadius: 5,
         pointHitRadius: 10,
-        pointBackgroundColor: "#dc2626",
+        pointBackgroundColor: "#64748b",
         pointBorderColor: "#ffffff",
         tension: 0.35,
         fill: true,
+        segment: {
+          borderColor(context) {
+            const startValue = Number(context.p0?.parsed?.y)
+            const endValue = Number(context.p1?.parsed?.y)
+            return startValue >= 60 || endValue >= 60 ? "#b91c1c" : "#64748b"
+          },
+        },
       },
       {
         label: "임계값 60 / 100",
         data: thresholdScores,
-        borderColor: "rgba(220, 38, 38, 0.36)",
+        borderColor: "rgba(185, 28, 28, 0.4)",
         borderWidth: 1.5,
         borderDash: [8, 8],
         pointRadius: 0,
@@ -3701,8 +3809,8 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
         label: "최고 위험 프레임",
         data: peakScores,
         borderColor: "transparent",
-        backgroundColor: "#dc2626",
-        pointBackgroundColor: "#dc2626",
+        backgroundColor: "#b91c1c",
+        pointBackgroundColor: "#b91c1c",
         pointBorderColor: "#ffffff",
         pointBorderWidth: 4,
         pointRadius: 8,
@@ -3732,7 +3840,7 @@ function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
       const { ctx, chartArea } = chart
       ctx.save()
       ctx.font = "700 14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
-      ctx.fillStyle = "#dc2626"
+      ctx.fillStyle = "#b91c1c"
       ctx.textAlign = "center"
       ctx.textBaseline = "bottom"
       ctx.fillText(
@@ -4113,8 +4221,8 @@ function buildDetectionInterval(index: number, frameScores: FrameScore[]) {
 }
 
 function formatResultScore(score: number | null) {
-  if (score == null) return null
-  const normalized = score > 0 && score <= 1 ? score * 100 : score
+  const normalized = normalizeScore(score)
+  if (normalized == null) return null
   return String(Math.round(normalized))
 }
 

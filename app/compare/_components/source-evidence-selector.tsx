@@ -18,6 +18,7 @@ type SourceEvidenceSelectorProps = {
   onEvidenceQueryChange: (value: string) => void
   onSelectCase: (id: string) => void
   onSelectEvidence: (id: number) => void
+  onUnavailableEvidenceSelect: (evidence: SourceEvidence) => void
   onNext: () => void
 }
 
@@ -34,6 +35,7 @@ export function SourceEvidenceSelector({
   onEvidenceQueryChange,
   onSelectCase,
   onSelectEvidence,
+  onUnavailableEvidenceSelect,
   onNext,
 }: SourceEvidenceSelectorProps) {
   const selectedEvidence = selectedCase.evidences.find((evidence) => evidence.id === selectedEvidenceId)
@@ -96,17 +98,26 @@ export function SourceEvidenceSelector({
             ) : evidences.length > 0 ? (
               evidences.map((evidence, index) => {
                 const isSelected = evidence.id === selectedEvidenceId
+                const isCompareReady = evidence.isCompareReady
 
                 return (
                   <button
                     key={evidence.id}
                     type="button"
-                    onClick={() => onSelectEvidence(evidence.id)}
+                    onClick={() => {
+                      if (!isCompareReady) {
+                        onUnavailableEvidenceSelect(evidence)
+                        return
+                      }
+
+                      onSelectEvidence(evidence.id)
+                    }}
                     className={cn(
                       "flex w-full items-center gap-3 rounded-lg border bg-white px-3.5 py-3 text-left transition-colors dark:bg-card",
                       isSelected
                         ? "border-slate-950 dark:border-foreground"
-                        : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/70 dark:border-border dark:hover:bg-secondary/40"
+                        : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/70 dark:border-border dark:hover:bg-secondary/40",
+                      !isCompareReady && "text-slate-500"
                     )}
                   >
                     <span
@@ -127,11 +138,21 @@ export function SourceEvidenceSelector({
                         {formatEvidenceId(evidence.id)}
                       </span>
                     </span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-1 text-[11px] font-bold",
+                        isCompareReady
+                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                          : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
+                      )}
+                    >
+                      {isCompareReady ? "분석 완료" : "비분석"}
+                    </span>
                   </button>
                 )
               })
             ) : (
-              <EmptyPaneMessage label="선택한 사건에서 일치하는 완료 증거가 없습니다." />
+              <EmptyPaneMessage label="선택한 사건에서 일치하는 증거가 없습니다." />
             )}
           </div>
 

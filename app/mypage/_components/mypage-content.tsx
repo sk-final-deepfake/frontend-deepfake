@@ -16,7 +16,7 @@ import { isUnauthorizedError } from "@/lib/api/errors"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { getSession, type AuthSession } from "@/lib/auth"
-import { getAppUserFromSession, isReviewer } from "@/lib/permissions"
+import { getAppUserFromSession, getVisibleCases, isReviewer } from "@/lib/permissions"
 
 const HISTORY_PAGE_SIZE = 10
 
@@ -84,10 +84,15 @@ export function MyPageContent() {
   }, [])
 
   const currentUser = getAppUserFromSession(session)
+  const canCreateCase = canRegisterCase(session)
+  const isReviewerView = currentUser ? isReviewer(currentUser) : false
+  const permissionMessage = session && !currentUser
+    ? "권한 정보를 확인할 수 없습니다. 다시 로그인해 주세요."
+    : null
 
   const accessibleCases = useMemo(() => {
-    return cases
-  }, [cases])
+    return getVisibleCases(currentUser, cases)
+  }, [cases, currentUser])
 
   const filteredCases = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -115,15 +120,12 @@ export function MyPageContent() {
     setCurrentPage((page) => Math.min(page, totalPages))
   }, [totalPages])
 
-  const canCreateCase = canRegisterCase(session)
-  const isReviewerView = currentUser ? isReviewer(currentUser) : false
-
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <p className="text-sm font-bold text-teal-600">Case Management</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="mt-1 text-3xl font-bold tracking-normal text-foreground">
             사건 관리
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
@@ -199,10 +201,10 @@ export function MyPageContent() {
             <Loader2 className="size-4 animate-spin" />
             사건 목록을 불러오는 중...
           </div>
-        ) : errorMessage ? (
+        ) : errorMessage || permissionMessage ? (
           <div className="space-y-4 px-5 py-16 text-center">
-            <p className="text-sm text-muted-foreground">{errorMessage}</p>
-            {errorMessage.includes("로그인") && (
+            <p className="text-sm text-muted-foreground">{errorMessage ?? permissionMessage}</p>
+            {(errorMessage ?? permissionMessage ?? "").includes("로그인") && (
               <Button render={<Link href="/login" />} nativeButton={false}>
                 로그인하기
               </Button>
