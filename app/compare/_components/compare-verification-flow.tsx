@@ -18,7 +18,6 @@ import { getApiErrorMessage } from "@/lib/api/errors"
 import { saveCompareResultSummary } from "@/lib/compare-history"
 import { fetchCaseDetail, type CaseDetailData } from "@/lib/api/evidence-detail"
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
-import { getSession, isReviewerSession } from "@/lib/auth"
 import { formatFileSize as formatSharedFileSize } from "@/lib/formatters"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { cn } from "@/lib/utils"
@@ -107,7 +106,6 @@ export function CompareVerificationFlow() {
   const compareRequestRef = useRef(0)
   const activeCompareRequestTokenRef = useRef<string | null>(null)
   const comparePreviewUrlRef = useRef<string | null>(null)
-  const isReviewer = isReviewerSession(getSession())
 
   useEffect(() => {
     let cancelled = false
@@ -336,25 +334,6 @@ export function CompareVerificationFlow() {
       `${evidence.id} ${evidence.displayLabel} ${evidence.dateLabel}`.toLowerCase()
     return searchValue.includes(evidenceQuery.toLowerCase())
   })
-
-  if (isReviewer) {
-    return (
-      <section className="rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-border dark:bg-card">
-        <p className="text-lg font-bold text-slate-950 dark:text-foreground">비교검증 열람 전용</p>
-        <p className="mx-auto mt-2 max-w-xl text-sm font-semibold leading-6 text-slate-500 dark:text-muted-foreground">
-          검토자는 새 비교검증을 실행할 수 없습니다. 배정된 사건 상세 화면에서 저장된 비교검증 결과만 열람할 수
-          있습니다.
-        </p>
-        <button
-          type="button"
-          className="mt-5 inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
-          onClick={() => router.push("/mypage")}
-        >
-          배정 사건으로 이동
-        </button>
-      </section>
-    )
-  }
 
   return (
     <section className="w-full space-y-4">
