@@ -277,6 +277,10 @@ export function normalizeUserRole(role?: string | null): NormalizedUserRole {
   if (normalized === "REVIEWER" || normalized === "ROLE_REVIEWER") {
     return "REVIEWER"
   }
+  // BE UserRole is only ROLE_USER | ROLE_ADMIN. Map general users to investigator so case registration is allowed.
+  if (normalized === "USER" || normalized === "ROLE_USER") {
+    return "INVESTIGATOR"
+  }
   return "UNKNOWN"
 }
 
