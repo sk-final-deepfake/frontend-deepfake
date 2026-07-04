@@ -233,7 +233,7 @@ export async function recordEvidenceSecurityEvent(
 ): Promise<void> {
   if (features.mockApi) return
 
-  await apiRequest<void>(`/api/v1/evidences/${evidenceId}/security-events`, {
+  await apiRequest<void>(`/api/v1/evidences/${evidenceId}/access-events`, {
     method: "POST",
     body: payload,
   })

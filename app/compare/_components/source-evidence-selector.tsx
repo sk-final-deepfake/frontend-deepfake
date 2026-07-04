@@ -146,7 +146,7 @@ export function SourceEvidenceSelector({
                           : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
                       )}
                     >
-                      {isCompareReady ? "분석 완료" : "비분석"}
+                      {isCompareReady ? "분석 완료" : "분석 전"}
                     </span>
                   </button>
                 )

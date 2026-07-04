@@ -2303,7 +2303,7 @@ function CaseWorkflowPanel({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [analystCommentsByEvidence, setAnalystCommentsByEvidence] = useState<Record<number, string>>({})
   const [reviewCommentsByEvidence, setReviewCommentsByEvidence] = useState<Record<number, string>>({})
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
@@ -2381,7 +2381,7 @@ function CaseWorkflowPanel({
     readOnly && !selectedCompareResult
       ? "결과 없음"
       : !selectedCompareResult && !selectedEvidenceCompleted
-      ? "비분석"
+      ? "분석 전"
       : getCompareVerificationLabel(selectedCompareResult)
   const compareActionLabel = selectedCompareResult ? "상세" : readOnly ? "" : selectedEvidenceCompleted ? "분석" : ""
   const compareTextClassName = !selectedCompareResult
@@ -2652,7 +2652,7 @@ function CaseWorkflowPanel({
   function handleStartCompareVerification() {
     if (!selectedEvidence || !selectedEvidenceActive) return
     if (!selectedEvidenceCompleted) {
-      setMessage({ type: "error", text: "딥페이크 분석 완료 후 비교검증에 사용할 수 있습니다." })
+      setMessage({ type: "info", text: "딥페이크 분석 완료 후 비교검증에 사용할 수 있습니다." })
       return
     }
     onStartCompare(selectedEvidence.evidenceId)
@@ -2736,7 +2736,9 @@ function CaseWorkflowPanel({
             "mt-4 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold",
             message.type === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-700/25 bg-red-50 text-red-700"
+              : message.type === "info"
+                ? "border-slate-200 bg-slate-50 text-slate-700"
+                : "border-red-700/25 bg-red-50 text-red-700"
           )}
         >
           {message.type === "success" ? (
@@ -4575,15 +4577,25 @@ function getAnchorTypeLabel(anchorType: string) {
 }
 
 function getCocEventLabel(eventType: string) {
-  if (eventType === "UPLOAD") return "증거 등록"
-  if (eventType === "HASH_CREATED") return "해시 생성"
-  if (eventType === "INTEGRITY_VERIFIED") return "무결성 검증"
-  if (eventType === "ANALYSIS_REQUESTED") return "분석 요청"
-  if (eventType === "FRAME_ANALYSIS_STARTED") return "프레임 분석 시작"
-  if (eventType === "ANALYSIS_COMPLETED") return "분석 완료"
-  if (eventType === "ANALYSIS_FAILED") return "분석 실패"
-  if (eventType === "REPORT_GENERATED") return "보고서 생성"
-  return eventType
+  const labels: Record<string, string> = {
+    UPLOAD: "증거 등록",
+    EVIDENCE_UPLOADED: "증거 파일 업로드",
+    EVIDENCE_REGISTERED: "증거 등록",
+    HASH_CREATED: "해시 생성",
+    HASH_GENERATED: "해시 생성",
+    FILE_HASH_CREATED: "파일 해시 생성",
+    METADATA_EXTRACTED: "메타데이터 추출",
+    INTEGRITY_VERIFIED: "무결성 검증",
+    ANALYSIS_REQUESTED: "분석 요청",
+    FRAME_ANALYSIS_STARTED: "프레임 분석 시작",
+    ANALYSIS_COMPLETED: "분석 완료",
+    ANALYSIS_FAILED: "분석 실패",
+    COMPARE_VERIFICATION_STARTED: "비교검증 시작",
+    COMPARE_VERIFICATION_COMPLETED: "비교검증 완료",
+    REPORT_GENERATED: "보고서 생성",
+  }
+
+  return labels[eventType] ?? eventType
 }
 
 // 점 색상 = 이벤트 성격. 실패=빨강, 완료·검증 계열=초록, 그 외 진행 단계=파랑
