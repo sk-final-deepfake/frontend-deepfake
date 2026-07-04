@@ -16,7 +16,7 @@ import { isUnauthorizedError } from "@/lib/api/errors"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { getSession, type AuthSession } from "@/lib/auth"
-import { getAppUserFromSession, getVisibleCases, isReviewer } from "@/lib/permissions"
+import { getAppUserFromSession, isReviewer } from "@/lib/permissions"
 
 const HISTORY_PAGE_SIZE = 10
 
@@ -91,8 +91,8 @@ export function MyPageContent() {
     : null
 
   const accessibleCases = useMemo(() => {
-    return getVisibleCases(currentUser, cases)
-  }, [cases, currentUser])
+    return cases
+  }, [cases])
 
   const filteredCases = useMemo(() => {
     const keyword = query.trim().toLowerCase()
