@@ -52,6 +52,7 @@ import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
 import { MetadataReportTab } from "./_components/metadata-report-tab"
+import { ReportExportDialog } from "./_components/report-export-dialog"
 import { SummaryTab } from "./_components/summary-tab"
 import {
   buildProgressSteps,
@@ -872,7 +873,8 @@ function CaseResultView({
   onBack: () => void
 }) {
   const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
-  const [resultTab, setResultTab] = useState<"summary" | "detection" | "frames" | "models" | "report">("summary")
+  const [resultTab, setResultTab] = useState<"summary" | "detection" | "frames" | "models">("summary")
+  const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const lastSecurityEventRef = useRef<{ key: string; recordedAt: number } | null>(null)
   const selectedEvidence =
@@ -993,13 +995,25 @@ function CaseResultView({
           <Button
             type="button"
             variant="outline"
+            disabled={!evidenceDetail}
+            onClick={() => setReportDialogOpen(true)}
             className="h-10 rounded-lg border-slate-200 bg-white px-4 text-sm font-semibold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
           >
             <Download className="size-4" aria-hidden="true" />
-            Download PDF
+            PDF 다운로드
           </Button>
         </div>
       </header>
+
+      {evidenceDetail ? (
+        <ReportExportDialog
+          open={reportDialogOpen}
+          onClose={() => setReportDialogOpen(false)}
+          data={evidenceDetail}
+          caseName={caseData.caseName}
+          verificationCode={`VF-${String(evidenceDetail.evidenceInfo.evidenceId).padStart(8, "0")}`}
+        />
+      ) : null}
 
       {detailLoading ? (
         <LoadingCard label="분석 결과를 불러오는 중입니다..." />
@@ -1141,13 +1155,12 @@ function CaseResultView({
                 <p className="mt-1 text-[11px] font-semibold text-slate-400">종합 위험 점수</p>
               </div>
             </div>
-            <div className="relative grid shrink-0 grid-cols-5 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
+            <div className="relative grid shrink-0 grid-cols-4 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
               {([
                 ["summary", "분석 요약"],
                 ["detection", "위험 신호"],
                 ["frames", "프레임 분석"],
                 ["models", "분석 방법론"],
-                ["report", "보고서"],
               ] as const).map(([tab, label]) => (
                 <button
                   key={tab}
@@ -1165,8 +1178,8 @@ function CaseResultView({
                 aria-hidden="true"
                 className="pointer-events-none absolute bottom-[-1px] z-10 h-0.5 bg-slate-950 transition-[left] duration-300 ease-out dark:bg-foreground"
                 style={{
-                  left: `${(resultTab === "summary" ? 0 : resultTab === "detection" ? 1 : resultTab === "frames" ? 2 : resultTab === "models" ? 3 : 4) * 20}%`,
-                  width: "20%",
+                  left: `${(resultTab === "summary" ? 0 : resultTab === "detection" ? 1 : resultTab === "frames" ? 2 : 3) * 25}%`,
+                  width: "25%",
                 }}
               />
             </div>
@@ -1271,8 +1284,8 @@ function CaseResultView({
                       기타 분석 항목 보기
                     </summary>
                     <div className="mt-4 space-y-3">
-                      {extraRiskSignals.map((item) => (
-                        <div key={item.label} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border">
+                      {extraRiskSignals.map((item, index) => (
+                        <div key={`${item.label}-${item.modelLabel ?? "signal"}-${index}`} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border">
                           <div>
                             <p className="text-sm font-bold text-slate-950 dark:text-foreground">
                               {item.label}
@@ -1416,7 +1429,7 @@ function CaseResultView({
                     </p>
                   )}
                 </section>
-              ) : resultTab === "models" ? (
+              ) : (
                 <section>
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -1483,13 +1496,6 @@ function CaseResultView({
                     참고 소견이며, 저해상도·높은 압축률·얼굴 가림 환경에서는 정확도가 낮아질 수 있습니다.
                   </p>
                 </section>
-              ) : (
-                <MetadataReportTab
-                  data={evidenceDetail}
-                  extension={getFileExtension(evidenceDetail.evidenceInfo.fileName, evidenceDetail.evidenceInfo.mediaType)}
-                  reportReady={false}
-                  verificationCode={`VF-${String(evidenceDetail.evidenceInfo.evidenceId).padStart(8, "0")}`}
-                />
               )}
             </div>
           </section>

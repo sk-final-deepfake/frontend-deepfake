@@ -19,6 +19,7 @@ import {
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { Button } from "@/components/ui/button"
+import { CompareReportExportDialog } from "@/app/compare/_components/compare-report-export-dialog"
 import {
   downloadCompareReport,
   fetchCompareResult,
@@ -45,6 +46,7 @@ export default function CompareReportPage() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const isReviewer = isReviewerSession(getSession())
 
   useEffect(() => {
@@ -137,8 +139,19 @@ export default function CompareReportPage() {
           <CompareReport
             result={result}
             isDownloading={isDownloading}
-            onDownload={handleDownloadReport}
+            onOpenReport={() => setReportDialogOpen(true)}
             readOnly={isReviewer}
+          />
+        ) : null}
+
+        {result ? (
+          <CompareReportExportDialog
+            open={reportDialogOpen}
+            onClose={() => setReportDialogOpen(false)}
+            result={result}
+            isDownloading={isDownloading}
+            downloadError={downloadError}
+            onDownload={handleDownloadReport}
           />
         ) : null}
 
@@ -164,12 +177,12 @@ type LayerStatus = {
 function CompareReport({
   result,
   isDownloading,
-  onDownload,
+  onOpenReport,
   readOnly = false,
 }: {
   result: CompareResult
   isDownloading: boolean
-  onDownload: () => void
+  onOpenReport: () => void
   readOnly?: boolean
 }) {
   const router = useRouter()
@@ -208,12 +221,12 @@ function CompareReport({
             저장된 검증 기록입니다. 이 페이지 주소로 언제든 다시 열 수 있습니다.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           {!readOnly ? (
             <Button
               type="button"
               variant="outline"
-              className="h-10 rounded-lg border-slate-200 bg-white px-4 text-sm font-semibold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+              className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
               onClick={() => router.push("/compare")}
             >
               새 검증
@@ -221,14 +234,15 @@ function CompareReport({
           ) : null}
           <Button
             type="button"
-            className="h-10 rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow-none hover:bg-teal-700"
-            onClick={onDownload}
+            variant="outline"
+            className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+            onClick={onOpenReport}
             disabled={isDownloading}
           >
             {isDownloading ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              <Loader2 className="size-5 animate-spin" aria-hidden="true" />
             ) : (
-              <Download className="size-4" aria-hidden="true" />
+              <Download className="size-5" aria-hidden="true" />
             )}
             {isDownloading ? "PDF 생성 중" : "PDF 보고서"}
           </Button>

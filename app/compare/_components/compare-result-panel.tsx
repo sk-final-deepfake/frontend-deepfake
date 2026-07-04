@@ -1,6 +1,8 @@
-import { AlertTriangle, CheckCircle2, FileCheck2, GitCompare } from "lucide-react"
+import { useState } from "react"
+import { AlertTriangle, CheckCircle2, Download, GitCompare } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { CompareReportExportDialog } from "@/app/compare/_components/compare-report-export-dialog"
 import type { CompareResult, CompareVerdict } from "@/lib/api/compare"
 import { cn } from "@/lib/utils"
 
@@ -19,14 +21,16 @@ export function CompareResultPanel({
   onReset,
   onDownloadReport,
 }: CompareResultPanelProps) {
+  const [reportDialogOpen, setReportDialogOpen] = useState(false)
+
   if (!result) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-7 text-center shadow-sm dark:border-border dark:bg-card">
         <p className="text-sm font-bold text-slate-500 dark:text-muted-foreground">
           검증 결과가 없습니다.
         </p>
-        <Button onClick={onReset} className="mt-5 h-10 rounded-md bg-teal-600 px-5 font-bold hover:bg-teal-700">
-          새 검증 시작
+        <Button onClick={onReset} className="mt-5 h-12 rounded-lg bg-teal-600 px-6 text-base font-bold hover:bg-teal-700">
+          새 검증
         </Button>
       </div>
     )
@@ -117,23 +121,33 @@ export function CompareResultPanel({
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Button
           variant="outline"
           onClick={onReset}
-          className="h-11 rounded-md px-6 text-sm font-bold"
+          className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
         >
-          새 검증 시작
+          새 검증
         </Button>
         <Button
-          onClick={onDownloadReport}
+          onClick={() => setReportDialogOpen(true)}
           disabled={isDownloading}
-          className="h-11 rounded-md bg-teal-600 px-6 text-sm font-bold hover:bg-teal-700"
+          variant="outline"
+          className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
         >
-          <FileCheck2 className="size-4" aria-hidden="true" />
-          {isDownloading ? "PDF 생성 중" : "PDF 리포트 다운로드"}
+          <Download className="size-5" aria-hidden="true" />
+          {isDownloading ? "PDF 생성 중" : "PDF 보고서"}
         </Button>
       </div>
+
+      <CompareReportExportDialog
+        open={reportDialogOpen}
+        onClose={() => setReportDialogOpen(false)}
+        result={result}
+        isDownloading={isDownloading}
+        downloadError={downloadError}
+        onDownload={onDownloadReport}
+      />
 
       {downloadError ? (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
