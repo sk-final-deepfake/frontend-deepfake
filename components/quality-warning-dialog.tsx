@@ -33,8 +33,7 @@ function ReadinessFrameMetricsTable({
   if (!metrics) {
     return (
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground break-keep">
-        Blur·Blockiness·FFT peak 지표는 「예, 계속 분석」 선택 후 프레임 샘플링 검사에서
-        표시됩니다.
+        프레임 샘플링 지표를 불러오지 못했습니다. ffprobe 메타데이터 결과만 표시됩니다.
       </p>
     )
   }
@@ -220,7 +219,7 @@ export function QualityWarningDialog({
           </Button>
           {!blocking ? (
             <Button onClick={onConfirm} disabled={loading}>
-              {loading ? "프레임 검사 및 분석 요청 중..." : "예, 계속 분석"}
+              {loading ? "분석 요청 중..." : "예, 계속 분석"}
             </Button>
           ) : null}
         </div>

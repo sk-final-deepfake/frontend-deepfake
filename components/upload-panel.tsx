@@ -646,6 +646,8 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         onUpload={handleUpload}
       />
 
+      <ReadinessCheckOverlay open={isCheckingReadiness} />
+
       <QualityWarningDialog
         open={qualityDialogOpen}
         summaries={qualityDialogSummaries}

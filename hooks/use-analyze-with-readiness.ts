@@ -6,6 +6,7 @@ import type { StartAnalysisResponse } from "@/lib/evidence-api"
 import {
   fetchStoredReadinessForAnalysis,
   hasBlockingReadiness,
+  needsVideoFrameReadinessRefresh,
   refreshVideoFrameReadiness,
   shouldShowQualityDialog,
   worstReadinessTier,
@@ -48,10 +49,15 @@ export function useAnalyzeWithReadiness() {
       setIsCheckingReadiness(true)
 
       try {
-        const summaries = await fetchStoredReadinessForAnalysis(options.targets)
+        let summaries = await fetchStoredReadinessForAnalysis(options.targets)
         options.onReadinessChecked?.(summaries)
 
         if (shouldShowQualityDialog(summaries)) {
+          if (needsVideoFrameReadinessRefresh(summaries)) {
+            summaries = await refreshVideoFrameReadiness(summaries)
+            options.onReadinessChecked?.(summaries)
+          }
+
           pendingRef.current = {
             runAnalyze: options.runAnalyze,
             onSuccess: options.onSuccess,
@@ -87,18 +93,22 @@ export function useAnalyzeWithReadiness() {
     setQualityDialogLoading(true)
 
     try {
-      const targets: ReadinessCheckTarget[] = qualityDialogSummaries.map(
-        ({ evidenceId, fileName, metadata }) => ({
-          evidenceId,
-          fileName,
-          metadata,
-        })
-      )
-      const refreshed = await refreshVideoFrameReadiness(targets)
-      setQualityDialogSummaries(refreshed)
+      let summaries = qualityDialogSummaries
 
-      if (hasBlockingReadiness(refreshed)) {
-        setQualityDialogWorstTier(worstReadinessTier(refreshed))
+      if (needsVideoFrameReadinessRefresh(summaries)) {
+        const targets: ReadinessCheckTarget[] = summaries.map(
+          ({ evidenceId, fileName, metadata }) => ({
+            evidenceId,
+            fileName,
+            metadata,
+          })
+        )
+        summaries = await refreshVideoFrameReadiness(targets)
+        setQualityDialogSummaries(summaries)
+      }
+
+      if (hasBlockingReadiness(summaries)) {
+        setQualityDialogWorstTier(worstReadinessTier(summaries))
         setQualityDialogLoading(false)
         return
       }

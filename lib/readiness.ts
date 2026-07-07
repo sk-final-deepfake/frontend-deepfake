@@ -81,6 +81,19 @@ export function hasBlockingReadiness(summaries: ReadinessCheckSummary[]): boolea
   return summaries.some((item) => item.readiness.readinessTier === "BLOCK")
 }
 
+/** 프레임 샘플링(Blur·Blockiness·FFT)이 아직 없으면 true */
+export function needsVideoFrameReadinessRefresh(
+  summaries: ReadinessCheckSummary[]
+): boolean {
+  return summaries.some((item) => {
+    if (!isVideoEvidence(item)) return false
+    if (item.readiness.frameCheckStatus === "COMPLETED" && item.readiness.frameMetrics) {
+      return false
+    }
+    return true
+  })
+}
+
 /** 화질 안내 다이얼로그 상단 설명 (등급별) */
 export function getQualityDialogSummary(
   worstTier: ReadinessTier,

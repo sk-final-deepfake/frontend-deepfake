@@ -19,9 +19,10 @@ export function ReadinessCheckOverlay({ open }: ReadinessCheckOverlayProps) {
       >
         <Loader2 className="size-8 animate-spin text-primary" aria-hidden="true" />
         <div>
-          <p className="text-base font-semibold text-foreground">화질 검사 결과 확인 중</p>
+          <p className="text-base font-semibold text-foreground">화질 검사 중</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            업로드 시 저장된 영상 메타데이터로 적합성을 확인하고 있습니다.
+            영상 메타데이터와 프레임 샘플(Blur·Blockiness·FFT)을 확인하고 있습니다.
+            잠시만 기다려 주세요.
           </p>
         </div>
       </div>
