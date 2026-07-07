@@ -3064,8 +3064,8 @@ function CaseWorkflowPanel({
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-col gap-5 xl:flex-row">
-                  <div className="relative aspect-video w-full shrink-0 self-start overflow-hidden rounded-lg bg-slate-950 xl:w-[58%]">
+                <div className="mt-3 grid min-h-[430px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,58%)_minmax(0,1fr)] xl:items-start">
+                  <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-slate-950">
                 {detailLoading && !selectedMediaUrl ? (
                   <div className="flex size-full items-center justify-center text-[15px] font-bold text-white/70">
                     <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
@@ -3088,7 +3088,7 @@ function CaseWorkflowPanel({
                 )}
                   </div>
 
-                  <div className="min-h-0 min-w-0 flex-none xl:flex-1 xl:border-l xl:border-border xl:pl-5">
+                  <div className="min-h-0 min-w-0 xl:h-[430px] xl:overflow-y-auto xl:border-l xl:border-border xl:pl-5">
             {infoTab === "metadata" ? (
               <div>
                 {readinessByEvidenceId[selectedEvidence.evidenceId] ? (
