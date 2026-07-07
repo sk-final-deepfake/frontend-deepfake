@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useState, type ReactNode } from "react"
+import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   AlertCircle,
@@ -39,23 +39,31 @@ export default function PublicReportVerifyPage() {
 function VerifyPageBody() {
   const searchParams = useSearchParams()
   const token = searchParams.get("token")?.trim() ?? ""
+  const [codeInput, setCodeInput] = useState("")
+  const [submittedCode, setSubmittedCode] = useState("")
   const [result, setResult] = useState<ReportVerification | null>(null)
   const [isLoading, setIsLoading] = useState(Boolean(token))
   const [errorKind, setErrorKind] = useState<"notFound" | "server" | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [retryKey, setRetryKey] = useState(0)
+  const activeCode = token ? "" : submittedCode.trim()
+  const shouldVerify = Boolean(token || activeCode)
 
   useEffect(() => {
-    if (!token) return
+    if (!shouldVerify) {
+      setIsLoading(false)
+      return
+    }
     let cancelled = false
 
     async function verify() {
       setIsLoading(true)
       setErrorKind(null)
       setErrorMessage(null)
+      setResult(null)
 
       try {
-        const data = await fetchReportVerification(token)
+        const data = await fetchReportVerification(token ? { token } : { code: activeCode })
         if (!cancelled) setResult(data)
       } catch (error) {
         if (cancelled) return
@@ -75,24 +83,61 @@ function VerifyPageBody() {
     return () => {
       cancelled = true
     }
-  }, [token, retryKey])
+  }, [activeCode, shouldVerify, token, retryKey])
+
+  function handleCodeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const nextCode = codeInput.trim()
+    if (!nextCode) return
+
+    setErrorKind(null)
+    setErrorMessage(null)
+    setResult(null)
+    if (submittedCode === nextCode) {
+      setRetryKey((key) => key + 1)
+    } else {
+      setSubmittedCode(nextCode)
+    }
+  }
+
+  function resetCodeEntry() {
+    setSubmittedCode("")
+    setErrorKind(null)
+    setErrorMessage(null)
+    setResult(null)
+  }
 
   return (
     <VerifyShell>
-      {!token ? (
-        <VerifyEmptyState
-          icon={<QrCode className="size-9 text-slate-400" aria-hidden="true" />}
-          title="검증 정보 없음"
-          description={"주소에 검증 토큰이 없습니다.\n보고서의 QR 코드를 다시 스캔해 주세요."}
+      {!shouldVerify ? (
+        <VerifyCodeEntry
+          codeInput={codeInput}
+          onCodeChange={setCodeInput}
+          onSubmit={handleCodeSubmit}
         />
       ) : isLoading ? (
         <VerifyLoading />
       ) : errorKind === "notFound" ? (
         <VerifyEmptyState
           icon={<QrCode className="size-9 text-slate-400" aria-hidden="true" />}
-          title="등록되지 않은 검증 주소입니다"
+          title={token ? "등록되지 않은 검증 주소입니다" : "등록되지 않은 검증코드입니다"}
           description={
-            errorMessage ?? "검증 토큰이 만료되었거나 잘못된 주소입니다.\n보고서의 QR 코드를 다시 스캔해 주세요."
+            errorMessage ??
+            (token
+              ? "검증 토큰이 만료되었거나 잘못된 주소입니다.\n보고서의 QR 코드를 다시 스캔해 주세요."
+              : "검증코드를 다시 확인해 주세요.\n하이픈 없이 입력해도 확인할 수 있습니다.")
+          }
+          action={
+            token ? undefined : (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-lg px-4 font-bold"
+                onClick={resetCodeEntry}
+              >
+                다시 입력
+              </Button>
+            )
           }
         />
       ) : errorKind === "server" ? (
@@ -116,6 +161,88 @@ function VerifyPageBody() {
         <VerifyResult result={result} />
       ) : null}
     </VerifyShell>
+  )
+}
+
+function VerifyCodeEntry({
+  codeInput,
+  onCodeChange,
+  onSubmit,
+}: {
+  codeInput: string
+  onCodeChange: (value: string) => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+}) {
+  const [verifyUrl, setVerifyUrl] = useState("/verify")
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    setVerifyUrl(`${window.location.origin}/verify`)
+  }, [])
+
+  async function copyVerifyUrl() {
+    try {
+      await navigator.clipboard.writeText(verifyUrl)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1200)
+    } catch {
+      // 클립보드 접근이 차단된 환경에서는 무시
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
+      <div className="text-center">
+        <ShieldCheck className="mx-auto size-10 text-teal-600 dark:text-teal-300" aria-hidden="true" />
+        <h1 className="mt-3 text-lg font-bold text-slate-950 dark:text-foreground">보고서 진위 확인</h1>
+        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-muted-foreground">
+          보고서에 표시된 검증 URL에 접속한 뒤 검증코드를 입력하세요.
+        </p>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        <div className="rounded-lg bg-slate-50 px-3 py-3 dark:bg-background/60">
+          <p className="text-[11px] font-bold text-slate-400">검증 URL</p>
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-mono text-sm font-bold text-slate-700 dark:text-muted-foreground">
+              {verifyUrl}
+            </p>
+            <button
+              type="button"
+              onClick={copyVerifyUrl}
+              aria-label="검증 URL 복사"
+              className="shrink-0 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-200/60 hover:text-slate-600 dark:hover:bg-secondary"
+            >
+              {copied ? (
+                <Check className="size-4 text-teal-600 dark:text-teal-300" aria-hidden="true" />
+              ) : (
+                <Copy className="size-4" aria-hidden="true" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        <form className="space-y-3" onSubmit={onSubmit}>
+          <label className="block space-y-1.5">
+            <span className="text-[11px] font-bold text-slate-500 dark:text-muted-foreground">검증코드</span>
+            <input
+              value={codeInput}
+              onChange={(event) => onCodeChange(event.target.value)}
+              placeholder="VF-8F3K-29QX"
+              autoCapitalize="characters"
+              className="h-12 w-full rounded-lg border border-slate-200 bg-white px-3 font-mono text-base font-bold text-slate-950 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100 dark:border-border dark:bg-background dark:text-foreground dark:focus:ring-teal-500/20"
+            />
+          </label>
+          <Button
+            type="submit"
+            disabled={!codeInput.trim()}
+            className="h-11 w-full rounded-lg bg-teal-600 font-bold text-white hover:bg-teal-700 disabled:bg-slate-200 disabled:text-slate-400 dark:bg-teal-500 dark:text-slate-950 dark:hover:bg-teal-400"
+          >
+            확인하기
+          </Button>
+        </form>
+      </div>
+    </section>
   )
 }
 
@@ -264,6 +391,7 @@ function VerifyResult({ result }: { result: ReportVerification }) {
         <h2 className="text-sm font-bold text-slate-950 dark:text-foreground">보고서 정보</h2>
         <dl className="mt-3 space-y-2">
           <InfoRow label="보고서 번호" value={result.reportNo} />
+          {result.verificationCode ? <InfoRow label="검증코드" value={result.verificationCode} /> : null}
           <InfoRow label="파일명" value={result.reportFileName} />
           <InfoRow label="생성일" value={formatDateTime(result.createdAt)} />
           <InfoRow label="증거 ID" value={`EVD-${result.evidenceId}`} />
@@ -278,6 +406,13 @@ function getSignatureCheck(result: ReportVerification): { badge: string; tone: C
 
   if (status === "UNSIGNED" || status === "NONE") {
     return { badge: "서명 없음", tone: "muted", note: "전자서명이 확인되지 않았습니다." }
+  }
+  if (result.signatureValid == null) {
+    return {
+      badge: "확인 불가",
+      tone: "muted",
+      note: "서명 검증 결과가 아직 제공되지 않았습니다.",
+    }
   }
   if (result.signatureValid) {
     const parts = [result.signatureAlgorithm?.trim(), extractCommonName(result.signerCertificateSubject)]
@@ -304,6 +439,13 @@ function getBlockchainCheck(result: ReportVerification): { badge: string; tone: 
       badge: "기록 없음",
       tone: "muted",
       note: "이 보고서는 블록체인에 기록되어 있지 않습니다.",
+    }
+  }
+  if (result.blockchainMatched == null) {
+    return {
+      badge: "확인 불가",
+      tone: "muted",
+      note: "블록체인 기록을 확인하지 못했습니다. 발급 기관에 문의해 주세요.",
     }
   }
   if (result.blockchainMatched) {
