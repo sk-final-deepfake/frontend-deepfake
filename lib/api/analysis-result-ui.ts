@@ -50,7 +50,7 @@ export type UiMethodologyModel = {
   version: string
   role: string
   /** 이번 분석에서 이 모델이 담당한 신호들의 최고 위험 점수 (0~1) */
-  score: number
+  score: number | null
   /** 판정 임계값 초과 여부 */
   overThreshold: boolean
   /** 모델 개발 시점의 검증 성능. 백엔드 미제공 시 null */
@@ -393,6 +393,15 @@ const MODEL_SCORE_DISPLAY: Record<string, { name: string; role: string }> = {
   deepfake_optical: { name: "GMFlow", role: "광류 기반 움직임 보조 신호" },
 }
 
+const CANONICAL_MODEL_SCORE_KEYS = [
+  "deepfake",
+  "deepfake_cnn",
+  "deepfake_temporal",
+  "deepfake_optical",
+] as const
+
+type CanonicalModelScoreKey = (typeof CANONICAL_MODEL_SCORE_KEYS)[number]
+
 /** 모델 개발 시점의 고정 벤치마크 (분석 데이터가 아닌 모델 카드 참조값) */
 const MODEL_BENCHMARKS: Record<string, string> = {
   Xception: "AUC 0.97 · FaceForensics++ (c23)",
@@ -412,7 +421,7 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
   const visibleModelScores = modelScores.filter((model) => model.moduleName?.toLowerCase() !== TIMELINE_MODULE)
 
   if (visibleModelScores.length > 0) {
-    return visibleModelScores.map((model) => buildModelScoreMethodologyModel(model, threshold))
+    return buildCanonicalModelScoreMethodologyModels(visibleModelScores, threshold)
   }
 
   const modelMap = new Map<
@@ -460,20 +469,98 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
   }))
 }
 
-function buildModelScoreMethodologyModel(model: ModelScore, threshold: number): UiMethodologyModel {
-  const moduleName = model.moduleName?.toLowerCase() ?? ""
-  const display = MODEL_SCORE_DISPLAY[moduleName]
-  const name = display?.name ?? model.modelName?.trim() ?? model.moduleName
-  const score = normalizeResultValue(model.score)
+function buildCanonicalModelScoreMethodologyModels(
+  modelScores: ModelScore[],
+  threshold: number
+): UiMethodologyModel[] {
+  const grouped = new Map<
+    CanonicalModelScoreKey,
+    {
+      score: number | null
+      overThreshold: boolean
+      versions: Set<string>
+      roles: Set<string>
+    }
+  >()
 
-  return {
-    name,
-    version: cleanModelVersion(model.modelVersion),
-    role: display?.role ?? formatModuleLabel(model.moduleName),
-    score,
-    overThreshold: Boolean(model.detected) || score >= threshold,
-    benchmark: MODEL_BENCHMARKS[name] ?? null,
+  for (const model of modelScores) {
+    const key = getCanonicalModelScoreKey(model)
+    const score = normalizeResultValue(model.score)
+    const entry =
+      grouped.get(key) ??
+      {
+        score: null,
+        overThreshold: false,
+        versions: new Set<string>(),
+        roles: new Set<string>(),
+      }
+
+    entry.score = entry.score == null ? score : Math.max(entry.score, score)
+    entry.overThreshold = entry.overThreshold || Boolean(model.detected) || score >= threshold
+    entry.roles.add(formatModuleLabel(model.moduleName))
+    if (model.modelVersion?.trim()) entry.versions.add(cleanModelVersion(model.modelVersion))
+    grouped.set(key, entry)
   }
+
+  return CANONICAL_MODEL_SCORE_KEYS.map((key) => {
+    const display = MODEL_SCORE_DISPLAY[key]
+    const entry = grouped.get(key)
+    const roles = entry ? [...entry.roles].filter((role) => role !== display.name) : []
+
+    return {
+      name: display.name,
+      version: entry && entry.versions.size > 0 ? [...entry.versions].join(" · ") : "-",
+      role: roles.length > 0 ? `${display.role} · ${roles.join(" · ")}` : display.role,
+      score: entry?.score ?? null,
+      overThreshold: entry?.overThreshold ?? false,
+      benchmark: MODEL_BENCHMARKS[display.name] ?? null,
+    }
+  })
+}
+
+function getCanonicalModelScoreKey(model: ModelScore): CanonicalModelScoreKey {
+  const moduleName = model.moduleName?.trim().toLowerCase() ?? ""
+  const modelName = model.modelName?.trim().toLowerCase() ?? ""
+
+  if (["deepfake", "late_fusion", "fusion", "late fusion"].includes(moduleName)) return "deepfake"
+  if (["deepfake_cnn", "cnn"].includes(moduleName)) return "deepfake_cnn"
+  if (["deepfake_temporal", "temporal"].includes(moduleName)) return "deepfake_temporal"
+  if (["deepfake_optical", "optical"].includes(moduleName)) return "deepfake_optical"
+
+  if (
+    moduleName.includes("lip") ||
+    moduleName.includes("frame") ||
+    moduleName.includes("splice") ||
+    moduleName.includes("temporal")
+  ) {
+    return "deepfake_temporal"
+  }
+
+  if (
+    moduleName.includes("flow") ||
+    moduleName.includes("motion") ||
+    moduleName.includes("pose") ||
+    moduleName.includes("optical")
+  ) {
+    return "deepfake_optical"
+  }
+
+  if (
+    moduleName.includes("face") ||
+    moduleName.includes("boundary") ||
+    moduleName.includes("gan") ||
+    moduleName.includes("fingerprint") ||
+    moduleName.includes("compression") ||
+    moduleName.includes("artifact") ||
+    moduleName.includes("encoding")
+  ) {
+    return "deepfake_cnn"
+  }
+
+  if (modelName.includes("timesformer")) return "deepfake_temporal"
+  if (modelName.includes("gmflow") || modelName.includes("flow")) return "deepfake_optical"
+  if (modelName.includes("xception")) return "deepfake_cnn"
+  return "deepfake_cnn"
 }
 
 /**

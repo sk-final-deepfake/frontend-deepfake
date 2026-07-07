@@ -153,7 +153,7 @@ function getStatusLabel(status: EvidenceDetailData["analysisInfo"]["status"]) {
 
 function getCaseActorName(userId?: string | null) {
   if (!userId) return null
-  return mockUsers.find((user) => user.id === userId)?.name ?? userId
+  return mockUsers.find((user) => user.id === userId)?.name ?? null
 }
 
 function getCaseStatusLabel(status: string) {
@@ -465,7 +465,7 @@ export default function CaseDetailPage() {
                     onStartCompare={startCompareVerification}
                     onUpdateCaseSettings={updateCaseSettings}
                     onRefresh={refreshCase}
-                    currentUserName={session?.name ?? null}
+                    currentUserName={getAppUserFromSession(session)?.name ?? null}
                     readOnly={isReviewer}
                   />
                 )}
@@ -1479,12 +1479,12 @@ function CaseResultView({
                                 <span
                                   className={cn(
                                     "rounded-full px-2.5 py-1 text-[11px] font-bold",
-                                    model.overThreshold
+                                    model.score != null && model.overThreshold
                                       ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
                                       : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
                                   )}
                                 >
-                                  {model.overThreshold ? "기준 초과" : "기준 미만"}
+                                  {model.score == null ? "정보 없음" : model.overThreshold ? "기준 초과" : "기준 미만"}
                                 </span>
                               </div>
                               <p className="mt-1 text-xs font-semibold text-slate-500">담당 신호: {model.role}</p>
@@ -2426,7 +2426,9 @@ function CaseWorkflowPanel({
   const selectedReviewComment = selectedEvidence
     ? reviewCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
     : ""
-  const analystName = getCaseActorName(caseData.assigneeId ?? caseData.createdBy) ?? (!readOnly ? currentUserName : null)
+  const analystName =
+    (!readOnly ? currentUserName : null) ??
+    getCaseActorName(caseData.assigneeId ?? caseData.createdBy)
   const reviewerName = getCaseActorName(caseData.reviewerId)
   const compareLabel =
     readOnly && !selectedCompareResult
@@ -2962,7 +2964,7 @@ function CaseWorkflowPanel({
                 </div>
               ) : null}
 
-              <div className="flex max-h-[340px] min-h-[220px] flex-col overflow-y-auto pr-1 lg:h-[540px] lg:max-h-none">
+              <div className="flex max-h-[340px] min-h-[220px] flex-col overflow-y-auto pr-1 lg:max-h-[540px]">
                 {filteredEvidences.length === 0 ? (
                   <p className="flex min-h-[220px] items-center justify-center px-3 text-center text-[13px] font-bold text-muted-foreground">
                     해당 상태의 증거가 없습니다.
@@ -4141,7 +4143,7 @@ function MethodologyModelChart({
         </div>
         <div className="mx-auto flex h-full max-w-[420px] items-end justify-center gap-3 px-2 sm:gap-4">
           {models.map((model, index) => {
-            const percent = Math.round(model.score * 100)
+            const percent = model.score == null ? null : Math.round(model.score * 100)
             const color = MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length]
             return (
               <div
@@ -4156,12 +4158,12 @@ function MethodologyModelChart({
                   )}
                   style={{ transitionDelay: `${index * 140 + 350}ms` }}
                 >
-                  {percent}
+                  {percent ?? "-"}
                 </span>
                 <div
                   className={cn("w-12 rounded-t-[3px] transition-[height] duration-700 ease-out", color.bar)}
                   style={{
-                    height: animated ? `${Math.max(2, percent)}%` : "0%",
+                    height: animated ? `${Math.max(2, percent ?? 0)}%` : "0%",
                     transitionDelay: `${index * 140}ms`,
                   }}
                 />

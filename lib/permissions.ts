@@ -288,6 +288,13 @@ export function getMockUserByRole(role: UserRole) {
   return mockUsers.find((user) => user.role === role) ?? mockUsers[0]
 }
 
+function getReadableSessionName(name: string | null | undefined) {
+  const trimmed = name?.trim()
+  if (!trimmed) return null
+  if (/^\d+$/.test(trimmed)) return null
+  return trimmed
+}
+
 export function getAppUserFromSession(session: AuthSession | null): AppUser | null {
   if (!session) return null
 
@@ -307,7 +314,7 @@ export function getAppUserFromSession(session: AuthSession | null): AppUser | nu
   return {
     ...base,
     id: mappedMockUser ? base.id : String(session.userId || base.id),
-    name: session.name || base.name,
+    name: getReadableSessionName(session.name) ?? base.name,
     role,
   }
 }
