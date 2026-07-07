@@ -80,6 +80,7 @@ import {
   getDetectionThreshold,
   getPriorityReviewRange,
   normalizeResultValue,
+  type UiMethodologyModel,
   type UiRiskSignal,
   type UiSummaryAction,
 } from "@/lib/api/analysis-result-ui"
@@ -1451,23 +1452,53 @@ function CaseResultView({
                   </div>
 
                   <section className="mt-5 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
-                    <h4 className="border-b border-slate-100 px-5 py-3.5 text-sm font-bold text-slate-950 dark:border-border dark:text-foreground">
-                      사용 모델
-                    </h4>
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
+                      <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">모델별 추론 결과</h4>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
+                        판정 기준 {Math.round(detectionThreshold * 100)} / 100
+                      </span>
+                    </div>
                     {methodology.models.length > 0 ? (
-                      <div className="divide-y divide-slate-50 dark:divide-border">
-                        {methodology.models.map((model) => (
-                          <div key={`${model.name}-${model.version}`} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-slate-950 dark:text-foreground">
-                                {model.name}
-                                <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">{model.version}</span>
+                      <>
+                        <MethodologyModelChart
+                          models={methodology.models}
+                          thresholdPercent={Math.round(detectionThreshold * 100)}
+                        />
+
+                        <div className="mt-3 divide-y divide-slate-50 border-t border-slate-100 dark:divide-border dark:border-border">
+                          {methodology.models.map((model) => (
+                            <div key={`${model.name}-${model.version}`} className="px-5 py-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                                  {model.name}
+                                  <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">
+                                    {model.version}
+                                  </span>
+                                </p>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2.5 py-1 text-[11px] font-bold",
+                                    model.overThreshold
+                                      ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+                                      : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
+                                  )}
+                                >
+                                  {model.overThreshold ? "기준 초과" : "기준 미만"}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs font-semibold text-slate-500">담당 신호: {model.role}</p>
+                              <p className="mt-0.5 text-xs font-medium text-slate-400">
+                                검증 성능: {model.benchmark ?? "정보 없음"}
                               </p>
-                              <p className="mt-0.5 text-xs font-semibold text-slate-500">{model.role}</p>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+
+                        <p className="border-t border-slate-100 px-5 py-3 text-xs font-medium leading-5 text-slate-400 dark:border-border">
+                          점수는 이번 분석에서 각 모델이 담당한 신호의 최고 위험 점수입니다. 검증 성능은 모델 개발
+                          시점의 벤치마크 결과로, 이번 사건의 측정값과 무관합니다.
+                        </p>
+                      </>
                     ) : (
                       <p className="px-5 py-6 text-center text-sm font-semibold text-slate-400">
                         모델 식별 정보가 아직 제공되지 않았습니다. 백엔드가 모델명·버전을 보고하면 이 영역에 표시됩니다.
@@ -4066,6 +4097,91 @@ function FrameStatCard({
         {value}
       </p>
       {sub ? <p className="mt-0.5 text-xs font-semibold text-slate-400">{sub}</p> : null}
+    </div>
+  )
+}
+
+const MODEL_BAR_COLORS = [
+  { bar: "bg-emerald-800 dark:bg-emerald-600", label: "text-emerald-800 dark:text-emerald-300" },
+  { bar: "bg-emerald-600 dark:bg-emerald-500", label: "text-emerald-600 dark:text-emerald-300" },
+  { bar: "bg-emerald-400 dark:bg-emerald-400", label: "text-emerald-500 dark:text-emerald-200" },
+  { bar: "bg-teal-300 dark:bg-teal-300", label: "text-teal-500 dark:text-teal-200" },
+] as const
+
+function MethodologyModelChart({
+  models,
+  thresholdPercent,
+}: {
+  models: UiMethodologyModel[]
+  thresholdPercent: number
+}) {
+  const [animated, setAnimated] = useState(false)
+
+  useEffect(() => {
+    setAnimated(false)
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setAnimated(true))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [models])
+
+  return (
+    <div className="px-6 pb-3 pt-8">
+      <div className="relative h-36 border-b border-slate-200 dark:border-border">
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 border-t-[1.5px] border-dashed border-slate-400/70 dark:border-slate-500"
+          style={{ bottom: `${thresholdPercent}%` }}
+        >
+          <span className="absolute -top-4 right-0 text-[10px] font-bold text-slate-400">
+            기준 {thresholdPercent}
+          </span>
+        </div>
+        <div className="mx-auto flex h-full max-w-[420px] items-end justify-center gap-3 px-2 sm:gap-4">
+          {models.map((model, index) => {
+            const percent = Math.round(model.score * 100)
+            const color = MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length]
+            return (
+              <div
+                key={`bar-${model.name}-${model.version}`}
+                className="flex h-full w-[86px] shrink-0 flex-col items-center justify-end gap-1.5"
+              >
+                <span
+                  className={cn(
+                    "text-xs font-bold transition-opacity duration-500",
+                    animated ? "opacity-100" : "opacity-0",
+                    color.label
+                  )}
+                  style={{ transitionDelay: `${index * 140 + 350}ms` }}
+                >
+                  {percent}
+                </span>
+                <div
+                  className={cn("w-12 rounded-t-[3px] transition-[height] duration-700 ease-out", color.bar)}
+                  style={{
+                    height: animated ? `${Math.max(2, percent)}%` : "0%",
+                    transitionDelay: `${index * 140}ms`,
+                  }}
+                />
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <div className="mx-auto flex max-w-[420px] justify-center gap-3 px-2 pt-2 sm:gap-4">
+        {models.map((model, index) => (
+          <span
+            key={`label-${model.name}-${model.version}`}
+            title={model.name}
+            className={cn(
+              "w-[86px] shrink-0 whitespace-nowrap text-center text-[11px] font-bold leading-tight",
+              MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length].label
+            )}
+          >
+            {model.name}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

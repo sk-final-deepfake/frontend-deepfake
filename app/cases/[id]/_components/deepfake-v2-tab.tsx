@@ -12,7 +12,19 @@ import {
   Volume2,
 } from "lucide-react"
 
-import type { EvidenceDetailData, FrameScore, ModuleResult, RepresentativeFrame } from "@/lib/api/evidence-detail"
+import type {
+  ClipRisk,
+  EvidenceDetailData,
+  FrameRisk,
+  FrameScore,
+  ModelScore,
+  ModuleResult,
+  ModuleTimeline,
+  ModuleTimelineKind,
+  PairRisk,
+  RepresentativeFrame,
+  SuspiciousSegment,
+} from "@/lib/api/evidence-detail"
 import { formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -21,14 +33,60 @@ type DeepfakeV2TabProps = {
 }
 
 type ViewMode = "original" | "overlay" | "heatmap"
+type TimelineTabKey = ModuleTimelineKind
 
 const DEFAULT_THRESHOLD = 0.6
+const MODEL_SCORE_ORDER = ["deepfake", "deepfake_cnn", "deepfake_temporal", "deepfake_optical"] as const
+
+const MODEL_SCORE_DISPLAY: Record<
+  (typeof MODEL_SCORE_ORDER)[number],
+  { title: string; role: string; shortRole: string }
+> = {
+  deepfake: {
+    title: "Late Fusion",
+    role: "Xception, TimeSformer, GMFlow 결과를 합산한 최종 판단",
+    shortRole: "종합 판정",
+  },
+  deepfake_cnn: {
+    title: "Xception",
+    role: "얼굴 경계와 질감 패턴의 공간적 합성 흔적",
+    shortRole: "프레임·공간 특징",
+  },
+  deepfake_temporal: {
+    title: "TimeSformer",
+    role: "프레임 흐름과 클립 단위 시간 일관성",
+    shortRole: "클립·시계열",
+  },
+  deepfake_optical: {
+    title: "GMFlow",
+    role: "연속 프레임쌍의 움직임 벡터 불안정성",
+    shortRole: "움직임 벡터",
+  },
+}
+
+const TIMELINE_DISPLAY: Record<TimelineTabKey, { label: string; title: string; description: string }> = {
+  cnn: {
+    label: "Xception",
+    title: "프레임별 위험도",
+    description: "얼굴 경계와 질감 패턴에서 감지된 프레임 단위 조작 의심 신호입니다.",
+  },
+  temporal: {
+    label: "TimeSformer",
+    title: "클립별 위험도",
+    description: "연속 프레임 흐름에서 감지된 클립 단위 시간 일관성 이상 신호입니다.",
+  },
+  optical: {
+    label: "GMFlow",
+    title: "프레임쌍 위험도",
+    description: "연속 프레임쌍의 움직임 벡터에서 감지된 불안정 패턴입니다.",
+  },
+}
 
 export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const { evidenceInfo, analysisInfo } = data
   const metadata = evidenceInfo.technicalMetadata
 
-  const modelScore = getPrimaryModelScore(analysisInfo.moduleResults)
+  const modelScore = getFusionModelScore(analysisInfo.modelScores ?? []) ?? getPrimaryModelScore(analysisInfo.moduleResults)
   const confidence = normalizePercent(analysisInfo.confidenceScore)
   const threshold = analysisInfo.detectionThreshold ?? DEFAULT_THRESHOLD
   const duration = formatDuration(metadata.durationSec)
@@ -37,10 +95,13 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const videoUrl = getPlayableVideoUrl(data)
   const overlayVideoUrl = analysisInfo.overlayVideoUrl ?? evidenceInfo.overlayVideoUrl ?? null
   const heatmapImageUrl = analysisInfo.heatmapImageUrl ?? evidenceInfo.heatmapImageUrl ?? null
+  const modelScoreCards = buildModelScoreCards(data, threshold)
+  const timelineTabs = buildTimelineTabs(data, threshold)
 
   return (
     <div className="space-y-4">
       <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} threshold={threshold} />
+      <ModelScoreGrid cards={modelScoreCards} />
 
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <VideoPlayerCard
@@ -52,14 +113,14 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
         <ModelInfoSidebar data={data} threshold={threshold} />
       </div>
 
+      <ModuleTimelineTabs tabs={timelineTabs} />
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 space-y-4">
-          <FrameRiskGraph frameScores={analysisInfo.frameScores ?? []} />
           <RepresentativeFrames frames={analysisInfo.representativeFrames ?? []} />
         </div>
         <div className="min-w-0 space-y-4">
           <ReasoningNote summary={summary} />
-          <PerItemScores modules={analysisInfo.moduleResults} />
         </div>
       </div>
     </div>
@@ -233,13 +294,229 @@ function SummaryCard({
   )
 }
 
-function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
-  const bars = buildRiskBars(frameScores)
+type ModelScoreCard = {
+  key: (typeof MODEL_SCORE_ORDER)[number]
+  title: string
+  role: string
+  shortRole: string
+  score: number | null
+  threshold: number
+  detected: boolean | null
+  modelName: string | null
+  modelVersion: string | null
+}
 
+function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-base font-bold text-foreground">프레임별 위험도 그래프</h3>
+        <div>
+          <h3 className="text-base font-bold text-foreground">모델별 판단 점수</h3>
+          <p className="mt-1 text-xs font-semibold text-muted-foreground">
+            Late Fusion은 최종 판단, 나머지 3개 모델은 하단 타임라인 근거와 연결됩니다.
+          </p>
+        </div>
+        <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-300">
+          임계값 60
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => {
+          const tone = card.score == null ? "neutral" : toneByScore(card.score, card.threshold)
+          const detected = card.detected ?? (card.score != null ? card.score >= card.threshold : false)
+
+          return (
+            <article
+              key={card.key}
+              className={cn(
+                "flex min-h-[154px] flex-col rounded-lg border bg-background/35 p-4",
+                detected ? "border-red-200 dark:border-red-900/50" : "border-border"
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="truncate text-sm font-black text-foreground">{card.title}</h4>
+                  <p className="mt-1 text-[11px] font-bold text-muted-foreground">{card.shortRole}</p>
+                </div>
+                <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-bold", TONE_BADGE[tone])}>
+                  {detected ? "탐지" : card.score == null ? "대기" : "정상"}
+                </span>
+              </div>
+
+              <div className="flex flex-1 items-center">
+                <p className={cn("text-3xl font-black leading-none", TONE_TEXT[tone])}>
+                  {card.score == null ? "-" : Math.round(card.score * 100)}
+                  <span className="ml-1 text-base font-bold text-muted-foreground">/ 100</span>
+                </p>
+              </div>
+
+              <p className="line-clamp-2 text-[11px] font-medium leading-4 text-muted-foreground">{card.role}</p>
+              <p className="mt-2 truncate text-[11px] font-bold text-slate-400" title={card.modelVersion ?? undefined}>
+                {card.modelName ?? card.title}
+                {card.modelVersion ? ` · ${cleanModelVersion(card.modelVersion)}` : ""}
+              </p>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+type ModuleTimelineTab = {
+  key: TimelineTabKey
+  label: string
+  title: string
+  description: string
+  modelName: string
+  modelVersion: string | null
+  videoScore: number | null
+  threshold: number
+  detected: boolean
+  points: FrameScore[]
+  segments: SuspiciousSegment[]
+  emptyTitle: string
+}
+
+function ModuleTimelineTabs({ tabs }: { tabs: ModuleTimelineTab[] }) {
+  const [activeKey, setActiveKey] = useState<TimelineTabKey>("cnn")
+  const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0]
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-base font-bold text-foreground">모듈별 타임라인 근거</h3>
+          <p className="mt-1 text-xs font-semibold text-muted-foreground">
+            각 모델이 실제로 본 단위에 맞춰 프레임, 클립, 프레임쌍 위험도를 나눠 표시합니다.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 rounded-lg bg-muted p-1 text-xs font-bold">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveKey(tab.key)}
+              className={cn(
+                "h-9 rounded-md px-3 transition-colors",
+                activeTab.key === tab.key
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <FrameRiskGraph
+          frameScores={activeTab.points}
+          title={activeTab.title}
+          description={activeTab.description}
+          threshold={activeTab.threshold}
+          emptyTitle={activeTab.emptyTitle}
+          emptyDescription="백엔드가 해당 모듈의 타임라인을 빈 배열로 내려준 경우입니다. 데이터가 제공되면 같은 위치에 차트가 표시됩니다."
+        />
+        <SuspiciousSegmentPanel tab={activeTab} />
+      </div>
+    </section>
+  )
+}
+
+function SuspiciousSegmentPanel({ tab }: { tab: ModuleTimelineTab }) {
+  const scoreTone = tab.videoScore == null ? "neutral" : toneByScore(tab.videoScore, tab.threshold)
+
+  return (
+    <aside className="rounded-xl border border-border bg-background/35 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="truncate text-sm font-black text-foreground">{tab.label}</h4>
+          <p className="mt-1 truncate text-xs font-semibold text-muted-foreground">
+            {tab.modelName}
+            {tab.modelVersion ? ` · ${cleanModelVersion(tab.modelVersion)}` : ""}
+          </p>
+        </div>
+        <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-bold", TONE_BADGE[scoreTone])}>
+          {tab.detected ? "탐지" : tab.videoScore == null ? "정보 없음" : "정상"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-border bg-card px-3 py-2">
+          <p className="text-[11px] font-bold text-muted-foreground">모듈 점수</p>
+          <p className={cn("mt-1 text-lg font-black", TONE_TEXT[scoreTone])}>
+            {tab.videoScore == null ? "-" : `${Math.round(tab.videoScore * 100)} / 100`}
+          </p>
+        </div>
+        <div className="rounded-lg border border-border bg-card px-3 py-2">
+          <p className="text-[11px] font-bold text-muted-foreground">임계값</p>
+          <p className="mt-1 text-lg font-black text-foreground">{Math.round(tab.threshold * 100)} / 100</p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <h5 className="text-xs font-black text-foreground">의심 구간</h5>
+        {tab.segments.length > 0 ? (
+          <div className="mt-2 space-y-2">
+            {tab.segments.map((segment, index) => {
+              const score = normalizeProbability(segment.maxRiskScore)
+              const tone = toneByScore(score, tab.threshold)
+
+              return (
+                <article key={`${segment.startTime}-${segment.endTime}-${index}`} className="rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-mono text-xs font-black text-foreground">
+                      {formatSeconds(segment.startTime)} - {formatSeconds(segment.endTime)}
+                    </p>
+                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", TONE_BADGE[tone])}>
+                      {Math.round(score * 100)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs font-medium leading-5 text-muted-foreground">
+                    {formatSegmentReason(segment.reason)}
+                  </p>
+                </article>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="mt-2 rounded-lg border border-dashed border-border bg-muted/20 px-3 py-6 text-center">
+            <p className="text-xs font-semibold text-muted-foreground">표시할 의심 구간이 없습니다.</p>
+          </div>
+        )}
+      </div>
+    </aside>
+  )
+}
+
+function FrameRiskGraph({
+  frameScores,
+  title = "프레임별 위험도 그래프",
+  description,
+  threshold = DEFAULT_THRESHOLD,
+  emptyTitle = "프레임별 분석 결과가 없습니다.",
+  emptyDescription = "백엔드에서 프레임별 모델 점수가 제공되면 이 영역에 차트로 표시됩니다.",
+}: {
+  frameScores: FrameScore[]
+  title?: string
+  description?: string
+  threshold?: number
+  emptyTitle?: string
+  emptyDescription?: string
+}) {
+  const bars = buildRiskBars(frameScores, threshold)
+  const thresholdTop = `${Math.max(0, Math.min(100, (1 - threshold) * 100))}%`
+
+  return (
+    <section className="rounded-xl border border-border bg-background/35 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-base font-bold text-foreground">{title}</h3>
+          {description ? <p className="mt-1 text-xs font-semibold text-muted-foreground">{description}</p> : null}
+        </div>
         <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-muted-foreground">
           <LegendDot className="bg-slate-300 dark:bg-slate-600" label="낮음 (0~30)" />
           <LegendDot className="bg-amber-400" label="보통 (30~60)" />
@@ -256,11 +533,11 @@ function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
               <span>0</span>
             </div>
             <div className="relative h-40">
-              <div className="pointer-events-none absolute inset-x-0 top-[28%] z-20 h-0">
+              <div className="pointer-events-none absolute inset-x-0 z-20 h-0" style={{ top: thresholdTop }}>
                 <div className="absolute inset-x-0 -top-px border-t-4 border-white/95 dark:border-slate-950/90" />
                 <div className="absolute inset-x-0 top-0 border-t border-dashed border-red-500" />
                 <span className="absolute -top-4 right-0 rounded bg-white px-1.5 text-[11px] font-bold text-red-600 shadow-sm ring-1 ring-red-100 dark:bg-slate-950 dark:ring-red-950/60">
-                  임계값 60
+                  임계값 {Math.round(threshold * 100)}
                 </span>
               </div>
               <div className="absolute inset-x-0 bottom-0 flex h-full items-end gap-px px-2">
@@ -285,8 +562,8 @@ function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
         </>
       ) : (
         <EmptyState
-          title="프레임별 분석 결과가 없습니다."
-          description="백엔드에서 프레임별 모델 점수가 제공되면 이 영역에 차트로 표시됩니다."
+          title={emptyTitle}
+          description={emptyDescription}
         />
       )}
     </section>
@@ -519,19 +796,184 @@ function levelByScore(score: number): { level: string; tone: Tone } {
   return { level: "낮음", tone: "green" }
 }
 
-function buildRiskBars(frameScores: FrameScore[]) {
+function buildModelScoreCards(data: EvidenceDetailData, defaultThreshold: number): ModelScoreCard[] {
+  const scores = data.analysisInfo.modelScores ?? []
+
+  return MODEL_SCORE_ORDER.map((key) => {
+    const score = findModelScore(scores, key)
+    const display = MODEL_SCORE_DISPLAY[key]
+    const normalizedScore = score ? normalizeProbability(score.score) : null
+
+    return {
+      key,
+      title: display.title,
+      role: display.role,
+      shortRole: display.shortRole,
+      score: normalizedScore,
+      threshold: defaultThreshold,
+      detected: score?.detected ?? (normalizedScore == null ? null : normalizedScore >= defaultThreshold),
+      modelName: score?.modelName?.trim() || display.title,
+      modelVersion: score?.modelVersion?.trim() || null,
+    }
+  })
+}
+
+function buildTimelineTabs(data: EvidenceDetailData, defaultThreshold: number): ModuleTimelineTab[] {
+  const timelines = data.analysisInfo.moduleTimelines ?? []
+
+  return (["cnn", "temporal", "optical"] as const).map((key) => {
+    const timeline = timelines.find((item) => item.module === key)
+    const modelScore = findModelScore(data.analysisInfo.modelScores ?? [], modelScoreKeyForTimeline(key))
+    const display = TIMELINE_DISPLAY[key]
+    const threshold = normalizeThreshold(timeline?.threshold, defaultThreshold)
+    const videoScore =
+      timeline?.videoScore != null
+        ? normalizeProbability(timeline.videoScore)
+        : modelScore?.score != null
+          ? normalizeProbability(modelScore.score)
+          : null
+    const points = buildTimelinePoints(key, data, timeline)
+    const segments = buildTimelineSegments(key, data, timeline)
+
+    return {
+      key,
+      label: display.label,
+      title: display.title,
+      description: display.description,
+      modelName: timeline?.modelName?.trim() || modelScore?.modelName?.trim() || display.label,
+      modelVersion: timeline?.modelVersion?.trim() || modelScore?.modelVersion?.trim() || null,
+      videoScore,
+      threshold,
+      detected: timeline?.detected ?? modelScore?.detected ?? (videoScore != null ? videoScore >= threshold : false),
+      points,
+      segments,
+      emptyTitle: `${display.label} 타임라인 데이터가 없습니다.`,
+    }
+  })
+}
+
+function buildTimelinePoints(
+  key: TimelineTabKey,
+  data: EvidenceDetailData,
+  timeline?: ModuleTimeline
+): FrameScore[] {
+  if (key === "cnn") {
+    const risks = nonEmpty(timeline?.frameRisks) ? timeline?.frameRisks : data.analysisInfo.frameRisks
+    const points = frameRisksToFrameScores(risks ?? [])
+    return points.length > 0 ? points : data.analysisInfo.frameScores ?? []
+  }
+
+  if (key === "temporal") {
+    const risks = nonEmpty(timeline?.clipRisks) ? timeline?.clipRisks : data.analysisInfo.clipRisks
+    return clipRisksToFrameScores(risks ?? [])
+  }
+
+  const risks = nonEmpty(timeline?.pairRisks) ? timeline?.pairRisks : data.analysisInfo.pairRisks
+  return pairRisksToFrameScores(risks ?? [])
+}
+
+function buildTimelineSegments(
+  key: TimelineTabKey,
+  data: EvidenceDetailData,
+  timeline?: ModuleTimeline
+): SuspiciousSegment[] {
+  if (nonEmpty(timeline?.suspiciousSegments)) return timeline?.suspiciousSegments ?? []
+
+  if (key === "cnn") return data.analysisInfo.suspiciousSegments ?? []
+  if (key === "temporal") return data.analysisInfo.temporalSuspiciousSegments ?? []
+  return data.analysisInfo.opticalSuspiciousSegments ?? []
+}
+
+function frameRisksToFrameScores(risks: FrameRisk[]): FrameScore[] {
+  return risks.map((risk) => ({
+    timeSec: risk.timestampSec,
+    score: risk.riskScore,
+  }))
+}
+
+function clipRisksToFrameScores(risks: ClipRisk[]): FrameScore[] {
+  return risks.map((risk) => ({
+    timeSec: Number(((risk.startTimeSec + risk.endTimeSec) / 2).toFixed(2)),
+    timestamp: `${formatSeconds(risk.startTimeSec)}-${formatSeconds(risk.endTimeSec)}`,
+    score: risk.riskScore,
+  }))
+}
+
+function pairRisksToFrameScores(risks: PairRisk[]): FrameScore[] {
+  return risks.map((risk) => ({
+    timeSec: risk.timestampSec,
+    score: risk.riskScore,
+  }))
+}
+
+function findModelScore(scores: ModelScore[], moduleName: string) {
+  const normalized = normalizeModelScoreModuleName(moduleName)
+  return scores.find((score) => normalizeModelScoreModuleName(score.moduleName) === normalized)
+}
+
+function modelScoreKeyForTimeline(key: TimelineTabKey) {
+  if (key === "cnn") return "deepfake_cnn"
+  if (key === "temporal") return "deepfake_temporal"
+  return "deepfake_optical"
+}
+
+function normalizeModelScoreModuleName(moduleName: string | null | undefined) {
+  const normalized = moduleName?.trim().toLowerCase() ?? ""
+  if (["late_fusion", "fusion", "late fusion"].includes(normalized)) return "deepfake"
+  if (["cnn", "xception"].includes(normalized)) return "deepfake_cnn"
+  if (["temporal", "timesformer"].includes(normalized)) return "deepfake_temporal"
+  if (["optical", "gmflow"].includes(normalized)) return "deepfake_optical"
+  return normalized
+}
+
+function normalizeThreshold(value: number | null | undefined, fallback: number) {
+  if (value == null || !Number.isFinite(Number(value))) return fallback
+  return normalizeProbability(Number(value))
+}
+
+function nonEmpty<T>(items: T[] | null | undefined): items is T[] {
+  return Array.isArray(items) && items.length > 0
+}
+
+function cleanModelVersion(version: string) {
+  const trimmed = version.trim()
+  if (!trimmed) return "-"
+  if (!trimmed.includes("/")) return trimmed
+  const parts = trimmed.split("/").filter(Boolean)
+  return parts[parts.length - 1] ?? trimmed
+}
+
+function formatSeconds(value: number) {
+  const normalized = Math.max(0, Number.isFinite(value) ? value : 0)
+  const minutes = Math.floor(normalized / 60)
+  const seconds = Math.floor(normalized % 60)
+  const tenth = Math.floor((normalized % 1) * 10)
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenth}`
+}
+
+function formatSegmentReason(reason: string) {
+  const normalized = reason.trim()
+  const knownReasons: Record<string, string> = {
+    "High CNN frame-level fake probability cluster": "프레임 단위 얼굴 합성 의심 점수가 높은 구간입니다.",
+    "High temporal clip-level fake probability cluster": "클립 단위 시간 흐름에서 불일치가 높은 구간입니다.",
+    "High optical flow motion anomaly cluster": "연속 프레임 움직임 벡터가 불안정한 구간입니다.",
+  }
+  return knownReasons[normalized] ?? (normalized || "의심 구간으로 표시되었습니다.")
+}
+
+function buildRiskBars(frameScores: FrameScore[], threshold: number) {
   return densifyFrameScores(frameScores, 48)
     .filter((frame) => typeof frame.score === "number")
     .map((frame) => {
       const score = normalizeProbability(frame.score)
       const height = Math.min(96, Math.max(8, score * 100))
-      const className = riskBarClassName(score)
+      const className = riskBarClassName(score, threshold)
       return { time: formatFrameTime(frame), height, className }
     })
 }
 
-function riskBarClassName(score: number) {
-  if (score >= DEFAULT_THRESHOLD) return "bg-red-700 dark:bg-red-500"
+function riskBarClassName(score: number, threshold = DEFAULT_THRESHOLD) {
+  if (score >= threshold) return "bg-red-700 dark:bg-red-500"
   if (score >= 0.3) return "bg-amber-400"
   return "bg-slate-300 dark:bg-slate-600"
 }
@@ -583,6 +1025,11 @@ function getPrimaryModelScore(modules: ModuleResult[]) {
     modules.find((module) => getModuleScore(module) != null)
   const score = primary ? getModuleScore(primary) : null
   return score == null ? null : normalizeProbability(score)
+}
+
+function getFusionModelScore(scores: ModelScore[]) {
+  const score = findModelScore(scores, "deepfake")
+  return score == null ? null : normalizeProbability(score.score)
 }
 
 function getModuleScore(module: ModuleResult) {
