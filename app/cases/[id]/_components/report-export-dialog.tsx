@@ -1,15 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Check, ChevronDown, Download, X } from "lucide-react"
+import { AlertCircle, Check, ChevronDown, Download, Loader2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
-import { formatDateTime, formatFileSize } from "@/lib/formatters"
+import { downloadEvidenceReport, type EvidenceDetailData } from "@/lib/api/evidence-detail"
+import { getApiErrorMessage } from "@/lib/api/errors"
 import { cn } from "@/lib/utils"
-
-// 백엔드 PDF 생성 API 연동 전 샘플. 연동 시 이 URL만 다운로드 API로 교체한다.
-const SAMPLE_REPORT_URL = "/mock/report-sample.pdf"
 
 type ReportTypeId = "full" | "summary" | "integrity"
 
@@ -23,21 +20,21 @@ export function ReportExportDialog({
   open,
   onClose,
   data,
-  caseName,
-  verificationCode,
 }: {
   open: boolean
   onClose: () => void
   data: EvidenceDetailData
-  caseName: string
-  verificationCode: string
 }) {
   const [reportType, setReportType] = useState<ReportTypeId>("full")
   const [reviewApproved, setReviewApproved] = useState(false)
   const [typeMenuOpen, setTypeMenuOpen] = useState(false)
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null)
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const [pdfReloadKey, setPdfReloadKey] = useState(0)
 
-  const { evidenceInfo, integrityInfo, analysisInfo } = data
-  const analysisDone = analysisInfo.status === "COMPLETED"
+  const { evidenceInfo } = data
   const fileName = `ForenShield_Report_EVD-${evidenceInfo.evidenceId}_${new Date().toISOString().slice(0, 10)}.pdf`
 
   // 검토자 승인 여부 — 검토 화면의 승인 버튼이 localStorage에 기록하고 이벤트로 알린다
@@ -61,19 +58,67 @@ export function ReportExportDialog({
     }
   }, [evidenceInfo.evidenceId])
 
+  useEffect(() => {
+    if (!open) return
+
+    let cancelled = false
+    let objectUrl: string | null = null
+
+    setPdfBlob(null)
+    setPdfPreviewUrl(null)
+    setPdfError(null)
+    setPdfLoading(true)
+
+    downloadEvidenceReport(evidenceInfo.evidenceId)
+      .then((blob) => {
+        const nextUrl = URL.createObjectURL(blob)
+        if (cancelled) {
+          URL.revokeObjectURL(nextUrl)
+          return
+        }
+        objectUrl = nextUrl
+        setPdfBlob(blob)
+        setPdfPreviewUrl(nextUrl)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setPdfError(getApiErrorMessage(error, "PDF 미리보기를 불러오지 못했습니다."))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPdfLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
+    }
+  }, [evidenceInfo.evidenceId, open, pdfReloadKey])
+
   if (!open) return null
 
-  function handleDownload() {
+  async function handleDownload() {
     if (!reviewApproved) return
-    const link = document.createElement("a")
-    link.href = SAMPLE_REPORT_URL
-    link.download = fileName
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-  }
+    setPdfError(null)
 
-  const riskScore = analysisInfo.riskScore != null ? Math.round(analysisInfo.riskScore) : null
+    try {
+      const blob = pdfBlob ?? (await downloadEvidenceReport(evidenceInfo.evidenceId))
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = objectUrl
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+    } catch (error) {
+      setPdfError(getApiErrorMessage(error, "PDF 다운로드에 실패했습니다."))
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
@@ -218,92 +263,45 @@ export function ReportExportDialog({
           >
             <X className="size-4" aria-hidden="true" />
           </button>
-          <p className="mb-3 text-center text-xs font-bold text-slate-500">{fileName}</p>
+          <p className="mb-3 text-center text-xs font-bold text-slate-500">
+            {fileName}
+            <span className="ml-2 text-[11px] font-semibold text-slate-400">백엔드 생성 PDF 미리보기</span>
+          </p>
 
-          <div className="mx-auto flex aspect-[210/297] w-full max-w-[520px] flex-col bg-white p-8 text-slate-900 shadow-lg">
-            <header className="border-b-2 border-slate-900 pb-3">
-              <p className="text-[10px] font-bold tracking-widest text-slate-500">FORENSHIELD AI · 내부망 전용</p>
-              <h3 className="mt-1.5 text-lg font-black">
-                {REPORT_TYPES.find((type) => type.id === reportType)?.label ?? "증거 분석 보고서"}
-              </h3>
-              <div className="mt-2 flex justify-between text-[10px] font-semibold text-slate-500">
-                <span>보고서 번호: {verificationCode}</span>
-                <span>생성일: {formatDateTime(new Date().toISOString())}</span>
+          <div className="mx-auto flex h-[calc(92vh-8rem)] min-h-[520px] w-full max-w-[620px] overflow-hidden rounded-sm bg-white text-slate-900 shadow-lg">
+            {pdfLoading ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-500">
+                <Loader2 className="size-8 animate-spin" aria-hidden="true" />
+                <p className="text-sm font-bold">QR 포함 PDF를 불러오는 중입니다.</p>
               </div>
-            </header>
-
-            <PreviewSection title="1. 사건 정보">
-              <PreviewRow label="사건명" value={caseName} />
-              <PreviewRow label="증거번호" value={`EVD-${evidenceInfo.evidenceId}`} />
-              <PreviewRow label="파일명" value={evidenceInfo.originalFileName ?? evidenceInfo.fileName} />
-              <PreviewRow label="파일 크기" value={formatFileSize(evidenceInfo.fileSize, { zeroLabel: "-" })} />
-              <PreviewRow label="등록 일시" value={formatDateTime(evidenceInfo.uploadedAt)} />
-            </PreviewSection>
-
-            {reportType !== "summary" ? (
-              <PreviewSection title={reportType === "integrity" ? "2. 무결성 검증" : "2. 무결성 검증"}>
-                <PreviewRow label="해시 알고리즘" value={integrityInfo.hashAlgorithm} />
-                <PreviewRow label="원본 해시" value={shortHash(integrityInfo.originalHash)} mono />
-                <PreviewRow label="검증 결과" value={integrityInfo.chainValid ? "원본 해시 일치" : "확인 필요"} />
-              </PreviewSection>
-            ) : null}
-
-            {reportType !== "integrity" ? (
-              <PreviewSection title={reportType === "summary" ? "2. AI 분석 결과" : "3. AI 분석 결과"}>
-                {analysisDone ? (
-                  <>
-                    <PreviewRow label="위험 점수" value={riskScore != null ? `${riskScore} / 100` : "-"} />
-                    <PreviewRow
-                      label="신뢰도"
-                      value={analysisInfo.confidenceScore != null ? `${Math.round(analysisInfo.confidenceScore)}%` : "-"}
-                    />
-                    <PreviewRow label="판정 요약" value={analysisInfo.summary || "-"} />
-                  </>
-                ) : (
-                  <p className="py-1 text-[10px] font-semibold text-slate-400">
-                    분석 대기 — AI 분석 완료 후 위험 점수와 판정 요약이 포함됩니다.
-                  </p>
-                )}
-              </PreviewSection>
-            ) : null}
-
-            <footer className="mt-auto border-t border-slate-200 pt-2.5">
-              <div className="flex items-end justify-between">
-                <p className="text-[9px] font-semibold leading-4 text-slate-400">
-                  본 보고서는 ForenShield AI가 생성한 분석 참고 자료이며,
-                  <br />
-                  최종 판단은 검토자 승인을 거칩니다. 검증코드 {verificationCode}
-                </p>
-                <span className="text-[9px] font-bold text-slate-400">1 / 1</span>
+            ) : pdfError ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+                <span className="flex size-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+                  <AlertCircle className="size-6" aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="text-base font-bold text-slate-900">PDF를 표시하지 못했습니다.</p>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">{pdfError}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 font-bold"
+                  onClick={() => setPdfReloadKey((key) => key + 1)}
+                >
+                  다시 불러오기
+                </Button>
               </div>
-            </footer>
+            ) : pdfPreviewUrl ? (
+              <iframe
+                title="보고서 PDF 미리보기"
+                src={`${pdfPreviewUrl}#toolbar=0&navpanes=0`}
+                className="h-full w-full border-0 bg-white"
+              />
+            ) : null}
           </div>
         </div>
       </section>
     </div>
   )
-}
-
-function PreviewSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-4">
-      <h4 className="border-b border-slate-300 pb-1 text-[11px] font-black text-slate-800">{title}</h4>
-      <dl className="mt-1.5 space-y-1">{children}</dl>
-    </section>
-  )
-}
-
-function PreviewRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2 text-[10px] leading-4">
-      <dt className="font-semibold text-slate-400">{label}</dt>
-      <dd className={cn("min-w-0 break-words font-semibold text-slate-700", mono && "font-mono")}>{value}</dd>
-    </div>
-  )
-}
-
-function shortHash(hash: string) {
-  if (!hash || hash === "-") return "-"
-  if (hash.length <= 40) return hash
-  return `${hash.slice(0, 20)}...${hash.slice(-16)}`
 }

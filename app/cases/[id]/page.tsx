@@ -1037,8 +1037,6 @@ function CaseResultView({
           open={reportDialogOpen}
           onClose={() => setReportDialogOpen(false)}
           data={evidenceDetail}
-          caseName={caseData.caseName}
-          verificationCode={`VF-${String(evidenceDetail.evidenceInfo.evidenceId).padStart(8, "0")}`}
         />
       ) : null}
 

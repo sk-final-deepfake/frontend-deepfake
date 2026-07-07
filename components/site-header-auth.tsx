@@ -169,13 +169,13 @@ export function SiteHeaderAuth() {
           aria-label="알림"
           onClick={handleToggleNotifications}
           className={cn(
-            "relative inline-flex size-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-muted-foreground dark:hover:bg-muted dark:hover:text-foreground",
-            notificationOpen && "bg-slate-100 text-slate-900 ring-2 ring-sky-200 dark:bg-muted dark:text-foreground"
+            "relative inline-flex size-9 items-center justify-center rounded-lg text-teal-700 transition-colors hover:bg-teal-50 hover:text-teal-800 dark:text-teal-300 dark:hover:bg-teal-950/30 dark:hover:text-teal-200",
+            notificationOpen && "bg-teal-50 text-teal-800 ring-2 ring-teal-200 dark:bg-teal-950/30 dark:text-teal-200"
           )}
         >
           <Bell className="size-4" aria-hidden="true" />
           {unreadCount > 0 ? (
-            <span className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-slate-900 px-1 text-[10px] font-bold leading-4 text-white">
+            <span className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-teal-600 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-background">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           ) : null}
@@ -195,7 +195,7 @@ export function SiteHeaderAuth() {
               <button
                 type="button"
                 onClick={handleReadAllNotifications}
-                className="text-xs font-semibold text-slate-500 hover:text-slate-900"
+                className="text-xs font-semibold text-teal-600 hover:text-teal-700"
               >
                 읽음 처리
               </button>
@@ -211,8 +211,8 @@ export function SiteHeaderAuth() {
                   const content = (
                     <>
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-[11px] font-bold text-slate-400">알림 {index + 1}</span>
-                        {!item.read ? <span className="size-2 rounded-full bg-slate-900" /> : null}
+                        <span className="text-[11px] font-bold text-teal-600/80">알림 {index + 1}</span>
+                        {!item.read ? <span className="size-2 rounded-full bg-teal-600" /> : null}
                       </div>
                       <p className="mt-1 text-sm font-bold text-popover-foreground">{item.title}</p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p>

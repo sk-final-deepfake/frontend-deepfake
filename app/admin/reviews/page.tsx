@@ -583,17 +583,7 @@ export default function AdminReviewAssignmentPage() {
     const assignmentReviewers = useMemo(() => {
         if (!assignmentCase) return [];
 
-        const caseOrganizationId = assignmentCase.organizationId;
-        const caseDepartment = assignmentCase.department;
-
         return reviewerStats
-            .filter((reviewer) => {
-                const sameOrganization =
-                    !caseOrganizationId || reviewer.organizationId === caseOrganizationId;
-                const sameDepartment =
-                    !caseDepartment || reviewer.department === caseDepartment;
-                return sameOrganization && sameDepartment;
-            })
             .sort((first, second) => {
                 const currentReviewerGap =
                     Number(second.id === assignmentCase.reviewerId) -

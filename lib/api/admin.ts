@@ -21,6 +21,7 @@ import type {
   LogCategory,
   UserStatus,
 } from "@/app/admin/_types/admin"
+import type { OrgType } from "@/app/signup/organizationData"
 
 type AdminUserPageResponse = {
   items: AdminUser[]
@@ -193,6 +194,7 @@ type AdminEvidencePageResponse = {
 export type UpdateAdminUserPayload = {
   displayName: string
   email: string
+  organizationType?: OrgType | string
   department: string
   role?: AdminUser["role"]
   status?: UserStatus

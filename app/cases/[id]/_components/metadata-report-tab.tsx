@@ -15,7 +15,8 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
+import { downloadEvidenceReport, type EvidenceDetailData } from "@/lib/api/evidence-detail"
+import { getApiErrorMessage } from "@/lib/api/errors"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration, formatFileSize } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -28,8 +29,6 @@ type MetadataReportTabProps = {
 
 type PdfStatus = "NOT_CREATED" | "GENERATING" | "CREATED" | "FAILED"
 
-// 백엔드 PDF 생성 API 연동 전까지 사용하는 샘플 보고서. 연동 시 다운로드 URL만 교체하면 된다.
-const SAMPLE_REPORT_URL = "/mock/report-sample.pdf"
 type ReportTypeId = "full" | "deepfake" | "integrity" | "metadata" | "summary"
 
 type ReportType = {
@@ -130,6 +129,8 @@ export function MetadataReportTab({
   )
 
   const [reviewApproved, setReviewApproved] = useState(false)
+  const [pdfActionLoading, setPdfActionLoading] = useState(false)
+  const [pdfActionError, setPdfActionError] = useState<string | null>(null)
 
   const currentType = REPORT_TYPES.find((type) => type.id === reportType) ?? REPORT_TYPES[0]
   const selectedCount = REPORT_ITEMS.filter((item) => selectedItems[item]).length
@@ -174,19 +175,49 @@ export function MetadataReportTab({
     }, 1400)
   }
 
-  function handleDownload() {
+  async function handleDownload() {
     if (!isCreated || !reviewApproved) return
-    const link = document.createElement("a")
-    link.href = SAMPLE_REPORT_URL
-    link.download = fileName
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
+    setPdfActionLoading(true)
+    setPdfActionError(null)
+
+    try {
+      const blob = await downloadEvidenceReport(evidenceInfo.evidenceId)
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = objectUrl
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+    } catch (error) {
+      setPdfActionError(getApiErrorMessage(error, "PDF 다운로드에 실패했습니다."))
+    } finally {
+      setPdfActionLoading(false)
+    }
   }
 
-  function handlePreview() {
+  async function handlePreview() {
     if (!isCreated) return
-    window.open(SAMPLE_REPORT_URL, "_blank", "noopener")
+    const previewWindow = window.open("", "_blank", "noopener")
+    setPdfActionLoading(true)
+    setPdfActionError(null)
+
+    try {
+      const blob = await downloadEvidenceReport(evidenceInfo.evidenceId)
+      const objectUrl = URL.createObjectURL(blob)
+      if (previewWindow) {
+        previewWindow.location.href = objectUrl
+      } else {
+        window.open(objectUrl, "_blank", "noopener")
+      }
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
+    } catch (error) {
+      previewWindow?.close()
+      setPdfActionError(getApiErrorMessage(error, "PDF 미리보기를 열지 못했습니다."))
+    } finally {
+      setPdfActionLoading(false)
+    }
   }
 
   return (
@@ -299,6 +330,8 @@ export function MetadataReportTab({
           isCreated={isCreated}
           isGenerating={isGenerating}
           reviewApproved={reviewApproved}
+          isActionLoading={pdfActionLoading}
+          actionError={pdfActionError}
           onDownload={handleDownload}
           onPreview={handlePreview}
         />
@@ -422,6 +455,8 @@ function ReportResult({
   isCreated,
   isGenerating,
   reviewApproved,
+  isActionLoading,
+  actionError,
   onDownload,
   onPreview,
 }: {
@@ -431,6 +466,8 @@ function ReportResult({
   isCreated: boolean
   isGenerating: boolean
   reviewApproved: boolean
+  isActionLoading: boolean
+  actionError: string | null
   onDownload: () => void
   onPreview: () => void
 }) {
@@ -479,20 +516,26 @@ function ReportResult({
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
-            disabled={!isCreated || !reviewApproved}
+            disabled={!isCreated || !reviewApproved || isActionLoading}
             onClick={onDownload}
             title={isCreated && !reviewApproved ? "검토자 승인 후 다운로드할 수 있습니다" : undefined}
             className="h-11 bg-teal-600 font-bold hover:bg-teal-700 disabled:bg-muted disabled:text-muted-foreground"
           >
-            <Download className="size-4" aria-hidden="true" />
-            PDF 다운로드
+            {isActionLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Download className="size-4" aria-hidden="true" />}
+            {isActionLoading ? "PDF 준비 중" : "PDF 다운로드"}
           </Button>
-          <Button type="button" variant="outline" disabled={!isCreated} onClick={onPreview} className="h-11 font-bold">
+          <Button type="button" variant="outline" disabled={!isCreated || isActionLoading} onClick={onPreview} className="h-11 font-bold">
             <ExternalLink className="size-4" aria-hidden="true" />
             미리보기
           </Button>
         </div>
       </div>
+
+      {actionError ? (
+        <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
+          {actionError}
+        </p>
+      ) : null}
 
       {isCreated ? (
         <dl className="mt-5 grid gap-3 border-t border-border pt-4 md:grid-cols-2">

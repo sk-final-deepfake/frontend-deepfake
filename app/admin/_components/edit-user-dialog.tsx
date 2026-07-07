@@ -4,6 +4,8 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import type { AdminUser, UserStatus } from "@/app/admin/_types/admin"
+import DepartmentAutocomplete from "@/app/signup/DepartmentAutocomplete"
+import { ORG_TYPES, type OrgType } from "@/app/signup/organizationData"
 import { roleLabelMap, type UserRole } from "@/lib/permissions"
 
 const inputClassName =
@@ -12,6 +14,7 @@ const inputClassName =
 export type UserEditPayload = {
   displayName: string
   email: string
+  organizationType?: OrgType
   department: string
   role?: UserRole
   status?: UserStatus
@@ -35,6 +38,7 @@ export function EditUserDialog({
 }: EditUserDialogProps) {
   const [displayName, setDisplayName] = useState("")
   const [email, setEmail] = useState("")
+  const [organizationType, setOrganizationType] = useState<OrgType | "">("")
   const [department, setDepartment] = useState("")
   const [role, setRole] = useState<UserRole>("INVESTIGATOR")
   const [status, setStatus] = useState<UserStatus>("APPROVED")
@@ -47,6 +51,7 @@ export function EditUserDialog({
     if (!user) return
     setDisplayName(user.displayName)
     setEmail(user.email)
+    setOrganizationType(resolveOrganizationType(user))
     setDepartment(user.department)
     setRole(user.role ?? "INVESTIGATOR")
     setStatus(user.status)
@@ -72,10 +77,19 @@ export function EditUserDialog({
         return
       }
     }
+    if (!organizationType) {
+      setError("기관 유형을 선택해 주세요.")
+      return
+    }
+    if (!department.trim()) {
+      setError("소속 기관/부서를 선택해 주세요.")
+      return
+    }
 
     onSave({
       displayName,
       email,
+      organizationType,
       department,
       role,
       status,
@@ -129,15 +143,36 @@ export function EditUserDialog({
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="edit-department" className="text-sm font-medium text-foreground">
-              소속
+            <label htmlFor="edit-organizationType" className="text-sm font-medium text-foreground">
+              기관 유형
             </label>
-            <input
-              id="edit-department"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
+            <select
+              id="edit-organizationType"
+              value={organizationType}
+              onChange={(e) => {
+                setOrganizationType(e.target.value as OrgType)
+                setDepartment("")
+              }}
               className={inputClassName}
               required
+            >
+              <option value="" disabled>
+                기관 유형 선택
+              </option>
+              {ORG_TYPES.map((organization) => (
+                <option key={organization.value} value={organization.value}>
+                  {organization.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="text-sm font-medium text-foreground">소속 기관/부서</span>
+            <DepartmentAutocomplete
+              orgType={organizationType}
+              value={department}
+              onChange={setDepartment}
             />
           </div>
 
@@ -246,4 +281,20 @@ export function EditUserDialog({
       </form>
     </div>
   )
+}
+
+const ORG_TYPE_VALUES = new Set<string>(ORG_TYPES.map((organization) => organization.value))
+
+function resolveOrganizationType(user: AdminUser): OrgType | "" {
+  const explicit = user.organizationType?.trim().toUpperCase()
+  if (explicit && ORG_TYPE_VALUES.has(explicit)) {
+    return explicit as OrgType
+  }
+
+  const scope = `${user.organizationName ?? ""} ${user.department ?? ""}`.toLowerCase()
+  if (scope.includes("검찰") || scope.includes("prosecution")) return "PROSECUTION"
+  if (scope.includes("국과수") || scope.includes("감정") || scope.includes("nfs")) return "NFS"
+  if (scope.includes("경찰") || scope.includes("police")) return "POLICE"
+  if (scope.includes("감사") || scope.includes("보안") || scope.includes("audit")) return "PUBLIC_SECURITY"
+  return ""
 }

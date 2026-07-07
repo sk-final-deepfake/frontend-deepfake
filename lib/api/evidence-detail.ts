@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api/client"
+import { apiDownload, apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
 import { mockFetchCaseDetail, mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
 import { decodeRouteParam } from "@/lib/route-params"
@@ -271,6 +271,18 @@ export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceD
   }
 
   return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`)
+}
+
+export async function downloadEvidenceReport(evidenceId: number): Promise<Blob> {
+  if (features.mockApi) {
+    const response = await fetch("/mock/report-sample.pdf")
+    if (!response.ok) {
+      throw new Error("샘플 PDF를 불러오지 못했습니다.")
+    }
+    return response.blob()
+  }
+
+  return apiDownload(`/api/v1/evidences/${evidenceId}/reports/pdf`)
 }
 
 export type EvidenceSecurityEventPayload = {

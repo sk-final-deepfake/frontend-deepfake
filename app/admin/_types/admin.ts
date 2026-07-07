@@ -1,4 +1,5 @@
 import type { UserRole } from "@/lib/permissions"
+import type { OrgType } from "@/app/signup/organizationData"
 
 export type UserStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED"
 
@@ -8,6 +9,7 @@ export interface AdminUser {
   displayName: string
   email: string
   organizationName?: string
+  organizationType?: OrgType | string | null
   department: string
   role?: UserRole
   joinedAt: string

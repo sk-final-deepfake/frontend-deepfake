@@ -115,6 +115,7 @@ export default function AdminUsersPage() {
       await updateAdminUser(editTarget.id, {
         displayName: payload.displayName,
         email: payload.email,
+        organizationType: payload.organizationType,
         department: payload.department,
         role: payload.role,
         status: payload.status,
