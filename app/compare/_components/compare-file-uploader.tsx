@@ -31,14 +31,14 @@ export function CompareFileUploader({
 }: CompareFileUploaderProps) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
-      <div className="border-b border-slate-200 px-6 py-5 dark:border-border">
+      <div className="border-b border-slate-200 px-4 py-5 dark:border-border sm:px-6">
         <h1 className="text-lg font-bold text-slate-950 dark:text-foreground">비교 대상 파일 업로드</h1>
         <p className="mt-1 text-sm font-medium text-slate-500">
           기준 증거와 비교할 파일을 업로드하세요. 기준 증거는 변경되지 않습니다.
         </p>
       </div>
 
-      <div className="space-y-4 px-6 py-5">
+      <div className="space-y-4 px-4 py-5 sm:px-6">
         {compareError ? (
           <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -111,12 +111,12 @@ export function CompareFileUploader({
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 dark:border-border">
+      <div className="flex flex-col items-stretch justify-between gap-3 border-t border-slate-200 px-4 py-4 dark:border-border sm:flex-row sm:items-center sm:px-6">
         <Button
           type="button"
           variant="outline"
           onClick={onBack}
-          className="h-10 rounded-full border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+          className="h-10 w-full rounded-full border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground sm:w-auto"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
           기준 증거 다시 선택
@@ -125,7 +125,7 @@ export function CompareFileUploader({
           type="button"
           onClick={onStart}
           disabled={!compareFile}
-          className="h-10 rounded-full bg-slate-950 px-6 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-foreground dark:text-background"
+          className="h-10 w-full rounded-full bg-slate-950 px-6 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-foreground dark:text-background sm:w-auto"
         >
           비교 검증 시작
           <ArrowRight className="size-4" aria-hidden="true" />

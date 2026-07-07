@@ -2825,7 +2825,7 @@ function CaseWorkflowPanel({
   }
 
   return (
-    <section className="relative rounded-xl border border-border bg-card p-5 shadow-sm">
+    <section className="relative rounded-xl border border-border bg-card p-3 shadow-sm sm:p-5">
       {!readOnly ? (
         <input
           ref={uploadInputRef}
@@ -2856,7 +2856,7 @@ function CaseWorkflowPanel({
         </div>
       ) : null}
 
-      <div className="mt-4 xl:mt-0">
+      <div className="mt-3 sm:mt-4 xl:mt-0">
         {evidences.length === 0 ? (
           readOnly ? (
             <div className="rounded-xl border border-dashed border-border px-5 py-12 text-center text-sm font-bold text-muted-foreground">
@@ -2873,8 +2873,8 @@ function CaseWorkflowPanel({
             </button>
           )
         ) : (
-          <div className="flex flex-col gap-4 xl:flex-row xl:gap-5">
-            <div className="flex flex-col bg-white dark:bg-card xl:w-64 xl:shrink-0 xl:border-r xl:border-slate-200/80 xl:pr-4 xl:dark:border-border">
+          <div className="flex flex-col gap-4 lg:flex-row lg:gap-5">
+            <div className="flex flex-col bg-white dark:bg-card lg:w-72 lg:shrink-0 lg:border-r lg:border-slate-200/80 lg:pr-4 lg:dark:border-border xl:w-64">
               <div className="relative flex items-center justify-between gap-3 px-2 pb-2 pt-1">
                 <div className="flex items-baseline gap-2">
                   <h2 className="text-[22px] font-bold text-foreground">증거</h2>
@@ -2962,7 +2962,7 @@ function CaseWorkflowPanel({
                 </div>
               ) : null}
 
-              <div className="flex h-[320px] flex-col overflow-y-auto pr-1">
+              <div className="flex max-h-[340px] min-h-[220px] flex-col overflow-y-auto pr-1 lg:h-[540px] lg:max-h-none">
                 {filteredEvidences.length === 0 ? (
                   <p className="flex min-h-[220px] items-center justify-center px-3 text-center text-[13px] font-bold text-muted-foreground">
                     해당 상태의 증거가 없습니다.
@@ -2997,9 +2997,9 @@ function CaseWorkflowPanel({
             </div>
 
             {selectedEvidence ? (
-              <div className="flex min-w-0 flex-1 flex-col xl:pb-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-baseline gap-2">
+              <div className="flex min-w-0 flex-1 flex-col lg:pb-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
                     <h3 className="truncate text-lg font-bold text-foreground">
                       {formatEvidenceTitle(selectedEvidence)}
                     </h3>
@@ -3012,8 +3012,8 @@ function CaseWorkflowPanel({
                       </span>
                     ) : null}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="relative grid grid-cols-2 rounded-full bg-muted/60 p-1 text-[13px] font-bold">
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
+                    <div className="relative grid w-full grid-cols-2 rounded-full bg-muted/60 p-1 text-[13px] font-bold sm:w-auto">
                       <span
                         className={cn(
                           "absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full border border-border bg-card shadow-sm transition-transform duration-200 ease-out",
@@ -3025,7 +3025,7 @@ function CaseWorkflowPanel({
                         type="button"
                         onClick={() => setInfoTab("metadata")}
                         className={cn(
-                          "relative z-10 rounded-full px-4 py-1.5 transition-colors duration-200",
+                          "relative z-10 rounded-full px-3 py-1.5 transition-colors duration-200 sm:px-4",
                           infoTab === "metadata" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -3035,7 +3035,7 @@ function CaseWorkflowPanel({
                         type="button"
                         onClick={() => setInfoTab("comment")}
                         className={cn(
-                          "relative z-10 rounded-full px-4 py-1.5 transition-colors duration-200",
+                          "relative z-10 rounded-full px-3 py-1.5 transition-colors duration-200 sm:px-4",
                           infoTab === "comment" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -3045,8 +3045,8 @@ function CaseWorkflowPanel({
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-col gap-5 lg:flex-row">
-                  <div className="relative aspect-video w-full shrink-0 self-start overflow-hidden rounded-lg bg-slate-950 lg:w-[58%] xl:w-[58%]">
+                <div className="mt-3 flex flex-col gap-5 xl:flex-row">
+                  <div className="relative aspect-video w-full shrink-0 self-start overflow-hidden rounded-lg bg-slate-950 xl:w-[58%]">
                 {detailLoading && !selectedMediaUrl ? (
                   <div className="flex size-full items-center justify-center text-[15px] font-bold text-white/70">
                     <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
@@ -3069,7 +3069,7 @@ function CaseWorkflowPanel({
                 )}
                   </div>
 
-                  <div className="min-h-[372px] min-w-0 flex-none lg:flex-1 lg:border-l lg:border-border lg:pl-5">
+                  <div className="min-h-0 min-w-0 flex-none xl:flex-1 xl:border-l xl:border-border xl:pl-5">
             {infoTab === "metadata" ? (
               <div>
                 {readinessByEvidenceId[selectedEvidence.evidenceId] ? (
@@ -3079,7 +3079,7 @@ function CaseWorkflowPanel({
                     />
                   </div>
                 ) : null}
-              <div className="min-h-[372px]">
+              <div className="min-h-0 xl:min-h-[372px]">
                 <dl className="space-y-3">
                   <CaseMetadataRow label="파일 유형" value={selectedEvidence.mediaType || "-"} />
                   <CaseMetadataRow
@@ -3158,7 +3158,7 @@ function CaseWorkflowPanel({
               </div>
               </div>
             ) : (
-              <div className="min-h-[372px] space-y-3">
+              <div className="min-h-0 space-y-3 xl:min-h-[372px]">
                 <div>
                   <label
                     htmlFor="caseAnalystComment"
@@ -3254,14 +3254,14 @@ function CaseWorkflowPanel({
       </div>
 
       {showEvidenceActionFooter ? (
-        <div className="-mx-5 mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 px-5 pt-4 dark:border-border xl:mt-0">
-            <div className="flex flex-1 flex-wrap items-center gap-2">
+        <div className="-mx-3 mt-4 flex flex-col items-stretch gap-3 border-t border-slate-200/80 px-3 pt-4 dark:border-border sm:-mx-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 xl:mt-0">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:flex-1">
               {!readOnly ? (
                 <>
                   <Button
                     type="button"
                     variant="ghost"
-                    className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
+                    className="h-10 w-full rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground sm:w-auto"
                     disabled={isWorking}
                     onClick={() => uploadInputRef.current?.click()}
                   >
@@ -3272,7 +3272,7 @@ function CaseWorkflowPanel({
                     <Button
                       type="button"
                       variant="ghost"
-                      className="h-10 rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground"
+                      className="h-10 w-full rounded-lg px-3 text-sm font-bold text-muted-foreground hover:text-foreground sm:w-auto"
                       disabled={isWorking}
                       onClick={() => setSelectedAnalysisIds([])}
                     >
@@ -3282,10 +3282,10 @@ function CaseWorkflowPanel({
                 </>
               ) : null}
             </div>
-            <div className="ml-auto flex shrink-0 items-center justify-end gap-3">
+            <div className="ml-0 flex w-full shrink-0 flex-col items-stretch justify-end gap-3 sm:ml-auto sm:w-auto sm:flex-row sm:items-center">
               {selectedEvidenceRunning ? (
                 <div
-                  className="flex min-w-[240px] flex-col gap-2 sm:min-w-[360px]"
+                  className="flex w-full min-w-0 flex-col gap-2 sm:min-w-[360px]"
                   aria-label={`AI 분석 진행률 ${selectedEvidenceProgress}%`}
                   aria-live="polite"
                 >
@@ -3324,7 +3324,7 @@ function CaseWorkflowPanel({
               {!selectedEvidenceRunning ? (
                 <Button
                   type="button"
-                  className="h-11 rounded-full bg-foreground px-6 text-sm font-bold text-background hover:bg-foreground/90"
+                  className="h-11 w-full rounded-full bg-foreground px-6 text-sm font-bold text-background hover:bg-foreground/90 sm:w-auto"
                   disabled={
                     analysisBusy ||
                     (!showSelectedEvidenceResultAction &&

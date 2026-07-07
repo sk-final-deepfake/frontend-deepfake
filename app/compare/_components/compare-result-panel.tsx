@@ -42,7 +42,7 @@ export function CompareResultPanel({
     <div className="space-y-6">
       <div
         className={cn(
-          "flex items-start gap-4 rounded-xl border p-6 shadow-sm",
+          "flex items-start gap-4 rounded-xl border p-4 shadow-sm sm:p-6",
           verdict.containerClassName
         )}
       >
@@ -57,12 +57,12 @@ export function CompareResultPanel({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-border">
+        <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 dark:border-border sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-2">
             <GitCompare className="size-5 text-teal-600 dark:text-teal-300" aria-hidden="true" />
             <h1 className="text-base font-bold text-slate-950 dark:text-foreground">비교 결과</h1>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
               일치 {result.summary.matchCount}
             </span>
@@ -125,7 +125,7 @@ export function CompareResultPanel({
         <Button
           variant="outline"
           onClick={onReset}
-          className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+          className="h-12 w-full rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground sm:w-auto"
         >
           새 검증
         </Button>
@@ -133,7 +133,7 @@ export function CompareResultPanel({
           onClick={() => setReportDialogOpen(true)}
           disabled={isDownloading}
           variant="outline"
-          className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+          className="h-12 w-full rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground sm:w-auto"
         >
           <Download className="size-5" aria-hidden="true" />
           {isDownloading ? "PDF 생성 중" : "PDF 보고서"}

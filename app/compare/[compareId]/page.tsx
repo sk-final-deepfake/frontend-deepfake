@@ -130,7 +130,11 @@ export default function CompareReportPage() {
               <p className="text-sm font-semibold text-muted-foreground">{error}</p>
             </div>
             {!isReviewer ? (
-              <Button variant="outline" className="h-10 rounded-lg px-4 font-bold" onClick={() => router.push("/compare")}>
+              <Button
+                variant="outline"
+                className="h-10 w-full rounded-lg px-4 font-bold sm:w-auto"
+                onClick={() => router.push("/compare")}
+              >
                 새 비교검증
               </Button>
             ) : null}
@@ -214,19 +218,19 @@ function CompareReport({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:flex-wrap sm:items-end">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-foreground">비교검증 결과</h1>
           <p className="mt-1 text-sm font-medium text-slate-500 dark:text-muted-foreground">
             저장된 검증 기록입니다. 이 페이지 주소로 언제든 다시 열 수 있습니다.
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:gap-3">
           {!readOnly ? (
             <Button
               type="button"
               variant="outline"
-              className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+              className="h-12 w-full rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground sm:w-auto"
               onClick={() => router.push("/compare")}
             >
               새 검증
@@ -235,7 +239,7 @@ function CompareReport({
           <Button
             type="button"
             variant="outline"
-            className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+            className="h-12 w-full rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground sm:w-auto"
             onClick={onOpenReport}
             disabled={isDownloading}
           >

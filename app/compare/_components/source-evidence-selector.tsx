@@ -80,14 +80,14 @@ export function SourceEvidenceSelector({
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
-      <div className="border-b border-slate-200 px-6 py-5 dark:border-border">
+      <div className="border-b border-slate-200 px-4 py-5 dark:border-border sm:px-6">
         <h1 className="text-lg font-bold text-slate-950 dark:text-foreground">기준 증거 선택</h1>
         <p className="mt-1 text-sm font-medium text-slate-500">
           비교 기준이 될 원본 증거를 선택하세요.
         </p>
       </div>
 
-      <div className="space-y-4 px-6 py-5">
+      <div className="space-y-4 px-4 py-5 sm:px-6">
         {sourceError ? (
           <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -170,7 +170,7 @@ export function SourceEvidenceSelector({
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:items-start">
-          <div className="max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
+          <div className="max-h-[320px] space-y-1.5 overflow-y-auto pr-1 sm:max-h-[420px]">
             {isLoadingEvidences || isLoadingCases ? (
               <EmptyPaneMessage label="증거 목록을 불러오는 중입니다." />
             ) : evidences.length > 0 ? (
@@ -234,7 +234,7 @@ export function SourceEvidenceSelector({
             )}
           </div>
 
-          <aside className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-border dark:bg-background">
+          <aside className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-border dark:bg-background sm:p-4">
             <p className="text-xs font-bold text-slate-400">선택된 기준 증거</p>
             {selectedEvidence ? (
               <>
@@ -261,12 +261,12 @@ export function SourceEvidenceSelector({
         </div>
       </div>
 
-      <div className="flex items-center justify-end border-t border-slate-200 px-6 py-4 dark:border-border">
+      <div className="flex items-center justify-end border-t border-slate-200 px-4 py-4 dark:border-border sm:px-6">
         <Button
           type="button"
           onClick={onNext}
           disabled={selectedEvidenceId === null}
-          className="h-10 rounded-full bg-slate-950 px-6 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-foreground dark:text-background"
+          className="h-10 w-full rounded-full bg-slate-950 px-6 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-foreground dark:text-background sm:w-auto"
         >
           다음 · 파일 업로드
           <ArrowRight className="size-4" aria-hidden="true" />

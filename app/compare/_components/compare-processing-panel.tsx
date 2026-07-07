@@ -19,14 +19,14 @@ export function CompareProcessingPanel({
 }: CompareProcessingPanelProps) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
-      <div className="border-b border-slate-200 px-6 py-5 dark:border-border">
+      <div className="border-b border-slate-200 px-4 py-5 dark:border-border sm:px-6">
         <h1 className="text-lg font-bold text-slate-950 dark:text-foreground">비교 처리 중</h1>
         <p className="mt-1 text-sm font-medium text-slate-500">
           해시 계산, 메타데이터 비교, 전자서명 확인을 순서대로 수행하고 있습니다.
         </p>
       </div>
 
-      <div className="space-y-5 px-6 py-5">
+      <div className="space-y-5 px-4 py-5 sm:px-6">
         <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_44px_minmax(0,1fr)]">
           <SourceEvidenceCard evidence={sourceEvidence} />
 
@@ -66,12 +66,12 @@ export function CompareProcessingPanel({
         </div>
       </div>
 
-      <div className="flex items-center justify-end border-t border-slate-200 px-6 py-4 dark:border-border">
+      <div className="flex items-center justify-end border-t border-slate-200 px-4 py-4 dark:border-border sm:px-6">
         <Button
           type="button"
           variant="outline"
           onClick={onCancel}
-          className="h-10 rounded-full border-slate-200 bg-white px-5 text-sm font-semibold text-red-500 hover:bg-red-50 hover:text-red-600 dark:border-border dark:bg-card"
+          className="h-10 w-full rounded-full border-slate-200 bg-white px-5 text-sm font-semibold text-red-500 hover:bg-red-50 hover:text-red-600 dark:border-border dark:bg-card sm:w-auto"
         >
           <Ban className="size-4" aria-hidden="true" />
           검증 중지
