@@ -124,9 +124,8 @@ function hasReviewStatus(caseItem: CaseSummary, statuses: readonly string[]) {
     return statuses.includes(String(caseItem.reviewStatus ?? "NONE"));
 }
 
-function isCompletedAnalysisPendingReview(caseItem: CaseSummary) {
+function isPendingReviewAssignment(caseItem: CaseSummary) {
     return (
-        caseItem.status === "COMPLETED" &&
         (!caseItem.reviewStatus || caseItem.reviewStatus === "NONE")
     );
 }
@@ -169,12 +168,42 @@ function reviewerName(reviewerId?: string | null, reviewerOptions: readonly Revi
     );
 }
 
-function getOrganizationName(organizationId?: string | null) {
-    if (!organizationId) return "기관 미지정";
-    return (
-        mockUsers.find((user) => user.organizationId === organizationId)
-            ?.organizationName ?? "기관 미지정"
-    );
+const organizationPrefixPatterns = [
+    /^(.*?(?:경찰청|검찰청|과학수사연구원|공공안전기관|감정기관|보안기관|연구원|기관|청))\s+/,
+];
+
+function normalizeText(value?: string | null) {
+    const text = value?.trim();
+    return text && text !== "기관 미지정" ? text : null;
+}
+
+function inferOrganizationNameFromDepartment(department?: string | null) {
+    const text = normalizeText(department);
+    if (!text) return null;
+
+    for (const pattern of organizationPrefixPatterns) {
+        const match = text.match(pattern);
+        if (match?.[1]) return match[1].trim();
+    }
+
+    return null;
+}
+
+function getOrganizationName(caseItem: CaseSummary) {
+    const explicitName = normalizeText(caseItem.organizationName);
+    if (explicitName) return explicitName;
+
+    const organizationId = normalizeText(caseItem.organizationId);
+    if (organizationId) {
+        const mockName = mockUsers.find((user) => user.organizationId === organizationId)?.organizationName;
+        if (mockName) return mockName;
+
+        if (orgTypeLabelMap.has(organizationId.toUpperCase())) {
+            return orgTypeLabelMap.get(organizationId.toUpperCase()) ?? null;
+        }
+    }
+
+    return inferOrganizationNameFromDepartment(caseItem.department);
 }
 
 function getOrganizationTypeLabel(organizationType: OrganizationFilter) {
@@ -183,10 +212,13 @@ function getOrganizationTypeLabel(organizationType: OrganizationFilter) {
 }
 
 function getCaseOrganizationType(caseItem: CaseSummary): OrgType {
+    const explicitType = normalizeText(caseItem.organizationType)?.toUpperCase();
+    if (explicitType && orgTypeLabelMap.has(explicitType)) return explicitType as OrgType;
+
     const normalizedId = (caseItem.organizationId ?? "").trim().toUpperCase();
     if (orgTypeLabelMap.has(normalizedId)) return normalizedId as OrgType;
 
-    const organizationName = getOrganizationName(caseItem.organizationId);
+    const organizationName = getOrganizationName(caseItem);
     const scope = `${caseItem.organizationId ?? ""} ${organizationName} ${
         caseItem.department ?? ""
     }`.toLowerCase();
@@ -215,9 +247,15 @@ function getCaseOrganizationType(caseItem: CaseSummary): OrgType {
 }
 
 function getScopeLabel(caseItem: CaseSummary) {
-    const organizationName = getOrganizationName(caseItem.organizationId);
-    const department = caseItem.department ?? "부서 미지정";
-    return `${organizationName} · ${department}`;
+    const organizationName = getOrganizationName(caseItem);
+    const rawDepartment = normalizeText(caseItem.department);
+    const department =
+        rawDepartment && organizationName && rawDepartment.startsWith(organizationName)
+            ? normalizeText(rawDepartment.slice(organizationName.length))
+            : rawDepartment;
+
+    if (organizationName && department) return `${organizationName} · ${department}`;
+    return organizationName ?? department ?? "소속 미지정";
 }
 
 function riskTextClass(caseItem: CaseSummary) {
@@ -294,7 +332,7 @@ export default function AdminReviewAssignmentPage() {
             cases.filter(
                 (item) =>
                     hasReviewStatus(item, REVIEW_QUEUE_STATUSES) ||
-                    isCompletedAnalysisPendingReview(item),
+                    isPendingReviewAssignment(item),
             ),
         [cases],
     );
@@ -369,7 +407,7 @@ export default function AdminReviewAssignmentPage() {
         () =>
             scopedReviewCases.filter((caseItem) =>
                 hasReviewStatus(caseItem, [REQUESTED_REVIEW_STATUS]) ||
-                isCompletedAnalysisPendingReview(caseItem),
+                isPendingReviewAssignment(caseItem),
             ),
         [scopedReviewCases],
     );
@@ -497,7 +535,7 @@ export default function AdminReviewAssignmentPage() {
                 return [
                     item.caseName,
                     item.caseId,
-                    getOrganizationName(item.organizationId),
+                    getScopeLabel(item),
                     item.department ?? "",
                     item.representativeFileName ?? "",
                     reviewerName(item.reviewerId, reviewers),
@@ -798,7 +836,7 @@ export default function AdminReviewAssignmentPage() {
                                             isSupplementRequestedReview(caseItem);
                                         const actionLabel = hasReviewStatus(caseItem, [
                                             REQUESTED_REVIEW_STATUS,
-                                        ]) || isCompletedAnalysisPendingReview(caseItem)
+                                        ]) || isPendingReviewAssignment(caseItem)
                                             ? "배정"
                                             : "변경";
 

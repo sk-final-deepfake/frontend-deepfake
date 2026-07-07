@@ -117,6 +117,7 @@ import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permission
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
+import { addAppNotification } from "@/lib/notifications"
 import { readinessTargetFromCaseEvidence } from "@/lib/readiness"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
@@ -232,6 +233,7 @@ export default function CaseDetailPage() {
   const searchParams = useSearchParams()
   const caseId = decodeRouteParam(Array.isArray(id) ? id[0] : id)
   const initialEvidenceId = Number(searchParams.get("evidenceId"))
+  const initialView = searchParams.get("view")
   const [caseData, setCaseData] = useState<CaseDetailData | null>(null)
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<number | null>(null)
   const [evidenceDetail, setEvidenceDetail] = useState<EvidenceDetailData | null>(null)
@@ -256,6 +258,19 @@ export default function CaseDetailPage() {
     window.addEventListener("auth-change", syncSession)
     return () => window.removeEventListener("auth-change", syncSession)
   }, [])
+
+  useEffect(() => {
+    if (initialView === "result") {
+      setShowIntegrityDashboard(false)
+      setShowResultDashboard(true)
+      return
+    }
+
+    if (initialView === "integrity") {
+      setShowResultDashboard(false)
+      setShowIntegrityDashboard(true)
+    }
+  }, [initialView])
 
   useEffect(() => {
     let cancelled = false
@@ -2721,9 +2736,13 @@ function CaseWorkflowPanel({
         if (targetIds[0]) onSelectEvidence(targetIds[0])
         setSelectedAnalysisIds([])
         setActionMode("idle")
-        setMessage({
-          type: "success",
-          text: `${getAnalysisTypeLabel(analysisType)} 요청이 등록되었습니다.`,
+        const notificationParams = new URLSearchParams(window.location.search)
+        if (targetIds[0]) notificationParams.set("evidenceId", String(targetIds[0]))
+        notificationParams.set("view", "result")
+        addAppNotification({
+          title: `${getAnalysisTypeLabel(analysisType)} 요청 접수`,
+          description: `${caseData.caseName} 사건의 증거 ${targetIds.length}개가 분석 대기열에 등록되었습니다.`,
+          href: `${window.location.pathname}?${notificationParams.toString()}`,
         })
         onRefresh()
       },
@@ -2843,7 +2862,7 @@ function CaseWorkflowPanel({
           className={cn(
             "mt-4 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold",
             message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              ? "border-slate-200 bg-slate-50 text-slate-700"
               : message.type === "info"
                 ? "border-slate-200 bg-slate-50 text-slate-700"
                 : "border-red-700/25 bg-red-50 text-red-700"

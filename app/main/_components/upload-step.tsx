@@ -204,7 +204,7 @@ export function UploadStep({
               className={cn(
                 "mt-5 flex items-start gap-2 rounded-lg border px-4 py-3 text-xs font-bold",
                 uploadMessage.type === "success"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300"
+                  ? "border-slate-200 bg-slate-50 text-slate-700 dark:border-border dark:bg-card dark:text-foreground"
                   : "border-red-200 bg-red-50 text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-400"
               )}
             >
