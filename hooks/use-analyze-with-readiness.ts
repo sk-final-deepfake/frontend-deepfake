@@ -4,8 +4,10 @@ import { useCallback, useRef, useState } from "react"
 
 import type { StartAnalysisResponse } from "@/lib/evidence-api"
 import {
-  checkReadinessForAnalysis,
-  needsQualityAcknowledgement,
+  fetchStoredReadinessForAnalysis,
+  hasBlockingReadiness,
+  refreshVideoFrameReadiness,
+  shouldShowQualityDialog,
   worstReadinessTier,
   type ReadinessCheckSummary,
   type ReadinessCheckTarget,
@@ -46,10 +48,10 @@ export function useAnalyzeWithReadiness() {
       setIsCheckingReadiness(true)
 
       try {
-        const summaries = await checkReadinessForAnalysis(options.targets)
+        const summaries = await fetchStoredReadinessForAnalysis(options.targets)
         options.onReadinessChecked?.(summaries)
 
-        if (needsQualityAcknowledgement(summaries)) {
+        if (shouldShowQualityDialog(summaries)) {
           pendingRef.current = {
             runAnalyze: options.runAnalyze,
             onSuccess: options.onSuccess,
@@ -76,9 +78,31 @@ export function useAnalyzeWithReadiness() {
     const pending = pendingRef.current
     if (!pending) return
 
+    if (hasBlockingReadiness(qualityDialogSummaries)) {
+      closeQualityDialog()
+      setIsCheckingReadiness(false)
+      return
+    }
+
     setQualityDialogLoading(true)
 
     try {
+      const targets: ReadinessCheckTarget[] = qualityDialogSummaries.map(
+        ({ evidenceId, fileName, metadata }) => ({
+          evidenceId,
+          fileName,
+          metadata,
+        })
+      )
+      const refreshed = await refreshVideoFrameReadiness(targets)
+      setQualityDialogSummaries(refreshed)
+
+      if (hasBlockingReadiness(refreshed)) {
+        setQualityDialogWorstTier(worstReadinessTier(refreshed))
+        setQualityDialogLoading(false)
+        return
+      }
+
       const response = await pending.runAnalyze(true)
       closeQualityDialog()
       pending.onSuccess(response)
@@ -89,7 +113,7 @@ export function useAnalyzeWithReadiness() {
       setQualityDialogLoading(false)
       setIsCheckingReadiness(false)
     }
-  }, [closeQualityDialog])
+  }, [closeQualityDialog, qualityDialogSummaries])
 
   const cancelQualityDialog = useCallback(() => {
     closeQualityDialog()

@@ -48,6 +48,7 @@ import {
 } from "lucide-react"
 
 import { QualityWarningDialog } from "@/components/quality-warning-dialog"
+import { ReadinessCheckOverlay } from "@/components/readiness-check-overlay"
 import { ReadinessBadge } from "@/components/readiness-badge"
 import { useAnalyzeWithReadiness } from "@/hooks/use-analyze-with-readiness"
 import { CaseHero } from "./_components/case-hero"
@@ -3490,6 +3491,7 @@ function CaseWorkflowPanel({
         </div>
       ) : null}
 
+      <ReadinessCheckOverlay open={isCheckingReadiness} />
       <QualityWarningDialog
         open={qualityDialogOpen}
         summaries={qualityDialogSummaries}

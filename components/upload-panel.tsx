@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { QualityWarningDialog } from "@/components/quality-warning-dialog"
+import { ReadinessCheckOverlay } from "@/components/readiness-check-overlay"
 import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
   cancelAnalysis,

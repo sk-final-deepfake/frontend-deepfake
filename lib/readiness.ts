@@ -60,6 +60,27 @@ export function needsQualityAcknowledgement(summaries: ReadinessCheckSummary[]):
   return summaries.some((item) => item.readiness.requiresAcknowledgement)
 }
 
+/** CAUTION/POOR 확인, BLOCK 차단, 프레임 검사 실패·SKIPPED 안내 */
+export function shouldShowQualityDialog(summaries: ReadinessCheckSummary[]): boolean {
+  return summaries.some((item) => {
+    const tier = item.readiness.readinessTier
+    if (tier === "BLOCK") return true
+    if (item.readiness.requiresAcknowledgement) return true
+    if (
+      isVideoEvidence(item) &&
+      item.readiness.frameCheckStatus &&
+      ["FAILED", "SKIPPED"].includes(item.readiness.frameCheckStatus)
+    ) {
+      return true
+    }
+    return false
+  })
+}
+
+export function hasBlockingReadiness(summaries: ReadinessCheckSummary[]): boolean {
+  return summaries.some((item) => item.readiness.readinessTier === "BLOCK")
+}
+
 export function readinessTierLabel(tier: ReadinessTier): string {
   switch (tier) {
     case "GOOD":
@@ -119,31 +140,55 @@ export function readinessTargetFromCaseEvidence(
   }
 }
 
-async function resolveReadiness(target: ReadinessCheckTarget): Promise<EvidenceReadinessResponse> {
-  if (isVideoEvidence(target)) {
-    try {
-      return await runEvidenceReadinessCheck(target.evidenceId)
-    } catch (error) {
-      if (!shouldFallbackToStoredReadiness(error)) {
-        throw error
-      }
-      return fetchEvidenceReadiness(target.evidenceId)
-    }
-  }
-
-  return fetchEvidenceReadiness(target.evidenceId)
-}
-
-/** 분석 시작 직전: 영상은 프레임 검사, 그 외는 저장된 readiness 조회 */
-export async function checkReadinessForAnalysis(
+/** 분석 시작 직전 1단계: 업로드 시 저장된 ffprobe readiness (즉시) */
+export async function fetchStoredReadinessForAnalysis(
   targets: ReadinessCheckTarget[]
 ): Promise<ReadinessCheckSummary[]> {
   const summaries: ReadinessCheckSummary[] = []
 
   for (const target of targets) {
-    const readiness = await resolveReadiness(target)
+    const readiness = await fetchEvidenceReadiness(target.evidenceId)
     summaries.push({ ...target, readiness })
   }
 
   return summaries
+}
+
+/** 확인 다이얼로그 「예」 이후 2단계: 영상 프레임 샘플링 (S3 다운로드·Python, 느릴 수 있음) */
+export async function refreshVideoFrameReadiness(
+  targets: ReadinessCheckTarget[]
+): Promise<ReadinessCheckSummary[]> {
+  const summaries: ReadinessCheckSummary[] = []
+
+  for (const target of targets) {
+    if (!isVideoEvidence(target)) {
+      summaries.push({
+        ...target,
+        readiness: await fetchEvidenceReadiness(target.evidenceId),
+      })
+      continue
+    }
+
+    try {
+      const readiness = await runEvidenceReadinessCheck(target.evidenceId)
+      summaries.push({ ...target, readiness })
+    } catch (error) {
+      if (!shouldFallbackToStoredReadiness(error)) {
+        throw error
+      }
+      summaries.push({
+        ...target,
+        readiness: await fetchEvidenceReadiness(target.evidenceId),
+      })
+    }
+  }
+
+  return summaries
+}
+
+/** @deprecated fetchStoredReadinessForAnalysis 사용 — 하위 호환 */
+export async function checkReadinessForAnalysis(
+  targets: ReadinessCheckTarget[]
+): Promise<ReadinessCheckSummary[]> {
+  return fetchStoredReadinessForAnalysis(targets)
 }
