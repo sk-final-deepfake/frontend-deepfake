@@ -16,6 +16,7 @@ import { UploadStatusPanel } from "@/components/upload-panel/upload-status-panel
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { QualityWarningDialog } from "@/components/quality-warning-dialog"
 import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
   cancelAnalysis,
@@ -25,6 +26,8 @@ import {
   type UploadResult,
 } from "@/lib/evidence-api"
 import { getApiErrorMessage } from "@/lib/api/errors"
+import { readinessTargetFromUpload } from "@/lib/readiness"
+import { useAnalyzeWithReadiness } from "@/hooks/use-analyze-with-readiness"
 import {
   clearMainUploadPanelSession,
   createPlaceholderFile,
@@ -130,6 +133,16 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const [hasUploadedOnce, setHasUploadedOnce] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [hydrated, setHydrated] = useState(false)
+  const {
+    isCheckingReadiness,
+    qualityDialogOpen,
+    qualityDialogLoading,
+    qualityDialogSummaries,
+    qualityDialogWorstTier,
+    startAnalysisWithReadiness,
+    confirmQualityDialog,
+    cancelQualityDialog,
+  } = useAnalyzeWithReadiness()
 
   useEffect(() => {
     const session = loadMainUploadPanelSession()
@@ -253,7 +266,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     return () => clearInterval(interval)
   }, [pollingKey])
 
-  const isBusy = status === "uploading" || isCancelling
+  const isBusy = status === "uploading" || isCheckingReadiness || isCancelling
   const hasPendingFiles = fileStates.some((item) => item.status === "pending")
   const trimmedCaseName = caseName.trim()
   const canUpload =
@@ -418,6 +431,53 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const canAnalyze =
     analyzableResults.length > 0 && trimmedCaseName.length > 0 && !isBusy
 
+  const applyAnalysisStarted = (
+    uniqueResults: UploadResult[],
+    response: Awaited<ReturnType<typeof startEvidenceAnalysis>>
+  ) => {
+    const startedIds = new Set(response.evidenceIds)
+
+    setFileStates((prev) =>
+      prev.map((entry) => {
+        if (!entry.result || !startedIds.has(entry.result.evidenceId)) {
+          return entry
+        }
+        return {
+          ...entry,
+          analysisStatus: "PENDING" as const,
+          analysisProgress: 0,
+          result: {
+            ...entry.result,
+            caseName: trimmedCaseName,
+            analysisStatus: "PENDING" as const,
+          },
+        }
+      })
+    )
+
+    if (response.startedCount > 0) {
+      const analyzedResults = uniqueResults.map((item) => ({
+        ...item,
+        caseName: trimmedCaseName,
+        uploadedAt: new Date().toISOString(),
+        analysisStatus: "PENDING" as const,
+      }))
+      onAnalyzeComplete?.(analyzedResults, response.startedCount)
+    }
+
+    setStatus("completed")
+  }
+
+  const requestAnalysis = async (
+    evidenceIds: number[],
+    uniqueResults: UploadResult[],
+    acknowledgeQualityWarning: boolean
+  ) => {
+    return startEvidenceAnalysis(evidenceIds, trimmedCaseName, {
+      acknowledgeQualityWarning: acknowledgeQualityWarning || undefined,
+    })
+  }
+
   const handleAnalyze = async () => {
     const targets = fileStates.filter(
       (item) => item.status === "success" && item.result && !item.analysisStatus
@@ -436,60 +496,17 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
 
     setGlobalError("")
 
-    try {
-      const response = await startEvidenceAnalysis(evidenceIds, trimmedCaseName)
-      const startedIds = new Set(response.evidenceIds)
-
-      setFileStates((prev) =>
-        prev.map((entry) => {
-          if (!entry.result || !startedIds.has(entry.result.evidenceId)) {
-            return entry
-          }
-          return {
-            ...entry,
-            analysisStatus: "PENDING" as const,
-            analysisProgress: 0,
-            result: {
-              ...entry.result,
-              caseName: trimmedCaseName,
-              analysisStatus: "PENDING" as const,
-            },
-          }
-        })
-      )
-
-      if (response.startedCount > 0) {
-        const analyzedResults = uniqueResults.map((item) => ({
-          ...item,
-          caseName: trimmedCaseName,
-          uploadedAt: new Date().toISOString(),
-          analysisStatus: "PENDING" as const,
-        }))
-        onAnalyzeComplete?.(analyzedResults, response.startedCount)
-      }
-
-      setStatus("completed")
-    } catch (error) {
-      setGlobalError(getApiErrorMessage(error, "분석 요청에 실패했습니다."))
-
-      setFileStates((prev) =>
-        prev.map((entry) => {
-          if (!entry.result || !evidenceIds.includes(entry.result.evidenceId)) {
-            return entry
-          }
-          return {
-            ...entry,
-            analysisStatus: "FAILED" as const,
-            result: {
-              ...entry.result,
-              analysisStatus: "FAILED" as const,
-            },
-          }
-        })
-      )
-
-      setStatus("completed")
-    }
+    await startAnalysisWithReadiness({
+      targets: uniqueResults.map(readinessTargetFromUpload),
+      runAnalyze: (ack) => requestAnalysis(evidenceIds, uniqueResults, ack),
+      onSuccess: (response) => {
+        applyAnalysisStarted(uniqueResults, response)
+      },
+      onError: (error) => {
+        setGlobalError(getApiErrorMessage(error, "분석 요청에 실패했습니다."))
+        setStatus("completed")
+      },
+    })
   }
 
   const startNewCase = () => {
@@ -620,12 +637,24 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         canUpload={canUpload}
         hasPendingFiles={hasPendingFiles}
         trimmedCaseName={trimmedCaseName}
-        status={status}
+        status={isCheckingReadiness || qualityDialogOpen ? "analyzing" : status}
         uploadButtonLabel={uploadButtonLabel}
         pendingCount={pendingCount}
         onStartNewCase={startNewCase}
         onAnalyze={handleAnalyze}
         onUpload={handleUpload}
+      />
+
+      <QualityWarningDialog
+        open={qualityDialogOpen}
+        summaries={qualityDialogSummaries}
+        worstTier={qualityDialogWorstTier}
+        loading={qualityDialogLoading}
+        onConfirm={() => void confirmQualityDialog()}
+        onCancel={() => {
+          cancelQualityDialog()
+          setStatus("completed")
+        }}
       />
     </section>
   )
