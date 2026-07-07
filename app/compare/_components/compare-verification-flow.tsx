@@ -18,6 +18,7 @@ import { getApiErrorMessage } from "@/lib/api/errors"
 import { saveCompareResultSummary } from "@/lib/compare-history"
 import { fetchCaseDetail, type CaseDetailData } from "@/lib/api/evidence-detail"
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
+import { getSession, isReviewerSession } from "@/lib/auth"
 import { formatFileSize as formatSharedFileSize } from "@/lib/formatters"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { cn } from "@/lib/utils"
@@ -26,8 +27,11 @@ type CompareStep = "source" | "upload" | "processing" | "result"
 
 export type SourceEvidence = {
   id: number
+  caseId: string
   displayLabel: string
   name: string
+  analysisStatus: string
+  isCompareReady: boolean
   dateLabel: string
   sizeLabel: string
   codecLabel: string
@@ -64,8 +68,11 @@ const EMPTY_CASE: SourceCase = {
 
 const EMPTY_EVIDENCE: SourceEvidence = {
   id: 0,
+  caseId: "",
   displayLabel: "기준 증거",
   name: "기준 증거를 선택하세요",
+  analysisStatus: "PENDING",
+  isCompareReady: false,
   dateLabel: "-",
   sizeLabel: "-",
   codecLabel: "-",
@@ -88,7 +95,6 @@ export function CompareVerificationFlow() {
   const [sourceCases, setSourceCases] = useState<SourceCase[]>([])
   const [selectedCaseId, setSelectedCaseId] = useState("")
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<number | null>(null)
-  const [caseQuery, setCaseQuery] = useState("")
   const [evidenceQuery, setEvidenceQuery] = useState("")
   const [compareFile, setCompareFile] = useState<UploadedCompareFile | null>(null)
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null)
@@ -101,6 +107,7 @@ export function CompareVerificationFlow() {
   const compareRequestRef = useRef(0)
   const activeCompareRequestTokenRef = useRef<string | null>(null)
   const comparePreviewUrlRef = useRef<string | null>(null)
+  const isReviewer = isReviewerSession(getSession())
 
   useEffect(() => {
     let cancelled = false
@@ -126,29 +133,36 @@ export function CompareVerificationFlow() {
         setSelectedCaseId(firstCaseId)
 
         if (firstCaseId) {
-          const detail = await fetchCaseDetail(firstCaseId)
-          if (cancelled) return
+          try {
+            const detail = await fetchCaseDetail(firstCaseId)
+            if (cancelled) return
 
-          const hydratedCase = mapCaseDetailToSourceCase(detail)
-          setSourceCases((current) =>
-            current.some((sourceCase) => sourceCase.id === hydratedCase.id)
-              ? current.map((sourceCase) =>
-                  sourceCase.id === hydratedCase.id ? hydratedCase : sourceCase
-                )
-              : [hydratedCase, ...current]
-          )
-          const preferredEvidenceId =
-            hasPreselectedEvidence &&
-            hydratedCase.evidences.some((evidence) => evidence.id === preselectedEvidenceId)
-              ? preselectedEvidenceId
-              : hydratedCase.evidences[0]?.id ?? null
+            const hydratedCase = mapCaseDetailToSourceCase(detail)
+            setSourceCases((current) =>
+              current.some((sourceCase) => sourceCase.id === hydratedCase.id)
+                ? current.map((sourceCase) =>
+                    sourceCase.id === hydratedCase.id ? hydratedCase : sourceCase
+                  )
+                : [hydratedCase, ...current]
+            )
+            const preferredEvidenceId =
+              getPreferredEvidenceId(
+                hydratedCase.evidences,
+                hasPreselectedEvidence ? preselectedEvidenceId : null
+              )
 
-          setSelectedEvidenceId(preferredEvidenceId)
+            setSelectedEvidenceId(preferredEvidenceId)
 
-          if (hasPreselectedEvidence && preferredEvidenceId === preselectedEvidenceId) {
-            setStep("upload")
-          } else if (hasPreselectedEvidence) {
-            setSourceError("선택한 사건에서 해당 기준 증거를 찾지 못했습니다. 기준 증거를 다시 선택해 주세요.")
+            if (hasPreselectedEvidence && preferredEvidenceId === preselectedEvidenceId) {
+              setStep("upload")
+            } else if (hasPreselectedEvidence) {
+              setSourceError("딥페이크 분석이 완료된 증거만 비교검증 기준으로 사용할 수 있습니다.")
+            }
+          } catch (detailError) {
+            if (cancelled) return
+            setSourceError(
+              getApiErrorMessage(detailError, "선택한 사건의 증거 목록을 불러오지 못했습니다. 다른 사건을 선택해 주세요.")
+            )
           }
         }
       } catch (error) {
@@ -212,7 +226,7 @@ export function CompareVerificationFlow() {
   }
 
   async function startCompare() {
-    if (!compareFile || selectedEvidenceId === null) return
+    if (!compareFile || selectedEvidenceId === null || !selectedEvidence.isCompareReady) return
 
     const requestId = compareRequestRef.current + 1
     const requestToken =
@@ -263,8 +277,7 @@ export function CompareVerificationFlow() {
     setStep("source")
     setProgress(0)
     setSelectedCaseId(sourceCases[0]?.id ?? "")
-    setSelectedEvidenceId(sourceCases[0]?.evidences[0]?.id ?? null)
-    setCaseQuery("")
+    setSelectedEvidenceId(getPreferredEvidenceId(sourceCases[0]?.evidences ?? []))
     setEvidenceQuery("")
     clearCompareFile()
     setCompareResult(null)
@@ -288,13 +301,13 @@ export function CompareVerificationFlow() {
     if (!nextCase) return
 
     setSelectedCaseId(caseId)
-    setSelectedEvidenceId(nextCase.evidences[0]?.id ?? null)
+    setSelectedEvidenceId(getPreferredEvidenceId(nextCase.evidences))
     setEvidenceQuery("")
+    setSourceError(null)
 
     if (nextCase.evidences.length > 0) return
 
     setIsLoadingEvidences(true)
-    setSourceError(null)
 
     try {
       const detail = await fetchCaseDetail(caseId)
@@ -304,7 +317,7 @@ export function CompareVerificationFlow() {
           sourceCase.id === hydratedCase.id ? hydratedCase : sourceCase
         )
       )
-      setSelectedEvidenceId(hydratedCase.evidences[0]?.id ?? null)
+      setSelectedEvidenceId(getPreferredEvidenceId(hydratedCase.evidences))
     } catch (error) {
       setSourceError(getApiErrorMessage(error, "선택한 사건의 증거 목록을 불러오지 못했습니다."))
     } finally {
@@ -314,41 +327,62 @@ export function CompareVerificationFlow() {
 
   const selectedCase =
     sourceCases.find((sourceCase) => sourceCase.id === selectedCaseId) ?? sourceCases[0] ?? EMPTY_CASE
+  const compareReadyEvidences = selectedCase.evidences.filter((evidence) => evidence.isCompareReady)
   const selectedEvidence =
-    selectedCase.evidences.find((evidence) => evidence.id === selectedEvidenceId) ??
-    selectedCase.evidences[0] ??
+    compareReadyEvidences.find((evidence) => evidence.id === selectedEvidenceId) ??
     EMPTY_EVIDENCE
-  const filteredCases = sourceCases.filter((sourceCase) => {
+  const filteredEvidences = compareReadyEvidences.filter((evidence) => {
     const searchValue =
-      `${sourceCase.id} ${sourceCase.title} ${sourceCase.department}`.toLowerCase()
-    return searchValue.includes(caseQuery.toLowerCase())
-  })
-  const filteredEvidences = selectedCase.evidences.filter((evidence) => {
-    const searchValue = `${evidence.id} ${evidence.displayLabel} ${evidence.dateLabel}`.toLowerCase()
+      `${evidence.id} ${evidence.displayLabel} ${evidence.dateLabel}`.toLowerCase()
     return searchValue.includes(evidenceQuery.toLowerCase())
   })
 
+  if (isReviewer) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white px-4 py-7 text-center shadow-sm dark:border-border dark:bg-card sm:p-8">
+        <p className="text-lg font-bold text-slate-950 dark:text-foreground">비교검증 열람 전용</p>
+        <p className="mx-auto mt-2 max-w-xl text-sm font-semibold leading-6 text-slate-500 dark:text-muted-foreground">
+          검토자는 새 비교검증을 실행할 수 없습니다. 배정된 사건 상세 화면에서 저장된 비교검증 결과만 열람할 수
+          있습니다.
+        </p>
+        <button
+          type="button"
+          className="mt-5 inline-flex h-10 w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground sm:w-auto"
+          onClick={() => router.push("/mypage")}
+        >
+          배정 사건으로 이동
+        </button>
+      </section>
+    )
+  }
+
   return (
-    <section className="w-full space-y-6">
+    <section className="w-full space-y-4">
       <StepIndicator currentStep={step} />
 
       {step === "source" ? (
         <SourceEvidenceSelector
-          caseQuery={caseQuery}
           evidenceQuery={evidenceQuery}
           selectedCaseId={selectedCaseId}
           selectedEvidenceId={selectedEvidenceId}
           selectedCase={selectedCase}
-          cases={filteredCases}
+          cases={sourceCases}
           evidences={filteredEvidences}
           isLoadingCases={isLoadingCases}
           isLoadingEvidences={isLoadingEvidences}
           sourceError={sourceError}
-          onCaseQueryChange={setCaseQuery}
           onEvidenceQueryChange={setEvidenceQuery}
           onSelectCase={selectCase}
           onSelectEvidence={setSelectedEvidenceId}
-          onNext={() => setStep("upload")}
+          onUnavailableEvidenceSelect={showAnalysisRequiredAlert}
+          onNext={() => {
+            if (!selectedEvidence.isCompareReady) {
+              setSourceError("딥페이크 분석이 완료된 증거만 비교검증 기준으로 사용할 수 있습니다.")
+              return
+            }
+
+            setStep("upload")
+          }}
         />
       ) : step === "upload" ? (
         <CompareFileUploader
@@ -380,46 +414,34 @@ function StepIndicator({ currentStep }: { currentStep: CompareStep }) {
   const steps = [
     { key: "source", label: "기준 증거" },
     { key: "upload", label: "파일 업로드" },
-    { key: "processing", label: "비교 처리" },
-    { key: "result", label: "리포트" },
-  ] satisfies { key: CompareStep; label: string }[]
-  const currentIndex = steps.findIndex((step) => step.key === currentStep)
+    { key: "result", label: "결과" },
+  ] as const
+  const currentIndex = currentStep === "source" ? 0 : currentStep === "result" ? 2 : 1
 
   return (
-    <ol className="grid gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
+    <ol className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-400 dark:text-muted-foreground">
       {steps.map((step, index) => {
-        const isActive = step.key === currentStep
+        const isActive = index === currentIndex
         const isDone = index < currentIndex
 
         return (
-          <li key={step.key} className={cn(index < steps.length - 1 && "contents")}>
-            <div
-              className={cn(
-                "flex h-12 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-bold transition-colors",
-                isActive
-                  ? "border-teal-600 bg-teal-600 text-white shadow-sm"
-                  : isDone
-                    ? "border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"
-                    : "border-slate-200 bg-white text-slate-500 dark:border-border dark:bg-card dark:text-muted-foreground"
-              )}
-            >
+          <li key={step.key} className="flex items-center gap-2">
+            {index > 0 ? <span className="w-8 border-t border-slate-300 dark:border-border" aria-hidden="true" /> : null}
+            <span className={cn("flex items-center gap-1.5", (isActive || isDone) && "text-slate-950 dark:text-foreground")}>
               <span
                 className={cn(
-                  "flex size-6 items-center justify-center rounded-full text-xs",
+                  "flex size-5 items-center justify-center rounded-full text-[11px] font-bold",
                   isActive
-                    ? "bg-white/20 text-white"
+                    ? "bg-slate-950 text-white dark:bg-foreground dark:text-background"
                     : isDone
-                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                      : "bg-slate-100 text-slate-400 dark:bg-muted dark:text-muted-foreground"
+                      ? "bg-slate-200 text-slate-600 dark:bg-secondary dark:text-foreground"
+                      : "border border-slate-300 text-slate-400 dark:border-border"
                 )}
               >
-                {isDone ? <Check className="size-3.5" aria-hidden="true" /> : index + 1}
+                {isDone ? <Check className="size-3" aria-hidden="true" /> : index + 1}
               </span>
               {step.label}
-            </div>
-            {index < steps.length - 1 && (
-              <div className="hidden h-px w-9 self-center bg-slate-200 md:block dark:bg-border" />
-            )}
+            </span>
           </li>
         )
       })}
@@ -466,15 +488,22 @@ function ResultStep({ result, onReset }: { result: CompareResult | null; onReset
 }
 
 function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
+  const activeEvidences = caseDetail.evidences.filter(
+    (evidence) => (evidence.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
+  )
+
   return {
     id: caseDetail.caseId,
     title: caseDetail.caseName,
     department: getCaseStatusLabel(caseDetail.status),
     updatedAtLabel: formatDateTimeLabel(caseDetail.createdAt),
-    evidences: caseDetail.evidences.map((evidence, index) => ({
+    evidences: activeEvidences.map((evidence, index) => ({
       id: evidence.evidenceId,
+      caseId: caseDetail.caseId,
       displayLabel: evidence.displayLabel || `기준 증거 ${index + 1}`,
       name: evidence.fileName,
+      analysisStatus: evidence.analysisStatus,
+      isCompareReady: isCompareReadyStatus(evidence.analysisStatus),
       dateLabel: getCaseStatusLabel(evidence.analysisStatus),
       sizeLabel: "-",
       codecLabel: getMediaTypeLabel(evidence.mediaType),
@@ -486,6 +515,23 @@ function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
       fileUrl: evidence.fileUrl,
     })),
   }
+}
+
+function getPreferredEvidenceId(evidences: SourceEvidence[], preferredEvidenceId?: number | null) {
+  if (preferredEvidenceId != null) {
+    const preferredEvidence = evidences.find((evidence) => evidence.id === preferredEvidenceId)
+    if (preferredEvidence?.isCompareReady) return preferredEvidence.id
+  }
+
+  return evidences.find((evidence) => evidence.isCompareReady)?.id ?? null
+}
+
+function isCompareReadyStatus(status: string) {
+  return status === "COMPLETED"
+}
+
+function showAnalysisRequiredAlert() {
+  window.alert("딥페이크 분석 완료 후 비교검증에 사용할 수 있습니다.")
 }
 
 function getCaseStatusLabel(status: string) {

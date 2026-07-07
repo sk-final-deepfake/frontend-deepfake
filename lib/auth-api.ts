@@ -1,6 +1,6 @@
 import { apiRequest } from "@/lib/api/client"
 import { API_BASE_URL } from "@/lib/api/config"
-import { getToken } from "@/lib/auth"
+import { getSession, getToken, isMockAuthSession } from "@/lib/auth"
 
 export type LoginRequest = {
   loginId: string
@@ -32,17 +32,29 @@ export async function login(request: LoginRequest): Promise<LoginResponse> {
 }
 
 export async function logoutApi(): Promise<void> {
+  if (isMockAuthSession(getSession())) {
+    return
+  }
+
   const token = getToken()
   const headers: Record<string, string> = {}
   if (token) {
     headers.Authorization = `Bearer ${token}`
   }
 
-  await fetch(`${API_BASE_URL}/api/auth/logout`, {
-    method: "POST",
-    credentials: "include",
-    headers,
-  })
+  try {
+    await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers,
+    })
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return
+    }
+
+    throw error
+  }
 }
 
 export function resolveAccessToken(response: LoginResponse): string {

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 
 const PAGE_SIZE = 10
 
-type LogFilterTab = "ALL" | "LOGIN" | "ANALYSIS" | "UPLOAD" | "SIGNUP"
+type LogFilterTab = "ALL" | "LOGIN" | "ANALYSIS" | "UPLOAD" | "SIGNUP" | "SECURITY"
 
 const filterTabs: { key: LogFilterTab; label: string }[] = [
   { key: "ALL", label: "전체" },
@@ -19,6 +19,7 @@ const filterTabs: { key: LogFilterTab; label: string }[] = [
   { key: "ANALYSIS", label: "분석요청" },
   { key: "UPLOAD", label: "파일업로드" },
   { key: "SIGNUP", label: "가입요청" },
+  { key: "SECURITY", label: "보안감지" },
 ]
 
 function getFilterParams(tab: LogFilterTab): {
@@ -34,6 +35,8 @@ function getFilterParams(tab: LogFilterTab): {
       return { category: "COC", search: "업로드" }
     case "SIGNUP":
       return { category: "AUTH", search: "가입" }
+    case "SECURITY":
+      return { category: "SECURITY" }
     default:
       return { category: "ALL" }
   }
@@ -49,6 +52,9 @@ function getTypeBadge(action: string, category: LogCategory) {
   if (action.includes("로그인") || action.includes("로그아웃")) {
     return { label, className: "border-sky-200 bg-sky-50 text-sky-700" }
   }
+  if (category === "SECURITY" || action.includes("캡처") || action.includes("캡쳐") || action.includes("보안")) {
+    return { label, className: "border-red-200 bg-red-50 text-red-700" }
+  }
   if (category === "ANALYSIS" || action.includes("분석")) {
     return { label, className: "border-violet-200 bg-violet-50 text-violet-700" }
   }
@@ -62,10 +68,12 @@ function getTypeBadge(action: string, category: LogCategory) {
 }
 
 function formatUserCell(log: AdminLog) {
+  const secondaryLabel = log.actorName?.trim() || `ID ${log.actorId}`
+
   return (
     <div>
       <p className="font-medium text-slate-900">{log.actor}</p>
-      <p className="text-xs text-slate-500">{log.actorId}</p>
+      <p className="text-xs text-slate-500">{secondaryLabel}</p>
     </div>
   )
 }

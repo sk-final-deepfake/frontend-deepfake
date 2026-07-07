@@ -9,6 +9,13 @@ import { fetchMyProfile } from "@/lib/api/user"
 import { logoutApi } from "@/lib/auth-api"
 import { clearSession, getSession, isMockAuthSession, type AuthSession } from "@/lib/auth"
 import { getAppUserFromSession, roleLabelMap } from "@/lib/permissions"
+import {
+  APP_NOTIFICATION_EVENT,
+  getAppNotifications,
+  markAllAppNotificationsRead,
+  removeAppNotification,
+  type AppNotification,
+} from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 
 const themeOptions: { value: "light" | "dark"; label: string; icon: typeof Sun }[] = [
@@ -22,7 +29,10 @@ export function SiteHeaderAuth() {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [department, setDepartment] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
+  const notificationRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -68,16 +78,25 @@ export function SiteHeaderAuth() {
   }, [])
 
   useEffect(() => {
-    if (!open) return
+    if (!open && !notificationOpen) return
 
     function handlePointerDown(event: MouseEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node
+
+      if (
+        !menuRef.current?.contains(target) &&
+        !notificationRef.current?.contains(target)
+      ) {
         setOpen(false)
+        setNotificationOpen(false)
       }
     }
 
     function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false)
+      if (event.key === "Escape") {
+        setOpen(false)
+        setNotificationOpen(false)
+      }
     }
 
     document.addEventListener("mousedown", handlePointerDown)
@@ -87,7 +106,23 @@ export function SiteHeaderAuth() {
       document.removeEventListener("mousedown", handlePointerDown)
       document.removeEventListener("keydown", handleEscape)
     }
-  }, [open])
+  }, [notificationOpen, open])
+
+  useEffect(() => {
+    function syncNotifications() {
+      setNotifications(getAppNotifications())
+    }
+
+    syncNotifications()
+
+    window.addEventListener(APP_NOTIFICATION_EVENT, syncNotifications)
+    window.addEventListener("storage", syncNotifications)
+
+    return () => {
+      window.removeEventListener(APP_NOTIFICATION_EVENT, syncNotifications)
+      window.removeEventListener("storage", syncNotifications)
+    }
+  }, [])
 
   async function handleLogout() {
     try {
@@ -106,16 +141,109 @@ export function SiteHeaderAuth() {
   const displayName = currentUser
     ? `${currentUser.name} · ${roleLabelMap[currentUser.role]}`
     : session?.name || "홍길동"
+  const unreadCount = notifications.filter((item) => !item.read).length
+
+  function handleToggleNotifications() {
+    setNotificationOpen((current) => !current)
+    setOpen(false)
+  }
+
+  function handleReadAllNotifications() {
+    markAllAppNotificationsRead()
+    setNotifications(getAppNotifications())
+  }
+
+  function handleOpenNotification(notification: AppNotification) {
+    removeAppNotification(notification.id)
+    setNotifications(getAppNotifications())
+    setNotificationOpen(false)
+  }
 
   return (
     <div className="flex items-center gap-3">
-      <button
-        type="button"
-        aria-label="알림"
-        className="inline-flex size-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-muted-foreground dark:hover:bg-muted dark:hover:text-foreground"
-      >
-        <Bell className="size-4" aria-hidden="true" />
-      </button>
+      <div ref={notificationRef} className="relative">
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={notificationOpen}
+          aria-label="알림"
+          onClick={handleToggleNotifications}
+          className={cn(
+            "relative inline-flex size-9 items-center justify-center rounded-lg text-teal-700 transition-colors hover:bg-teal-50 hover:text-teal-800 dark:text-teal-300 dark:hover:bg-teal-950/30 dark:hover:text-teal-200",
+            notificationOpen && "bg-teal-50 text-teal-800 ring-2 ring-teal-200 dark:bg-teal-950/30 dark:text-teal-200"
+          )}
+        >
+          <Bell className="size-4" aria-hidden="true" />
+          {unreadCount > 0 ? (
+            <span className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-teal-600 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-background">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          ) : null}
+        </button>
+
+        {notificationOpen ? (
+          <div
+            role="dialog"
+            aria-label="알림 목록"
+            className="absolute right-0 z-50 mt-2 w-[320px] overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
+          >
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div>
+                <p className="text-sm font-bold text-popover-foreground">알림</p>
+                <p className="text-xs text-muted-foreground">{notifications.length}개 알림</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleReadAllNotifications}
+                className="text-xs font-semibold text-teal-600 hover:text-teal-700"
+              >
+                읽음 처리
+              </button>
+            </div>
+
+            <div className="max-h-80 overflow-y-auto py-1">
+              {notifications.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm font-medium text-muted-foreground">
+                  새 알림이 없습니다.
+                </div>
+              ) : (
+                notifications.map((item, index) => {
+                  const content = (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[11px] font-bold text-teal-600/80">알림 {index + 1}</span>
+                        {!item.read ? <span className="size-2 rounded-full bg-teal-600" /> : null}
+                      </div>
+                      <p className="mt-1 text-sm font-bold text-popover-foreground">{item.title}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p>
+                    </>
+                  )
+
+                  return item.href ? (
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      onClick={() => handleOpenNotification(item)}
+                      className="block border-b border-border/70 px-4 py-3 transition-colors last:border-b-0 hover:bg-muted"
+                    >
+                      {content}
+                    </Link>
+                  ) : (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleOpenNotification(item)}
+                      className="block w-full border-b border-border/70 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-muted"
+                    >
+                      {content}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       <div ref={menuRef} className="relative">
         <button

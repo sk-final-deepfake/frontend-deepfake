@@ -2,6 +2,7 @@ import type { CaseStatus, CaseSummary } from "@/app/mypage/_types/case"
 import type { AuthSession } from "@/lib/auth"
 
 export type UserRole = "ORG_ADMIN" | "INVESTIGATOR" | "REVIEWER"
+export type NormalizedUserRole = UserRole | "UNKNOWN"
 
 export type ReviewStatus =
   | "NONE"
@@ -9,6 +10,11 @@ export type ReviewStatus =
   | "REVIEW_ASSIGNED"
   | "REVIEW_COMPLETED"
   | "REPORT_APPROVED"
+  | "REVIEW_SUPPLEMENT_REQUESTED"
+  | "SUPPLEMENT_REQUESTED"
+  | "REVIEW_REVISION_REQUESTED"
+  | "REVISION_REQUESTED"
+  | "REVIEW_NEEDS_CHANGES"
 
 export type AiResult = "낮음" | "검토 필요" | "위험"
 
@@ -37,11 +43,16 @@ export const roleLabelMap: Record<UserRole, string> = {
 }
 
 export const reviewStatusLabelMap: Record<ReviewStatus, string> = {
-  NONE: "분석 후 배정",
-  REVIEW_REQUESTED: "배정 대기",
-  REVIEW_ASSIGNED: "검토 중",
-  REVIEW_COMPLETED: "검토 완료",
-  REPORT_APPROVED: "보고서 승인 완료",
+  NONE: "배정대기",
+  REVIEW_REQUESTED: "배정대기",
+  REVIEW_ASSIGNED: "검토중",
+  REVIEW_COMPLETED: "승인",
+  REPORT_APPROVED: "승인",
+  REVIEW_SUPPLEMENT_REQUESTED: "재검토",
+  SUPPLEMENT_REQUESTED: "재검토",
+  REVIEW_REVISION_REQUESTED: "재검토",
+  REVISION_REQUESTED: "재검토",
+  REVIEW_NEEDS_CHANGES: "재검토",
 }
 
 export const mockUsers: AppUser[] = [
@@ -255,31 +266,47 @@ export const mockUsers: AppUser[] = [
   },
 ]
 
-export function normalizeUserRole(role?: string | null): UserRole {
+export function normalizeUserRole(role?: string | null): NormalizedUserRole {
   const normalized = (role ?? "").trim().toUpperCase()
   if (normalized === "ORG_ADMIN" || normalized === "ROLE_ORG_ADMIN" || normalized === "ADMIN" || normalized === "ROLE_ADMIN") {
     return "ORG_ADMIN"
   }
+  if (normalized === "INVESTIGATOR" || normalized === "ROLE_INVESTIGATOR") {
+    return "INVESTIGATOR"
+  }
   if (normalized === "REVIEWER" || normalized === "ROLE_REVIEWER") {
     return "REVIEWER"
   }
-  return "INVESTIGATOR"
+  // BE UserRole is only ROLE_USER | ROLE_ADMIN. Map general users to investigator so case registration is allowed.
+  if (normalized === "USER" || normalized === "ROLE_USER") {
+    return "INVESTIGATOR"
+  }
+  return "UNKNOWN"
 }
 
 export function getMockUserByRole(role: UserRole) {
   return mockUsers.find((user) => user.role === role) ?? mockUsers[0]
 }
 
+function getReadableSessionName(name: string | null | undefined) {
+  const trimmed = name?.trim()
+  if (!trimmed) return null
+  if (/^\d+$/.test(trimmed)) return null
+  return trimmed
+}
+
 export function getAppUserFromSession(session: AuthSession | null): AppUser | null {
   if (!session) return null
 
   const role = normalizeUserRole(session.role)
+  if (role === "UNKNOWN") return null
+  const shouldUseDemoUser = session.token.startsWith("mock-")
   const mappedMockUser =
-    session.loginId === "1111"
+    shouldUseDemoUser && session.loginId === "1111"
       ? getMockUserByRole("INVESTIGATOR")
-      : session.loginId === "5555"
+      : shouldUseDemoUser && session.loginId === "5555"
         ? getMockUserByRole("REVIEWER")
-        : session.loginId === "9999"
+        : shouldUseDemoUser && session.loginId === "9999"
           ? getMockUserByRole("ORG_ADMIN")
           : null
   const base = mappedMockUser ?? getMockUserByRole(role)
@@ -287,7 +314,7 @@ export function getAppUserFromSession(session: AuthSession | null): AppUser | nu
   return {
     ...base,
     id: mappedMockUser ? base.id : String(session.userId || base.id),
-    name: session.name || base.name,
+    name: getReadableSessionName(session.name) ?? base.name,
     role,
   }
 }
@@ -316,7 +343,8 @@ export function isAssignedReviewer(user: AppUser, caseItem: CaseAccessItem) {
   return caseItem.reviewerId === user.id
 }
 
-export function canViewCase(user: AppUser, caseItem: CaseAccessItem) {
+export function canViewCase(user: AppUser | null | undefined, caseItem: CaseAccessItem) {
+  if (!user) return false
   if (!isSameOrganization(user, caseItem)) return false
   if (isOrgAdmin(user)) return true
   if (isCaseOwner(user, caseItem)) return true
@@ -324,22 +352,25 @@ export function canViewCase(user: AppUser, caseItem: CaseAccessItem) {
   return false
 }
 
-export function canCreateCase(user: AppUser | null) {
-  if (!user) return true
+export function canCreateCase(user: AppUser | null | undefined) {
+  if (!user) return false
   return isOrgAdmin(user) || isInvestigator(user)
 }
 
-export function canUploadEvidence(user: AppUser, caseItem: CaseAccessItem) {
+export function canUploadEvidence(user: AppUser | null | undefined, caseItem: CaseAccessItem) {
+  if (!user) return false
   if (!canViewCase(user, caseItem)) return false
   return isOrgAdmin(user) || isCaseOwner(user, caseItem)
 }
 
-export function canRequestAnalysis(user: AppUser, caseItem: CaseAccessItem) {
+export function canRequestAnalysis(user: AppUser | null | undefined, caseItem: CaseAccessItem) {
+  if (!user) return false
   if (!canViewCase(user, caseItem)) return false
   return isOrgAdmin(user) || isCaseOwner(user, caseItem)
 }
 
-export function canRequestReview(user: AppUser, caseItem: CaseAccessItem) {
+export function canRequestReview(user: AppUser | null | undefined, caseItem: CaseAccessItem) {
+  if (!user) return false
   if (!canViewCase(user, caseItem)) return false
   return (
     (isOrgAdmin(user) || isCaseOwner(user, caseItem)) &&
@@ -348,7 +379,8 @@ export function canRequestReview(user: AppUser, caseItem: CaseAccessItem) {
   )
 }
 
-export function canAssignReviewer(user: AppUser, caseItem: CaseAccessItem) {
+export function canAssignReviewer(user: AppUser | null | undefined, caseItem: CaseAccessItem) {
+  if (!user) return false
   if (!canViewCase(user, caseItem)) return false
   const reviewStatus = caseItem.reviewStatus ?? "NONE"
   return (
@@ -358,17 +390,19 @@ export function canAssignReviewer(user: AppUser, caseItem: CaseAccessItem) {
   )
 }
 
-export function canApproveReport(user: AppUser, caseItem: CaseAccessItem) {
+export function canApproveReport(user: AppUser | null | undefined, caseItem: CaseAccessItem) {
+  if (!user) return false
   if (!canViewCase(user, caseItem)) return false
   return isOrgAdmin(user) || isAssignedReviewer(user, caseItem)
 }
 
-export function canDeleteCase(user: AppUser, caseItem: CaseAccessItem) {
+export function canDeleteCase(user: AppUser | null | undefined, caseItem: CaseAccessItem) {
+  if (!user) return false
   if (!canViewCase(user, caseItem)) return false
   return isOrgAdmin(user)
 }
 
 export function getVisibleCases(user: AppUser | null, cases: CaseSummary[]) {
-  if (!user) return cases
+  if (!user) return []
   return cases.filter((caseItem) => canViewCase(user, caseItem))
 }

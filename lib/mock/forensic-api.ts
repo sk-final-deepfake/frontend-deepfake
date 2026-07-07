@@ -7,9 +7,15 @@ import type {
   EvidenceDetailData,
   EvidenceLifecycleStatus,
   EvidenceRole,
+  ClipRisk,
+  FrameRisk,
   FrameScore,
+  ModelScore,
   ModuleResult,
+  ModuleTimeline,
+  PairRisk,
   RepresentativeFrame,
+  SuspiciousSegment,
   TechnicalMetadata,
 } from "@/lib/api/evidence-detail"
 import type { UpdateUserProfilePayload, UserProfile } from "@/lib/api/user"
@@ -273,6 +279,23 @@ const REVIEW_QUEUE_STATUS_PATTERN: ReviewStatus[] = [
   "REVIEW_COMPLETED",
 ]
 
+const MOCK_CASE_ID_ALIASES: Record<string, string> = {
+  mock: "mock-deepfake-pair-20260627",
+  demo: "mock-deepfake-pair-20260627",
+  "mock-detail": "mock-deepfake-pair-20260627",
+  "mock-case": "mock-deepfake-pair-20260627",
+  "mock-review": "mock-review-queue-049",
+  "mock-reviewer": "mock-review-queue-049",
+  "review-demo": "mock-review-queue-049",
+  "목업": "mock-deepfake-pair-20260627",
+  "목업-상세": "mock-deepfake-pair-20260627",
+}
+
+function resolveMockCaseId(caseId: string) {
+  const trimmed = caseId.trim()
+  return MOCK_CASE_ID_ALIASES[trimmed] ?? MOCK_CASE_ID_ALIASES[trimmed.toLowerCase()] ?? trimmed
+}
+
 function reviewersForDepartment(department: string) {
   return mockUsers.filter((user) => user.role === "REVIEWER" && user.department === department)
 }
@@ -284,6 +307,11 @@ function seedReviewerId(department: string, index: number, reviewStatus: ReviewS
     reviewStatus !== "REPORT_APPROVED"
   ) {
     return null
+  }
+
+  const primaryReviewer = getMockUserByRole("REVIEWER")
+  if (department === primaryReviewer.department) {
+    return primaryReviewer.id
   }
 
   const departmentReviewers = reviewersForDepartment(department)
@@ -335,15 +363,24 @@ function reviewQueueSeedCases(): MockCaseRecord[] {
 }
 
 function findReviewQueueSeedCase(caseId: string) {
-  return reviewQueueSeedCases().find((item) => item.caseId === caseId)
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  return reviewQueueSeedCases().find(
+    (item) =>
+      item.caseId === resolvedCaseId ||
+      item.caseName === resolvedCaseId ||
+      caseKey(item.caseName) === resolvedCaseId
+  )
+}
+
+function findReviewQueueSeedCaseByEvidenceId(evidenceId: number) {
+  return reviewQueueSeedCases().find((item) => item.representativeEvidenceId === evidenceId)
 }
 
 function reviewQueueSeedEvidenceRecord(seedCase: MockCaseRecord): MockEvidenceRecord {
   const sequence = Number(seedCase.caseId.replace("mock-review-queue-", "")) || 1
   const riskScore = seedRiskScore(sequence - 1)
-  const mediaType: MockEvidenceRecord["mediaType"] =
-    sequence % 7 === 0 ? "AUDIO" : sequence % 5 === 0 ? "IMAGE" : "VIDEO"
-  const extension = mediaType === "AUDIO" ? "wav" : mediaType === "IMAGE" ? "jpg" : "mp4"
+  const mediaType: MockEvidenceRecord["mediaType"] = "VIDEO"
+  const extension = "mp4"
   const riskLevel: MockEvidenceRecord["riskLevel"] =
     riskScore >= 80 ? "HIGH" : riskScore >= 50 ? "MEDIUM" : "LOW"
 
@@ -357,12 +394,7 @@ function reviewQueueSeedEvidenceRecord(seedCase: MockCaseRecord): MockEvidenceRe
     fileSize: 28_000_000 + sequence * 840_000,
     hashAlgorithm: "SHA-256",
     hashValue: String(sequence.toString(16)).padStart(64, "0"),
-    metadata:
-      mediaType === "VIDEO"
-        ? { type: "video", codec: "h264", width: 1920, height: 1080, duration: 30 + sequence, fps: 29.97 }
-        : mediaType === "AUDIO"
-          ? { type: "audio", codec: "wav", duration: 45 + sequence, sampleRate: 44100, channels: 2 }
-          : { type: "image", codec: "jpeg", width: 1600, height: 900 },
+    metadata: { type: "video", codec: "h264", width: 1920, height: 1080, duration: 30 + sequence, fps: 29.97 },
     uploadedAt: seedCase.createdAt,
     mediaType,
     lifecycleStatus: "ACTIVE",
@@ -538,7 +570,13 @@ function sampleCaseRecord(sampleCase: CaseDetailData): MockCaseRecord {
 }
 
 function findSampleCase(caseId: string) {
-  return sampleCaseDetails.find((item) => item.caseId === caseId)
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  return sampleCaseDetails.find(
+    (item) =>
+      item.caseId === resolvedCaseId ||
+      item.caseName === resolvedCaseId ||
+      caseKey(item.caseName) === resolvedCaseId
+  )
 }
 
 function findCaseRecord(store: MockStore, caseId: string): MockCaseRecord | undefined {
@@ -597,13 +635,16 @@ function materializeSampleCase(store: MockStore, caseId: string): MockStore {
 function materializeReviewQueueSeedCase(store: MockStore, caseId: string): MockStore {
   const seedCase = findReviewQueueSeedCase(caseId)
   if (!seedCase) return store
-  if (store.evidences.some((item) => evidenceCaseId(item) === caseId)) return store
+  const seedEvidence = reviewQueueSeedEvidenceRecord(seedCase)
+  const hasSeedEvidence = store.evidences.some((item) => item.evidenceId === seedEvidence.evidenceId)
 
   return {
     cases: store.cases.some((item) => item.caseId === caseId)
       ? store.cases
       : [seedCase, ...store.cases],
-    evidences: [reviewQueueSeedEvidenceRecord(seedCase), ...store.evidences],
+    evidences: hasSeedEvidence
+      ? store.evidences.map((item) => (item.evidenceId === seedEvidence.evidenceId ? seedEvidence : item))
+      : [seedEvidence, ...store.evidences],
   }
 }
 
@@ -685,11 +726,30 @@ async function sha256(file: File): Promise<string> {
     return fallbackHash(file)
   }
 
-  const buffer = await file.arrayBuffer()
+  let buffer: ArrayBuffer
+  try {
+    buffer = await file.arrayBuffer()
+  } catch (error) {
+    if (isLocalFileReadError(error)) {
+      return fallbackHash(file)
+    }
+    throw error
+  }
+
   const digest = await crypto.subtle.digest("SHA-256", buffer)
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
+}
+
+function isLocalFileReadError(error: unknown) {
+  if (!(error instanceof Error)) return false
+
+  return (
+    error.name === "NotReadableError" ||
+    error.message.includes("requested file could not be read") ||
+    error.message.includes("permission problems")
+  )
 }
 
 function fallbackHash(file: File) {
@@ -1922,6 +1982,275 @@ function buildCocLogs(record: MockEvidenceRecord): EvidenceDetailData["cocLogs"]
   return logs
 }
 
+
+/**
+ * 목업 모듈 결과에 실제 API 계약과 동일한 필드를 채운다.
+ * - modelName / modelVersion: 모듈을 수행한 탐지 모델 식별 정보
+ * - affectedSegments: detected 모듈에만, 프레임 위험도에서 임계값을 넘은 실측 구간을 배분
+ */
+const MOCK_MODULE_MODEL_INFO: Array<{
+  keywords: string[]
+  modelName: string
+  modelVersion: string
+  modelBenchmark: string | null
+}> = [
+  {
+    keywords: ["face", "swap", "synthesis", "deepfake", "gan"],
+    modelName: "Xception",
+    modelVersion: "v2.4.1",
+    modelBenchmark: "AUC 0.97 · FaceForensics++ (c23)",
+  },
+  {
+    keywords: ["temporal", "tamper", "lip", "frame", "timeline"],
+    modelName: "TimeSformer",
+    modelVersion: "v1.9.0",
+    modelBenchmark: "정확도 0.91 · 내부 시계열 검증 세트",
+  },
+  {
+    keywords: ["optical", "motion", "flow"],
+    modelName: "GMFlow",
+    modelVersion: "v1.2.3",
+    modelBenchmark: "광류 보조 신호 · 단독 판정에 사용하지 않음",
+  },
+  {
+    keywords: ["compression", "metadata", "ela", "audio", "voice"],
+    modelName: "ForenShield-Integrity",
+    modelVersion: "v1.0.5",
+    modelBenchmark: "정확도 0.89 · 내부 무결성 검증 세트",
+  },
+]
+
+function mockModelInfoFor(moduleName: string) {
+  const key = moduleName.toLowerCase()
+  return (
+    MOCK_MODULE_MODEL_INFO.find((entry) => entry.keywords.some((keyword) => key.includes(keyword))) ?? {
+      modelName: "ForenShield-Detector",
+      modelVersion: "v1.0.0",
+      modelBenchmark: null,
+    }
+  )
+}
+
+function highRiskSegmentsFrom(frameScores: FrameScore[], threshold: number): SuspiciousSegment[] {
+  const segments: SuspiciousSegment[] = []
+  let current: { start: number; end: number; peak: number } | null = null
+
+  for (const frame of frameScores) {
+    const timeSec = frame.timeSec ?? null
+    if (timeSec == null) continue
+    const score = frame.score > 1 ? frame.score / 100 : frame.score
+    if (score >= threshold) {
+      if (current) {
+        current.end = timeSec
+        current.peak = Math.max(current.peak, score)
+      } else {
+        current = { start: timeSec, end: timeSec, peak: score }
+      }
+    } else if (current) {
+      segments.push({ startTime: current.start, endTime: current.end, maxRiskScore: current.peak, reason: "" })
+      current = null
+    }
+  }
+  if (current) {
+    segments.push({ startTime: current.start, endTime: current.end, maxRiskScore: current.peak, reason: "" })
+  }
+  return segments
+}
+
+function enrichModuleResults(
+  modules: ModuleResult[],
+  frameScores: FrameScore[],
+  threshold: number
+): ModuleResult[] {
+  const segments = highRiskSegmentsFrom(frameScores, threshold)
+  let detectedIndex = 0
+
+  return modules.map((module) => {
+    const modelInfo = mockModelInfoFor(module.moduleName)
+    const enriched: ModuleResult = {
+      ...module,
+      modelName: module.modelName ?? modelInfo.modelName,
+      modelVersion: module.modelVersion ?? modelInfo.modelVersion,
+      modelBenchmark: module.modelBenchmark ?? modelInfo.modelBenchmark,
+    }
+    if (module.detected && segments.length > 0) {
+      enriched.affectedSegments = [segments[detectedIndex % segments.length]]
+      detectedIndex += 1
+    }
+    return enriched
+  })
+}
+
+type MockTimelineData = {
+  modelScores: ModelScore[]
+  moduleTimelines: ModuleTimeline[]
+  clipRisks: ClipRisk[]
+  pairRisks: PairRisk[]
+  temporalSuspiciousSegments: SuspiciousSegment[]
+  opticalSuspiciousSegments: SuspiciousSegment[]
+}
+
+const EMPTY_TIMELINE_DATA: MockTimelineData = {
+  modelScores: [],
+  moduleTimelines: [],
+  clipRisks: [],
+  pairRisks: [],
+  temporalSuspiciousSegments: [],
+  opticalSuspiciousSegments: [],
+}
+
+/**
+ * 실제 AI 계약(Late Fusion + cnn/temporal/optical)과 동일한 형태의 타임라인 목데이터.
+ * 모든 riskScore는 0~1 raw 스케일이며, normalize-analysis.ts가 UI용으로 변환한다.
+ */
+function buildMockTimelineData(record: MockEvidenceRecord, frameScores: FrameScore[]): MockTimelineData {
+  if (record.mediaType !== "VIDEO" || record.analysisStatus !== "COMPLETED" || frameScores.length === 0) {
+    return EMPTY_TIMELINE_DATA
+  }
+
+  const overall = (record.riskScore ?? 0) / 100
+
+  // 1) Xception (cnn): 프레임별 점수 그대로
+  const frameRisks: FrameRisk[] = frameScores.map((frame, index) => ({
+    frameIndex: index,
+    timestampSec: frame.timeSec ?? index,
+    riskScore: frame.score,
+  }))
+  const xceptionScore = Math.max(...frameScores.map((frame) => frame.score))
+  const cnnSegments = highRiskSegmentsFrom(frameScores, 0.6).map((segment) => ({
+    ...segment,
+    reason: "프레임 fake 확률이 임계값을 초과했습니다.",
+  }))
+
+  // 2) TimeSformer (temporal): 프레임 3개를 한 클립으로 묶어 평균
+  const clipSize = 3
+  const clipRisks: ClipRisk[] = []
+  for (let start = 0; start < frameScores.length; start += clipSize) {
+    const endIndex = Math.min(start + clipSize - 1, frameScores.length - 1)
+    const slice = frameScores.slice(start, endIndex + 1)
+    const avg = slice.reduce((sum, frame) => sum + frame.score, 0) / slice.length
+    clipRisks.push({
+      clipIndex: clipRisks.length,
+      startFrameIndex: start,
+      endFrameIndex: endIndex,
+      startTimeSec: frameScores[start].timeSec ?? start,
+      endTimeSec: frameScores[endIndex].timeSec ?? endIndex,
+      riskScore: Number(Math.min(1, avg * 0.92).toFixed(4)),
+    })
+  }
+  const temporalScore = clipRisks.length > 0 ? Math.max(...clipRisks.map((clip) => clip.riskScore)) : 0
+  const temporalSegments: SuspiciousSegment[] = clipRisks
+    .filter((clip) => clip.riskScore >= 0.5)
+    .map((clip) => ({
+      startTime: clip.startTimeSec,
+      endTime: clip.endTimeSec,
+      maxRiskScore: clip.riskScore,
+      reason: "클립 시계열 점수가 임계값을 초과했습니다.",
+    }))
+
+  // 3) GMFlow (optical): 연속 프레임쌍의 움직임 변화. 보조 신호라 videoScore는 낮게
+  const pairRisks: PairRisk[] = []
+  for (let index = 0; index < frameScores.length - 1; index += 1) {
+    const motion = Math.abs(frameScores[index + 1].score - frameScores[index].score)
+    pairRisks.push({
+      pairIndex: index,
+      frameIndexA: index,
+      frameIndexB: index + 1,
+      timestampSec: frameScores[index].timeSec ?? index,
+      riskScore: Number(Math.min(1, motion * 2.4).toFixed(4)),
+      motionMagnitude: Number((motion * 3).toFixed(3)),
+    })
+  }
+  const opticalScore = Number(Math.max(0, Math.min(1, overall * 0.7)).toFixed(4))
+  const opticalSegments: SuspiciousSegment[] = pairRisks
+    .filter((pair) => pair.riskScore >= 0.5)
+    .map((pair) => ({
+      startTime: pair.timestampSec,
+      endTime: pair.timestampSec + 0.1,
+      maxRiskScore: pair.riskScore,
+      reason: "프레임쌍 움직임 이상이 관찰되었습니다.",
+    }))
+
+  const modelScores: ModelScore[] = [
+    {
+      moduleName: "deepfake",
+      modelName: "Late Fusion",
+      modelVersion: "late-fusion/v1.0",
+      score: overall,
+      detected: overall >= 0.5,
+    },
+    {
+      moduleName: "deepfake_cnn",
+      modelName: "Xception",
+      modelVersion: "xception/v2.4.1-ff++",
+      score: xceptionScore,
+      detected: xceptionScore >= 0.5,
+    },
+    {
+      moduleName: "deepfake_temporal",
+      modelName: "TimeSformer",
+      modelVersion: "timesformer/v1.1.0-celeb1k",
+      score: temporalScore,
+      detected: temporalScore >= 0.5,
+    },
+    {
+      moduleName: "deepfake_optical",
+      modelName: "GMFlow",
+      modelVersion: "gmflow/v1.2.3",
+      score: opticalScore,
+      detected: opticalScore >= 0.5,
+    },
+  ]
+
+  const moduleTimelines: ModuleTimeline[] = [
+    {
+      module: "cnn",
+      modelName: "Xception",
+      modelVersion: "xception/v2.4.1-ff++",
+      videoScore: xceptionScore,
+      threshold: 0.5,
+      detected: xceptionScore >= 0.5,
+      frameRisks,
+      clipRisks: [],
+      pairRisks: [],
+      suspiciousSegments: cnnSegments,
+    },
+    {
+      module: "temporal",
+      modelName: "TimeSformer",
+      modelVersion: "timesformer/v1.1.0-celeb1k",
+      videoScore: temporalScore,
+      threshold: 0.5,
+      detected: temporalScore >= 0.5,
+      frameRisks: [],
+      clipRisks,
+      pairRisks: [],
+      suspiciousSegments: temporalSegments,
+    },
+    {
+      module: "optical",
+      modelName: "GMFlow",
+      modelVersion: "gmflow/v1.2.3",
+      videoScore: opticalScore,
+      threshold: 0.5,
+      detected: opticalScore >= 0.5,
+      frameRisks: [],
+      clipRisks: [],
+      pairRisks,
+      suspiciousSegments: opticalSegments,
+    },
+  ]
+
+  return {
+    modelScores,
+    moduleTimelines,
+    clipRisks,
+    pairRisks,
+    temporalSuspiciousSegments: temporalSegments,
+    opticalSuspiciousSegments: opticalSegments,
+  }
+}
+
 function buildEvidenceDetail(
   record: MockEvidenceRecord,
   caseId: string
@@ -1936,6 +2265,7 @@ function buildEvidenceDetail(
       : null
   const representativeFrames = buildMockRepresentativeFrames(record)
   const frameScores = buildMockFrameScores(record)
+  const timelineData = buildMockTimelineData(record, frameScores)
   const firstHeatmapUrl = representativeFrames[0]?.heatmapUrl ?? null
 
   return {
@@ -1985,13 +2315,21 @@ function buildEvidenceDetail(
     },
     analysisInfo: {
       status,
+      analysisId: `ANL-${record.evidenceId}`,
+      detectionThreshold: 0.6,
       requestedAt: record.analysisRequestedAt ?? null,
       completedAt: record.analysisCompletedAt ?? null,
       riskScore: completed ? record.riskScore ?? 0 : null,
       confidenceScore: completed ? record.confidenceScore ?? 0 : null,
       riskLevel: completed ? record.riskLevel ?? "LOW" : null,
       summary: completed ? record.summary ?? "" : "분석 큐에서 결과 생성을 준비 중입니다.",
-      moduleResults: completed ? record.moduleResults ?? [] : [],
+      moduleResults: completed ? enrichModuleResults(record.moduleResults ?? [], frameScores, 0.6) : [],
+      modelScores: timelineData.modelScores,
+      clipRisks: timelineData.clipRisks,
+      pairRisks: timelineData.pairRisks,
+      temporalSuspiciousSegments: timelineData.temporalSuspiciousSegments,
+      opticalSuspiciousSegments: timelineData.opticalSuspiciousSegments,
+      moduleTimelines: timelineData.moduleTimelines,
       frameScores,
       representativeFrames,
       heatmapImageUrl: firstHeatmapUrl,
@@ -2006,7 +2344,7 @@ export async function mockFetchEvidenceDetail(evidenceId: number): Promise<Evide
   const store = saveAfterProgressUpdate()
   const stored = store.evidences.find((item) => item.evidenceId === evidenceId)
   if (stored) {
-    return buildEvidenceDetail(stored, caseKey(stored.caseName))
+    return buildEvidenceDetail(stored, evidenceCaseId(stored))
   }
 
   for (const sampleCase of sampleCaseDetails) {
@@ -2021,18 +2359,25 @@ export async function mockFetchEvidenceDetail(evidenceId: number): Promise<Evide
     }
   }
 
+  const seedCase = findReviewQueueSeedCaseByEvidenceId(evidenceId)
+  if (seedCase) {
+    const seedEvidence = reviewQueueSeedEvidenceRecord(seedCase)
+    return buildEvidenceDetail(seedEvidence, seedCase.caseId)
+  }
+
   throw new Error("mock 증거 데이터를 찾을 수 없습니다.")
 }
 
 export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailData> {
   await delay(220)
 
-  const store = saveAfterProgressUpdate()
-  const records = store.evidences.filter((record) => evidenceCaseId(record) === caseId)
-  const storedCase = store.cases.find((item) => item.caseId === caseId)
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  const store = materializeReviewQueueSeedCase(saveAfterProgressUpdate(), resolvedCaseId)
+  const records = store.evidences.filter((record) => evidenceCaseId(record) === resolvedCaseId)
+  const storedCase = store.cases.find((item) => item.caseId === resolvedCaseId)
 
   if (records.length === 0) {
-    const sampleCase = sampleCaseDetails.find((item) => item.caseId === caseId)
+    const sampleCase = findSampleCase(resolvedCaseId)
     if (sampleCase) {
       const sampleRecords = sampleCase.evidences.map((evidence, index) =>
         sampleEvidenceRecord(evidence, sampleCase, index)
@@ -2045,7 +2390,7 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
     }
     if (storedCase) {
       return {
-        caseId,
+        caseId: resolvedCaseId,
         caseName: storedCase.caseName,
         status: "PENDING",
         createdAt: storedCase.createdAt,
@@ -2068,7 +2413,7 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
   const caseRecord = findCaseRecord(store, caseId)
 
   return {
-    caseId,
+    caseId: resolvedCaseId,
     caseName: storedCase?.caseName || sorted[0]?.caseName || "미분류 사건",
     status: summarizeCaseStatus(records),
     createdAt: storedCase?.createdAt ?? sorted[0]?.uploadedAt ?? new Date().toISOString(),

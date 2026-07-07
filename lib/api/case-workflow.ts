@@ -1,4 +1,5 @@
 import type { AnalysisType, CaseDetailData, EvidenceRole } from "@/lib/api/evidence-detail"
+import { apiRequest } from "@/lib/api/client"
 import {
   mockCreateCase,
   mockCancelAnalysis,
@@ -32,13 +33,14 @@ export async function createCase(caseName: string): Promise<CaseDetailData> {
     return mockCreateCase(caseName)
   }
 
+  const data = await apiRequest<CaseDetailData>("/api/v1/cases", {
+    method: "POST",
+    body: { caseName: caseName.trim() },
+  })
+
   return {
-    caseId: caseName.trim(),
-    caseName: caseName.trim(),
-    status: "PENDING",
-    createdAt: new Date().toISOString(),
-    representativeEvidenceId: null,
-    evidences: [],
+    ...data,
+    evidences: data.evidences ?? [],
   }
 }
 
@@ -91,14 +93,21 @@ export async function setEvidenceRole(evidenceId: number, role: EvidenceRole): P
   throw new Error("증거 역할 변경 기능은 백엔드 API 계약 후 사용할 수 있습니다.")
 }
 
+export type StartCaseAnalysisOptions = {
+  acknowledgeQualityWarning?: boolean
+}
+
 export async function startCaseAnalysis(
-  payload: StartCaseAnalysisPayload
+  payload: StartCaseAnalysisPayload,
+  options: StartCaseAnalysisOptions = {}
 ): Promise<StartAnalysisResponse> {
   if (features.mockApi) {
     return mockStartCaseAnalysis(payload)
   }
 
-  return startEvidenceAnalysis(payload.evidenceIds, payload.caseName)
+  return startEvidenceAnalysis(payload.evidenceIds, payload.caseName, {
+    acknowledgeQualityWarning: options.acknowledgeQualityWarning,
+  })
 }
 
 export async function cancelCaseAnalysis(evidenceId: number): Promise<void> {

@@ -9,6 +9,8 @@ export interface CaseSummary {
   createdAt: string
   evidenceCount: number
   organizationId?: string | null
+  organizationName?: string | null
+  organizationType?: string | null
   department?: string | null
   createdBy?: string | null
   assigneeId?: string | null

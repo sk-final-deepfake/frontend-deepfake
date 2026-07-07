@@ -53,8 +53,17 @@ export function UploadActionBar({
             className="min-w-[120px] gap-2"
             title={!trimmedCaseName ? "분석을 시작하려면 사건명을 입력해 주세요." : undefined}
           >
-            <FileSearch className="size-4" aria-hidden="true" />
-            분석 시작 ({analyzableCount})
+            {status === "analyzing" ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                품질 검사 중...
+              </>
+            ) : (
+              <>
+                <FileSearch className="size-4" aria-hidden="true" />
+                분석 시작 ({analyzableCount})
+              </>
+            )}
           </Button>
         )}
         {hasPendingFiles && (

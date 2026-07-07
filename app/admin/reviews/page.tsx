@@ -15,14 +15,16 @@ import { useAdminToast } from "@/app/admin/_components/admin-toast-provider";
 import type { CaseSummary } from "@/app/mypage/_types/case";
 import { ORG_TYPES, type OrgType } from "@/app/signup/organizationData";
 import { Button } from "@/components/ui/button";
+import {
+    assignAdminCaseReviewer,
+    fetchAdminReviewers,
+    type AdminReviewer,
+} from "@/lib/api/admin";
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { mockAssignReviewerToCase } from "@/lib/mock/forensic-api";
 import { cn } from "@/lib/utils";
 import { mockUsers } from "@/lib/permissions";
 import { fetchDepartments } from "@/lib/signup-api";
-
-const reviewers = mockUsers.filter((user) => user.role === "REVIEWER");
 
 const REQUESTED_REVIEW_STATUS = "REVIEW_REQUESTED" as const;
 const ASSIGNED_REVIEW_STATUS = "REVIEW_ASSIGNED" as const;
@@ -54,6 +56,7 @@ type QueueTab = "REQUESTED" | "ASSIGNED" | "SUPPLEMENT_REQUESTED" | "COMPLETED";
 type RiskFilter = "ALL" | "HIGH" | "NORMAL";
 type SortMode = "DELAYED" | "REQUESTED_DESC" | "RISK_DESC";
 type OrganizationFilter = OrgType | "ALL";
+type ReviewerOption = AdminReviewer;
 
 type QueueFilters = {
     organizationType: OrganizationFilter;
@@ -75,7 +78,7 @@ const sortLabels: Record<SortMode, string> = {
     RISK_DESC: "위험도순",
 };
 
-type ReviewerStat = (typeof reviewers)[number] & {
+type ReviewerStat = ReviewerOption & {
     assignedCount: number;
     delayedCount: number;
 };
@@ -121,6 +124,12 @@ function hasReviewStatus(caseItem: CaseSummary, statuses: readonly string[]) {
     return statuses.includes(String(caseItem.reviewStatus ?? "NONE"));
 }
 
+function isPendingReviewAssignment(caseItem: CaseSummary) {
+    return (
+        (!caseItem.reviewStatus || caseItem.reviewStatus === "NONE")
+    );
+}
+
 function isCompletedReview(caseItem: CaseSummary) {
     return hasReviewStatus(caseItem, COMPLETED_REVIEW_STATUSES);
 }
@@ -152,19 +161,49 @@ function getRiskText(caseItem: CaseSummary) {
     return caseItem.aiResult ?? "-";
 }
 
-function reviewerName(reviewerId?: string | null) {
+function reviewerName(reviewerId?: string | null, reviewerOptions: readonly ReviewerOption[] = []) {
     if (!reviewerId) return "미배정";
     return (
-        reviewers.find((reviewer) => reviewer.id === reviewerId)?.name ?? reviewerId
+        reviewerOptions.find((reviewer) => reviewer.id === reviewerId)?.name ?? reviewerId
     );
 }
 
-function getOrganizationName(organizationId?: string | null) {
-    if (!organizationId) return "기관 미지정";
-    return (
-        mockUsers.find((user) => user.organizationId === organizationId)
-            ?.organizationName ?? "기관 미지정"
-    );
+const organizationPrefixPatterns = [
+    /^(.*?(?:경찰청|검찰청|과학수사연구원|공공안전기관|감정기관|보안기관|연구원|기관|청))\s+/,
+];
+
+function normalizeText(value?: string | null) {
+    const text = value?.trim();
+    return text && text !== "기관 미지정" ? text : null;
+}
+
+function inferOrganizationNameFromDepartment(department?: string | null) {
+    const text = normalizeText(department);
+    if (!text) return null;
+
+    for (const pattern of organizationPrefixPatterns) {
+        const match = text.match(pattern);
+        if (match?.[1]) return match[1].trim();
+    }
+
+    return null;
+}
+
+function getOrganizationName(caseItem: CaseSummary) {
+    const explicitName = normalizeText(caseItem.organizationName);
+    if (explicitName) return explicitName;
+
+    const organizationId = normalizeText(caseItem.organizationId);
+    if (organizationId) {
+        const mockName = mockUsers.find((user) => user.organizationId === organizationId)?.organizationName;
+        if (mockName) return mockName;
+
+        if (orgTypeLabelMap.has(organizationId.toUpperCase())) {
+            return orgTypeLabelMap.get(organizationId.toUpperCase()) ?? null;
+        }
+    }
+
+    return inferOrganizationNameFromDepartment(caseItem.department);
 }
 
 function getOrganizationTypeLabel(organizationType: OrganizationFilter) {
@@ -173,10 +212,13 @@ function getOrganizationTypeLabel(organizationType: OrganizationFilter) {
 }
 
 function getCaseOrganizationType(caseItem: CaseSummary): OrgType {
+    const explicitType = normalizeText(caseItem.organizationType)?.toUpperCase();
+    if (explicitType && orgTypeLabelMap.has(explicitType)) return explicitType as OrgType;
+
     const normalizedId = (caseItem.organizationId ?? "").trim().toUpperCase();
     if (orgTypeLabelMap.has(normalizedId)) return normalizedId as OrgType;
 
-    const organizationName = getOrganizationName(caseItem.organizationId);
+    const organizationName = getOrganizationName(caseItem);
     const scope = `${caseItem.organizationId ?? ""} ${organizationName} ${
         caseItem.department ?? ""
     }`.toLowerCase();
@@ -205,9 +247,15 @@ function getCaseOrganizationType(caseItem: CaseSummary): OrgType {
 }
 
 function getScopeLabel(caseItem: CaseSummary) {
-    const organizationName = getOrganizationName(caseItem.organizationId);
-    const department = caseItem.department ?? "부서 미지정";
-    return `${organizationName} · ${department}`;
+    const organizationName = getOrganizationName(caseItem);
+    const rawDepartment = normalizeText(caseItem.department);
+    const department =
+        rawDepartment && organizationName && rawDepartment.startsWith(organizationName)
+            ? normalizeText(rawDepartment.slice(organizationName.length))
+            : rawDepartment;
+
+    if (organizationName && department) return `${organizationName} · ${department}`;
+    return organizationName ?? department ?? "소속 미지정";
 }
 
 function riskTextClass(caseItem: CaseSummary) {
@@ -226,6 +274,7 @@ export default function AdminReviewAssignmentPage() {
     const [sortMode, setSortMode] = useState<SortMode>("DELAYED");
     const [query, setQuery] = useState("");
     const [casePage, setCasePage] = useState(1);
+    const [reviewers, setReviewers] = useState<ReviewerOption[]>([]);
     const [assignmentCase, setAssignmentCase] = useState<CaseSummary | null>(
         null,
     );
@@ -262,8 +311,29 @@ export default function AdminReviewAssignmentPage() {
         return () => window.clearTimeout(timer);
     }, [loadCases]);
 
+    useEffect(() => {
+        let cancelled = false;
+
+        fetchAdminReviewers()
+            .then((items) => {
+                if (!cancelled) setReviewers(items);
+            })
+            .catch(() => {
+                if (!cancelled) setReviewers([]);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const reviewCases = useMemo(
-        () => cases.filter((item) => hasReviewStatus(item, REVIEW_QUEUE_STATUSES)),
+        () =>
+            cases.filter(
+                (item) =>
+                    hasReviewStatus(item, REVIEW_QUEUE_STATUSES) ||
+                    isPendingReviewAssignment(item),
+            ),
         [cases],
     );
 
@@ -336,7 +406,8 @@ export default function AdminReviewAssignmentPage() {
     const requestedCases = useMemo(
         () =>
             scopedReviewCases.filter((caseItem) =>
-                hasReviewStatus(caseItem, [REQUESTED_REVIEW_STATUS]),
+                hasReviewStatus(caseItem, [REQUESTED_REVIEW_STATUS]) ||
+                isPendingReviewAssignment(caseItem),
             ),
         [scopedReviewCases],
     );
@@ -372,22 +443,22 @@ export default function AdminReviewAssignmentPage() {
         () => [
             {
                 value: "REQUESTED" as const,
-                label: "미배정",
+                label: "배정대기",
                 count: requestedCases.length,
             },
             {
                 value: "ASSIGNED" as const,
-                label: "검토 중",
+                label: "검토중",
                 count: assignedCases.length,
             },
             {
                 value: "SUPPLEMENT_REQUESTED" as const,
-                label: "보완 요청",
+                label: "재검토",
                 count: supplementRequestedCases.length,
             },
             {
                 value: "COMPLETED" as const,
-                label: "완료",
+                label: "승인",
                 count: completedCases.length,
             },
         ],
@@ -464,10 +535,10 @@ export default function AdminReviewAssignmentPage() {
                 return [
                     item.caseName,
                     item.caseId,
-                    getOrganizationName(item.organizationId),
+                    getScopeLabel(item),
                     item.department ?? "",
                     item.representativeFileName ?? "",
-                    reviewerName(item.reviewerId),
+                    reviewerName(item.reviewerId, reviewers),
                 ]
                     .join(" ")
                     .toLowerCase()
@@ -496,7 +567,7 @@ export default function AdminReviewAssignmentPage() {
                     getRequestAgeHours(first.reviewRequestedAt)
                 );
             });
-    }, [activeTab, baseCases, filters, query, sortMode]);
+    }, [activeTab, baseCases, filters, query, reviewers, sortMode]);
 
     const totalCaseCount = filteredCases.length;
     const totalCasePages = Math.max(
@@ -512,17 +583,7 @@ export default function AdminReviewAssignmentPage() {
     const assignmentReviewers = useMemo(() => {
         if (!assignmentCase) return [];
 
-        const caseOrganizationId = assignmentCase.organizationId;
-        const caseDepartment = assignmentCase.department;
-
         return reviewerStats
-            .filter((reviewer) => {
-                const sameOrganization =
-                    !caseOrganizationId || reviewer.organizationId === caseOrganizationId;
-                const sameDepartment =
-                    !caseDepartment || reviewer.department === caseDepartment;
-                return sameOrganization && sameDepartment;
-            })
             .sort((first, second) => {
                 const currentReviewerGap =
                     Number(second.id === assignmentCase.reviewerId) -
@@ -596,9 +657,10 @@ export default function AdminReviewAssignmentPage() {
 
         setProcessingCaseId(assignmentCase.caseId);
         try {
-            await mockAssignReviewerToCase(
+            await assignAdminCaseReviewer(
                 assignmentCase.caseId,
                 selectedReviewer.id,
+                assignmentCase.createdBy,
             );
             toast({
                 title: isReassignment ? "담당자 변경 완료" : "담당자 배정 완료",
@@ -630,13 +692,13 @@ export default function AdminReviewAssignmentPage() {
                 <section className="rounded-lg border border-slate-200 bg-white px-5 py-3 shadow-sm">
                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-700">
-                            <span>미배정 {queueStats.requested}건</span>
+                            <span>배정대기 {queueStats.requested}건</span>
                             <span className="h-3 w-px bg-slate-200" />
-                            <span>검토 중 {queueStats.assigned}건</span>
+                            <span>검토중 {queueStats.assigned}건</span>
                             <span className="h-3 w-px bg-slate-200" />
-                            <span>보완 요청 {queueStats.supplementRequested}건</span>
+                            <span>재검토 {queueStats.supplementRequested}건</span>
                             <span className="h-3 w-px bg-slate-200" />
-                            <span>완료 {queueStats.completed}건</span>
+                            <span>승인 {queueStats.completed}건</span>
                             <span className="h-3 w-px bg-slate-200" />
                             <span
                                 className={
@@ -652,8 +714,8 @@ export default function AdminReviewAssignmentPage() {
                     </div>
                 </section>
 
-                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                    <div className="border-b border-slate-100 px-5 py-4">
+                <section className="relative overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <div className="relative z-30 border-b border-slate-100 bg-white px-5 py-4">
                         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                             <div className="relative grid w-full max-w-[520px] grid-cols-4 rounded-lg border border-slate-200 bg-slate-50 p-1">
                 <span
@@ -764,7 +826,7 @@ export default function AdminReviewAssignmentPage() {
                                             isSupplementRequestedReview(caseItem);
                                         const actionLabel = hasReviewStatus(caseItem, [
                                             REQUESTED_REVIEW_STATUS,
-                                        ])
+                                        ]) || isPendingReviewAssignment(caseItem)
                                             ? "배정"
                                             : "변경";
 
@@ -806,7 +868,7 @@ export default function AdminReviewAssignmentPage() {
                                                     ) : null}
                                                 </td>
                                                 <td className="px-5 py-4 align-top text-slate-700">
-                                                    {reviewerName(caseItem.reviewerId)}
+                                                    {reviewerName(caseItem.reviewerId, reviewers)}
                                                 </td>
                                                 <td className="px-5 py-4 text-right align-top">
                                                     {completed || supplementRequested ? (
@@ -919,7 +981,7 @@ function FilterPopover({
     onReset: () => void;
 }) {
     return (
-        <div className="absolute right-0 z-20 mt-2 w-[320px] max-w-[calc(100vw-3rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
+        <div className="absolute right-0 z-50 mt-2 w-[320px] max-w-[calc(100vw-3rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
             <div className="space-y-4">
                 <FilterSelect
                     label="기관"
@@ -1121,7 +1183,7 @@ function AssignmentModal({
                         </p>
                         <div className="mt-2 grid gap-1 text-sm text-slate-600">
                             <p>소속: {getScopeLabel(caseItem)}</p>
-                            <p>현재 담당자: {reviewerName(caseItem.reviewerId)}</p>
+                            <p>현재 담당자: {reviewerName(caseItem.reviewerId, reviewers)}</p>
                             <p>
                                 위험도:{" "}
                                 <span className={riskTextClass(caseItem)}>
@@ -1236,20 +1298,20 @@ function AssignmentModal({
 function EmptyState({ activeTab }: { activeTab: QueueTab }) {
     const title =
         activeTab === "REQUESTED"
-            ? "미배정 사건이 없습니다."
+            ? "배정대기 사건이 없습니다."
             : activeTab === "ASSIGNED"
-                ? "검토 중인 사건이 없습니다."
+                ? "검토중인 사건이 없습니다."
                 : activeTab === "SUPPLEMENT_REQUESTED"
-                    ? "보완 요청된 사건이 없습니다."
-                    : "완료된 사건이 없습니다.";
+                    ? "재검토 사건이 없습니다."
+                    : "승인된 사건이 없습니다.";
     const description =
         activeTab === "REQUESTED"
             ? "담당자 배정이 필요한 사건이 생기면 이곳에 표시됩니다."
             : activeTab === "ASSIGNED"
                 ? "담당자가 배정되어 검토 중인 사건이 이곳에 표시됩니다."
                 : activeTab === "SUPPLEMENT_REQUESTED"
-                    ? "검토자가 보완을 요청한 사건이 이곳에 표시됩니다."
-                    : "검토 완료 또는 승인 완료된 사건이 이곳에 표시됩니다.";
+                    ? "검토자가 재검토로 표시한 사건이 이곳에 표시됩니다."
+                    : "승인된 사건이 이곳에 표시됩니다.";
 
     return (
         <div className="flex min-h-[260px] flex-col items-center justify-center text-center">

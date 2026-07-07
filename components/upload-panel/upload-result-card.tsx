@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
+import { ReadinessBadge } from "@/components/readiness-badge"
 import type { UploadFileCardState } from "@/components/upload-panel/upload-file-card"
 
 type UploadResultCardProps = {
@@ -46,6 +47,9 @@ export function UploadResultCard({
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
+          {res.readiness && !item.analysisStatus ? (
+            <ReadinessBadge tier={res.readiness.readinessTier} />
+          ) : null}
           {item.analysisStatus === "PENDING" ? (
             <AnalysisStatusBadge status="PENDING" />
           ) : item.analysisStatus === "PROCESSING" ? (

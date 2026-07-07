@@ -1,4 +1,5 @@
 import type { UserRole } from "@/lib/permissions"
+import type { OrgType } from "@/app/signup/organizationData"
 
 export type UserStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED"
 
@@ -8,6 +9,7 @@ export interface AdminUser {
   displayName: string
   email: string
   organizationName?: string
+  organizationType?: OrgType | string | null
   department: string
   role?: UserRole
   joinedAt: string
@@ -25,7 +27,7 @@ export interface InviteCode {
   usedBy?: string
 }
 
-export type LogCategory = "AUTH" | "ANALYSIS" | "ADMIN" | "COC"
+export type LogCategory = "AUTH" | "ANALYSIS" | "ADMIN" | "COC" | "SECURITY"
 
 export interface AdminLog {
   id: string
@@ -33,6 +35,7 @@ export interface AdminLog {
   category: LogCategory
   actor: string
   actorId: string
+  actorName?: string | null
   department: string
   action: string
   detail?: string
