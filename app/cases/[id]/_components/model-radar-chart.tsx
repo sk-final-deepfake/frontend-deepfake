@@ -32,11 +32,11 @@ function toPercent(score: number) {
 }
 
 export function ModelRadarChart({ models, threshold = 60 }: ModelRadarChartProps) {
-  const labels = models.map((model) => [model.label, model.source])
+  const labels = models.map((model) => model.label)
   const riskScores = models.map((model) => toPercent(model.score))
   const thresholdScores = models.map(() => threshold)
 
-  const data: ChartData<"radar", number[], string[]> = {
+  const data: ChartData<"radar", number[], string> = {
     labels,
     datasets: [
       {
@@ -90,7 +90,7 @@ export function ModelRadarChart({ models, threshold = 60 }: ModelRadarChartProps
         pointLabels: {
           color: "#334155",
           font: {
-            size: 13,
+            size: 12,
             weight: 700,
           },
         },
@@ -124,7 +124,7 @@ export function ModelRadarChart({ models, threshold = 60 }: ModelRadarChartProps
         callbacks: {
           title(items) {
             const label = items[0]?.label
-            return Array.isArray(label) ? label.join(" · ") : label
+            return label
           },
           label(context) {
             const value = typeof context.parsed.r === "number" ? context.parsed.r : Number(context.raw)
@@ -136,20 +136,20 @@ export function ModelRadarChart({ models, threshold = 60 }: ModelRadarChartProps
   }
 
   return (
-    <section className="mt-4 rounded-lg bg-red-50/30 p-5 dark:bg-red-950/10">
+    <section className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-slate-400">측정 항목별 위험 프로파일</p>
+        <p className="text-xs font-semibold text-slate-400">모델별 위험 프로파일</p>
         <span className="rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-700 dark:bg-red-950/30 dark:text-red-300">
           임계값 {threshold}
         </span>
       </div>
-      <div className="mt-4 h-80 w-full sm:h-96">
+      <div className="mt-4 h-64 w-full sm:h-72">
         <Radar data={data} options={options} aria-label="모델 위험 프로파일 레이더 차트" />
       </div>
-      <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500">
-        {models.map((model) => (
-          <span key={`${model.source}-${model.label}`}>
-            {model.source} · {model.label}
+      <div className="mt-3 flex flex-wrap justify-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500">
+        {models.map((model, index) => (
+          <span key={`${model.source}-${model.label}-${index}`}>
+            {model.label} · {model.source}
           </span>
         ))}
       </div>

@@ -22,7 +22,7 @@ type DeepfakeV2TabProps = {
 
 type ViewMode = "original" | "overlay" | "heatmap"
 
-const THRESHOLD = 0.72
+const DEFAULT_THRESHOLD = 0.6
 
 export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const { evidenceInfo, analysisInfo } = data
@@ -30,9 +30,9 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
 
   const modelScore = getPrimaryModelScore(analysisInfo.moduleResults)
   const confidence = normalizePercent(analysisInfo.confidenceScore)
-  const quality = confidence == null ? null : Math.min(100, confidence + 1)
+  const threshold = analysisInfo.detectionThreshold ?? DEFAULT_THRESHOLD
   const duration = formatDuration(metadata.durationSec)
-  const verdict = getVerdict(modelScore)
+  const verdict = getVerdict(modelScore, threshold)
   const summary = analysisInfo.summary?.trim() || "AI 탐지 근거가 아직 제공되지 않았습니다."
   const videoUrl = getPlayableVideoUrl(data)
   const overlayVideoUrl = analysisInfo.overlayVideoUrl ?? evidenceInfo.overlayVideoUrl ?? null
@@ -40,7 +40,7 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
 
   return (
     <div className="space-y-4">
-      <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} quality={quality} />
+      <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} threshold={threshold} />
 
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <VideoPlayerCard
@@ -49,7 +49,7 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
           overlayVideoUrl={overlayVideoUrl}
           heatmapImageUrl={heatmapImageUrl}
         />
-        <ModelInfoSidebar data={data} />
+        <ModelInfoSidebar data={data} threshold={threshold} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -134,11 +134,6 @@ function VideoPlayerCard({
           ))}
         </div>
 
-        <div className="absolute left-4 top-4 rounded bg-black/55 px-2 py-1 text-xs font-semibold text-white">
-          2026-06-15 02:31:45
-        </div>
-        <div className="absolute bottom-14 left-4 text-sm font-bold tracking-wide text-white">CAM01</div>
-
         {!videoUrl ? (
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/30">
@@ -168,26 +163,35 @@ function SummaryCards({
   verdict,
   modelScore,
   confidence,
-  quality,
+  threshold,
 }: {
   verdict: { label: string; tone: Tone }
   modelScore: number | null
   confidence: number | null
-  quality: number | null
+  threshold: number
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <SummaryCard title="자동 탐지 결과" value={verdict.label} tone={verdict.tone} icon />
       <SummaryCard
         title="모델 점수"
-        value={formatNullable(modelScore, (value) => value.toFixed(2))}
-        sub="0~1 (높을수록 의심 ↑)"
-        tone={modelScore == null ? "neutral" : toneByScore(modelScore)}
-        emphasize={modelScore != null && modelScore >= THRESHOLD}
+        value={formatNullable(modelScore, (value) => `${Math.round(value * 100)} / 100`)}
+        sub="높을수록 조작 의심"
+        tone={modelScore == null ? "neutral" : toneByScore(modelScore, threshold)}
+        emphasize={modelScore != null && modelScore >= threshold}
       />
-      <SummaryCard title="판정 임계값" value={THRESHOLD.toFixed(2)} sub="기준값 초과 시 의심" tone="neutral" />
-      <SummaryCard title="분석 신뢰도" value={formatNullable(confidence, (value) => `${value}%`)} tone="green" />
-      <SummaryCard title="품질 점수" value={formatNullable(quality, (value) => `${value} / 100`)} tone="green" />
+      <SummaryCard
+        title="판정 임계값"
+        value={`${Math.round(threshold * 100)} / 100`}
+        sub="기준값 초과 시 의심"
+        tone="neutral"
+      />
+      <SummaryCard
+        title="모델 산출 확신도"
+        value={formatNullable(confidence, (value) => `${value}%`)}
+        sub="분석 모델이 보고한 확신도"
+        tone="neutral"
+      />
     </div>
   )
 }
@@ -237,10 +241,9 @@ function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-base font-bold text-foreground">프레임별 위험도 그래프</h3>
         <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-muted-foreground">
-          <LegendDot className="bg-emerald-500" label="낮음 (0~0.3)" />
-          <LegendDot className="bg-amber-400" label="보통 (0.3~0.6)" />
-          <LegendDot className="bg-red-500" label="높음 (0.6~1.0)" />
-          <LegendDot className="bg-slate-300" label="분석 불가" />
+          <LegendDot className="bg-slate-300 dark:bg-slate-600" label="낮음 (0~30)" />
+          <LegendDot className="bg-amber-400" label="보통 (30~60)" />
+          <LegendDot className="bg-red-700 dark:bg-red-500" label="높음 (60~100)" />
         </div>
       </div>
 
@@ -257,7 +260,7 @@ function FrameRiskGraph({ frameScores }: { frameScores: FrameScore[] }) {
                 <div className="absolute inset-x-0 -top-px border-t-4 border-white/95 dark:border-slate-950/90" />
                 <div className="absolute inset-x-0 top-0 border-t border-dashed border-red-500" />
                 <span className="absolute -top-4 right-0 rounded bg-white px-1.5 text-[11px] font-bold text-red-600 shadow-sm ring-1 ring-red-100 dark:bg-slate-950 dark:ring-red-950/60">
-                  임계값 0.72
+                  임계값 60
                 </span>
               </div>
               <div className="absolute inset-x-0 bottom-0 flex h-full items-end gap-px px-2">
@@ -385,9 +388,6 @@ function EmptyState({ title, description }: { title: string; description: string
 
 function PerItemScores({ modules }: { modules: ModuleResult[] }) {
   const rows = buildScoreRows(modules)
-  const ensembleRows = buildEnsembleRows(modules)
-  const ensembleAverage =
-    ensembleRows.reduce((sum, row) => sum + row.value, 0) / Math.max(1, ensembleRows.length)
 
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -418,46 +418,38 @@ function PerItemScores({ modules }: { modules: ModuleResult[] }) {
         />
       )}
 
-      {ensembleRows.length > 0 ? (
-        <div className="mt-5 border-t border-dashed border-border pt-4">
-          <h4 className="text-sm font-bold text-foreground">모델 앙상블 결과</h4>
-          <div className="mt-3 space-y-2.5">
-            {ensembleRows.map((row) => (
-              <div key={row.label} className="grid grid-cols-[minmax(118px,1.2fr)_minmax(64px,0.8fr)_36px] items-center gap-2 text-xs">
-                <span className="min-w-0 truncate font-semibold text-muted-foreground" title={row.label}>{row.label}</span>
-                <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-900">
-                  <div className={cn("h-full rounded-full", TONE_BAR[row.tone])} style={{ width: `${row.value * 100}%` }} />
-                </div>
-                <span className="text-right font-bold text-foreground">{row.value.toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex items-center justify-end gap-5 border-t border-border pt-3 text-xs">
-            <span className="font-bold text-muted-foreground">평균</span>
-            <span className="font-bold text-foreground">{ensembleAverage.toFixed(2)}</span>
-          </div>
-        </div>
-      ) : null}
     </section>
   )
 }
 
-function ModelInfoSidebar({ data }: { data: EvidenceDetailData }) {
+function ModelInfoSidebar({ data, threshold }: { data: EvidenceDetailData; threshold: number }) {
   const { evidenceInfo, analysisInfo } = data
   const metadata = evidenceInfo.technicalMetadata
-  const primaryModule = analysisInfo.moduleResults[0]
   const frameCount = analysisInfo.frameScores?.length
+  const modelNames = [
+    ...new Set(
+      analysisInfo.moduleResults
+        .map((module) => module.modelName?.trim())
+        .filter((name): name is string => Boolean(name))
+    ),
+  ]
+  const modelVersions = [
+    ...new Set(
+      analysisInfo.moduleResults
+        .map((module) => module.modelVersion?.trim())
+        .filter((version): version is string => Boolean(version))
+    ),
+  ]
   const rows: Array<[string, string]> = [
-    ["분석 모델", primaryModule?.moduleName || "deepfake"],
-    ["모델 버전", "v2.4.1"],
-    ["모델 유형", "Video Deepfake Detection"],
+    ["분석 모델", modelNames.length > 0 ? modelNames.join(" · ") : "-"],
+    ["모델 버전", modelVersions.length > 0 ? modelVersions.join(" · ") : "-"],
+    ["분석 ID", analysisInfo.analysisId?.trim() || "-"],
     ["입력 해상도", metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : "-"],
     ["분석 프레임 수", frameCount ? String(frameCount) : "-"],
-    ["유효 프레임 수", "-"],
-    ["얼굴 검출 프레임 수", "-"],
-    ["프레임 추출 간격", "-"],
-    ["처리 시간", "-"],
-    ["판정 임계값", THRESHOLD.toFixed(2)],
+    ["영상 길이", metadata.durationSec != null ? formatDuration(metadata.durationSec) : "-"],
+    ["프레임레이트", metadata.fps != null ? `${metadata.fps} fps` : "-"],
+    ["코덱", metadata.codec?.trim() || "-"],
+    ["판정 임계값", `${Math.round(threshold * 100)} / 100`],
   ]
 
   return (
@@ -508,15 +500,15 @@ const TONE_BADGE: Record<Tone, string> = {
   neutral: "bg-muted text-muted-foreground",
 }
 
-function getVerdict(score: number | null): { label: string; tone: Tone } {
+function getVerdict(score: number | null, threshold: number): { label: string; tone: Tone } {
   if (score == null) return { label: "분석 근거 없음", tone: "neutral" }
-  if (score >= 0.7) return { label: "위험", tone: "red" }
-  if (score >= 0.4) return { label: "주의", tone: "amber" }
+  if (score >= threshold) return { label: "위험", tone: "red" }
+  if (score >= 0.3) return { label: "주의", tone: "amber" }
   return { label: "정상", tone: "green" }
 }
 
-function toneByScore(score: number): Tone {
-  if (score >= 0.6) return "red"
+function toneByScore(score: number, threshold = DEFAULT_THRESHOLD): Tone {
+  if (score >= threshold) return "red"
   if (score >= 0.3) return "amber"
   return "green"
 }
@@ -539,14 +531,9 @@ function buildRiskBars(frameScores: FrameScore[]) {
 }
 
 function riskBarClassName(score: number) {
-  if (score >= 0.9) return "bg-red-600"
-  if (score >= 0.8) return "bg-red-500"
-  if (score >= 0.7) return "bg-rose-500"
-  if (score >= 0.6) return "bg-orange-500"
-  if (score >= 0.5) return "bg-amber-500"
-  if (score >= 0.3) return "bg-yellow-400"
-  if (score >= 0.18) return "bg-emerald-400"
-  return "bg-teal-500"
+  if (score >= DEFAULT_THRESHOLD) return "bg-red-700 dark:bg-red-500"
+  if (score >= 0.3) return "bg-amber-400"
+  return "bg-slate-300 dark:bg-slate-600"
 }
 
 function densifyFrameScores(frameScores: FrameScore[], targetCount: number) {
@@ -588,32 +575,6 @@ function buildScoreRows(modules: ModuleResult[]) {
         ...levelByScore(value),
       }
     })
-}
-
-function buildEnsembleRows(modules: ModuleResult[]) {
-  const scores = modules
-    .map(getModuleScore)
-    .filter((score): score is number => score != null)
-    .map(normalizeProbability)
-
-  if (scores.length === 0) return []
-
-  const base = scores.reduce((sum, score) => sum + score, 0) / scores.length
-  const rows = [
-    ["모델 A (Vision Transformer)", base + 0.04],
-    ["모델 B (CNN 기반)", base - 0.03],
-    ["모델 C (Xception 기반)", base - 0.01],
-    ["모델 D (Swin Transformer)", base + 0.01],
-  ] as const
-
-  return rows.map(([label, rawValue]) => {
-    const value = Math.max(0.03, Math.min(0.98, rawValue))
-    return {
-      label,
-      value,
-      ...levelByScore(value),
-    }
-  })
 }
 
 function getPrimaryModelScore(modules: ModuleResult[]) {

@@ -10,6 +10,7 @@ import type {
   FrameScore,
   ModuleResult,
   RepresentativeFrame,
+  SuspiciousSegment,
   TechnicalMetadata,
 } from "@/lib/api/evidence-detail"
 import type { UpdateUserProfilePayload, UserProfile } from "@/lib/api/user"
@@ -273,6 +274,23 @@ const REVIEW_QUEUE_STATUS_PATTERN: ReviewStatus[] = [
   "REVIEW_COMPLETED",
 ]
 
+const MOCK_CASE_ID_ALIASES: Record<string, string> = {
+  mock: "mock-deepfake-pair-20260627",
+  demo: "mock-deepfake-pair-20260627",
+  "mock-detail": "mock-deepfake-pair-20260627",
+  "mock-case": "mock-deepfake-pair-20260627",
+  "mock-review": "mock-review-queue-049",
+  "mock-reviewer": "mock-review-queue-049",
+  "review-demo": "mock-review-queue-049",
+  "목업": "mock-deepfake-pair-20260627",
+  "목업-상세": "mock-deepfake-pair-20260627",
+}
+
+function resolveMockCaseId(caseId: string) {
+  const trimmed = caseId.trim()
+  return MOCK_CASE_ID_ALIASES[trimmed] ?? MOCK_CASE_ID_ALIASES[trimmed.toLowerCase()] ?? trimmed
+}
+
 function reviewersForDepartment(department: string) {
   return mockUsers.filter((user) => user.role === "REVIEWER" && user.department === department)
 }
@@ -284,6 +302,11 @@ function seedReviewerId(department: string, index: number, reviewStatus: ReviewS
     reviewStatus !== "REPORT_APPROVED"
   ) {
     return null
+  }
+
+  const primaryReviewer = getMockUserByRole("REVIEWER")
+  if (department === primaryReviewer.department) {
+    return primaryReviewer.id
   }
 
   const departmentReviewers = reviewersForDepartment(department)
@@ -335,15 +358,24 @@ function reviewQueueSeedCases(): MockCaseRecord[] {
 }
 
 function findReviewQueueSeedCase(caseId: string) {
-  return reviewQueueSeedCases().find((item) => item.caseId === caseId)
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  return reviewQueueSeedCases().find(
+    (item) =>
+      item.caseId === resolvedCaseId ||
+      item.caseName === resolvedCaseId ||
+      caseKey(item.caseName) === resolvedCaseId
+  )
+}
+
+function findReviewQueueSeedCaseByEvidenceId(evidenceId: number) {
+  return reviewQueueSeedCases().find((item) => item.representativeEvidenceId === evidenceId)
 }
 
 function reviewQueueSeedEvidenceRecord(seedCase: MockCaseRecord): MockEvidenceRecord {
   const sequence = Number(seedCase.caseId.replace("mock-review-queue-", "")) || 1
   const riskScore = seedRiskScore(sequence - 1)
-  const mediaType: MockEvidenceRecord["mediaType"] =
-    sequence % 7 === 0 ? "AUDIO" : sequence % 5 === 0 ? "IMAGE" : "VIDEO"
-  const extension = mediaType === "AUDIO" ? "wav" : mediaType === "IMAGE" ? "jpg" : "mp4"
+  const mediaType: MockEvidenceRecord["mediaType"] = "VIDEO"
+  const extension = "mp4"
   const riskLevel: MockEvidenceRecord["riskLevel"] =
     riskScore >= 80 ? "HIGH" : riskScore >= 50 ? "MEDIUM" : "LOW"
 
@@ -357,12 +389,7 @@ function reviewQueueSeedEvidenceRecord(seedCase: MockCaseRecord): MockEvidenceRe
     fileSize: 28_000_000 + sequence * 840_000,
     hashAlgorithm: "SHA-256",
     hashValue: String(sequence.toString(16)).padStart(64, "0"),
-    metadata:
-      mediaType === "VIDEO"
-        ? { type: "video", codec: "h264", width: 1920, height: 1080, duration: 30 + sequence, fps: 29.97 }
-        : mediaType === "AUDIO"
-          ? { type: "audio", codec: "wav", duration: 45 + sequence, sampleRate: 44100, channels: 2 }
-          : { type: "image", codec: "jpeg", width: 1600, height: 900 },
+    metadata: { type: "video", codec: "h264", width: 1920, height: 1080, duration: 30 + sequence, fps: 29.97 },
     uploadedAt: seedCase.createdAt,
     mediaType,
     lifecycleStatus: "ACTIVE",
@@ -538,7 +565,13 @@ function sampleCaseRecord(sampleCase: CaseDetailData): MockCaseRecord {
 }
 
 function findSampleCase(caseId: string) {
-  return sampleCaseDetails.find((item) => item.caseId === caseId)
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  return sampleCaseDetails.find(
+    (item) =>
+      item.caseId === resolvedCaseId ||
+      item.caseName === resolvedCaseId ||
+      caseKey(item.caseName) === resolvedCaseId
+  )
 }
 
 function findCaseRecord(store: MockStore, caseId: string): MockCaseRecord | undefined {
@@ -597,13 +630,16 @@ function materializeSampleCase(store: MockStore, caseId: string): MockStore {
 function materializeReviewQueueSeedCase(store: MockStore, caseId: string): MockStore {
   const seedCase = findReviewQueueSeedCase(caseId)
   if (!seedCase) return store
-  if (store.evidences.some((item) => evidenceCaseId(item) === caseId)) return store
+  const seedEvidence = reviewQueueSeedEvidenceRecord(seedCase)
+  const hasSeedEvidence = store.evidences.some((item) => item.evidenceId === seedEvidence.evidenceId)
 
   return {
     cases: store.cases.some((item) => item.caseId === caseId)
       ? store.cases
       : [seedCase, ...store.cases],
-    evidences: [reviewQueueSeedEvidenceRecord(seedCase), ...store.evidences],
+    evidences: hasSeedEvidence
+      ? store.evidences.map((item) => (item.evidenceId === seedEvidence.evidenceId ? seedEvidence : item))
+      : [seedEvidence, ...store.evidences],
   }
 }
 
@@ -1941,6 +1977,78 @@ function buildCocLogs(record: MockEvidenceRecord): EvidenceDetailData["cocLogs"]
   return logs
 }
 
+
+/**
+ * 목업 모듈 결과에 실제 API 계약과 동일한 필드를 채운다.
+ * - modelName / modelVersion: 모듈을 수행한 탐지 모델 식별 정보
+ * - affectedSegments: detected 모듈에만, 프레임 위험도에서 임계값을 넘은 실측 구간을 배분
+ */
+const MOCK_MODULE_MODEL_INFO: Array<{ keywords: string[]; modelName: string; modelVersion: string }> = [
+  { keywords: ["face", "swap", "synthesis", "deepfake", "gan"], modelName: "Xception", modelVersion: "v2.4.1" },
+  { keywords: ["temporal", "tamper", "lip", "frame", "timeline"], modelName: "TimeSformer", modelVersion: "v1.9.0" },
+  { keywords: ["optical", "motion", "flow"], modelName: "GMFlow", modelVersion: "v1.2.3" },
+  { keywords: ["compression", "metadata", "ela", "audio", "voice"], modelName: "ForenShield-Integrity", modelVersion: "v1.0.5" },
+]
+
+function mockModelInfoFor(moduleName: string) {
+  const key = moduleName.toLowerCase()
+  return (
+    MOCK_MODULE_MODEL_INFO.find((entry) => entry.keywords.some((keyword) => key.includes(keyword))) ?? {
+      modelName: "ForenShield-Detector",
+      modelVersion: "v1.0.0",
+    }
+  )
+}
+
+function highRiskSegmentsFrom(frameScores: FrameScore[], threshold: number): SuspiciousSegment[] {
+  const segments: SuspiciousSegment[] = []
+  let current: { start: number; end: number; peak: number } | null = null
+
+  for (const frame of frameScores) {
+    const timeSec = frame.timeSec ?? null
+    if (timeSec == null) continue
+    const score = frame.score > 1 ? frame.score / 100 : frame.score
+    if (score >= threshold) {
+      if (current) {
+        current.end = timeSec
+        current.peak = Math.max(current.peak, score)
+      } else {
+        current = { start: timeSec, end: timeSec, peak: score }
+      }
+    } else if (current) {
+      segments.push({ startTime: current.start, endTime: current.end, maxRiskScore: current.peak, reason: "" })
+      current = null
+    }
+  }
+  if (current) {
+    segments.push({ startTime: current.start, endTime: current.end, maxRiskScore: current.peak, reason: "" })
+  }
+  return segments
+}
+
+function enrichModuleResults(
+  modules: ModuleResult[],
+  frameScores: FrameScore[],
+  threshold: number
+): ModuleResult[] {
+  const segments = highRiskSegmentsFrom(frameScores, threshold)
+  let detectedIndex = 0
+
+  return modules.map((module) => {
+    const modelInfo = mockModelInfoFor(module.moduleName)
+    const enriched: ModuleResult = {
+      ...module,
+      modelName: module.modelName ?? modelInfo.modelName,
+      modelVersion: module.modelVersion ?? modelInfo.modelVersion,
+    }
+    if (module.detected && segments.length > 0) {
+      enriched.affectedSegments = [segments[detectedIndex % segments.length]]
+      detectedIndex += 1
+    }
+    return enriched
+  })
+}
+
 function buildEvidenceDetail(
   record: MockEvidenceRecord,
   caseId: string
@@ -2004,13 +2112,15 @@ function buildEvidenceDetail(
     },
     analysisInfo: {
       status,
+      analysisId: `ANL-${record.evidenceId}`,
+      detectionThreshold: 0.6,
       requestedAt: record.analysisRequestedAt ?? null,
       completedAt: record.analysisCompletedAt ?? null,
       riskScore: completed ? record.riskScore ?? 0 : null,
       confidenceScore: completed ? record.confidenceScore ?? 0 : null,
       riskLevel: completed ? record.riskLevel ?? "LOW" : null,
       summary: completed ? record.summary ?? "" : "분석 큐에서 결과 생성을 준비 중입니다.",
-      moduleResults: completed ? record.moduleResults ?? [] : [],
+      moduleResults: completed ? enrichModuleResults(record.moduleResults ?? [], frameScores, 0.6) : [],
       frameScores,
       representativeFrames,
       heatmapImageUrl: firstHeatmapUrl,
@@ -2025,7 +2135,7 @@ export async function mockFetchEvidenceDetail(evidenceId: number): Promise<Evide
   const store = saveAfterProgressUpdate()
   const stored = store.evidences.find((item) => item.evidenceId === evidenceId)
   if (stored) {
-    return buildEvidenceDetail(stored, caseKey(stored.caseName))
+    return buildEvidenceDetail(stored, evidenceCaseId(stored))
   }
 
   for (const sampleCase of sampleCaseDetails) {
@@ -2040,18 +2150,25 @@ export async function mockFetchEvidenceDetail(evidenceId: number): Promise<Evide
     }
   }
 
+  const seedCase = findReviewQueueSeedCaseByEvidenceId(evidenceId)
+  if (seedCase) {
+    const seedEvidence = reviewQueueSeedEvidenceRecord(seedCase)
+    return buildEvidenceDetail(seedEvidence, seedCase.caseId)
+  }
+
   throw new Error("mock 증거 데이터를 찾을 수 없습니다.")
 }
 
 export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailData> {
   await delay(220)
 
-  const store = saveAfterProgressUpdate()
-  const records = store.evidences.filter((record) => evidenceCaseId(record) === caseId)
-  const storedCase = store.cases.find((item) => item.caseId === caseId)
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  const store = materializeReviewQueueSeedCase(saveAfterProgressUpdate(), resolvedCaseId)
+  const records = store.evidences.filter((record) => evidenceCaseId(record) === resolvedCaseId)
+  const storedCase = store.cases.find((item) => item.caseId === resolvedCaseId)
 
   if (records.length === 0) {
-    const sampleCase = sampleCaseDetails.find((item) => item.caseId === caseId)
+    const sampleCase = findSampleCase(resolvedCaseId)
     if (sampleCase) {
       const sampleRecords = sampleCase.evidences.map((evidence, index) =>
         sampleEvidenceRecord(evidence, sampleCase, index)
@@ -2064,7 +2181,7 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
     }
     if (storedCase) {
       return {
-        caseId,
+        caseId: resolvedCaseId,
         caseName: storedCase.caseName,
         status: "PENDING",
         createdAt: storedCase.createdAt,
@@ -2087,7 +2204,7 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
   const caseRecord = findCaseRecord(store, caseId)
 
   return {
-    caseId,
+    caseId: resolvedCaseId,
     caseName: storedCase?.caseName || sorted[0]?.caseName || "미분류 사건",
     status: summarizeCaseStatus(records),
     createdAt: storedCase?.createdAt ?? sorted[0]?.uploadedAt ?? new Date().toISOString(),

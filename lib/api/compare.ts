@@ -1,4 +1,5 @@
 import { apiDownload, apiRequest, apiRequestForm } from "@/lib/api/client"
+import { getMockCompareIdForEvidence, getMockEvidenceIdFromCompareId } from "@/lib/compare-history"
 import { features } from "@/lib/features"
 
 export type CompareVerdict = "ORIGINAL_MATCH" | "TAMPERED" | "INCONCLUSIVE"
@@ -55,7 +56,11 @@ export type CompareResult = {
 export async function verifyCompare(evidenceId: number, file: File, requestId?: string): Promise<CompareResult> {
   if (features.mockApi) {
     await delay(1400)
-    return buildMockCompareResult({ compareId: Date.now() % 100000, evidenceId, candidateFileName: file.name })
+    return buildMockCompareResult({
+      compareId: getMockCompareIdForEvidence(evidenceId),
+      evidenceId,
+      candidateFileName: file.name,
+    })
   }
 
   const formData = new FormData()
@@ -104,7 +109,7 @@ function delay(ms: number) {
 
 function buildMockCompareResult({
   compareId,
-  evidenceId = 2024062713,
+  evidenceId = getMockEvidenceIdFromCompareId(compareId) ?? 2024062713,
   candidateFileName = "submitted_video_final.mp4",
 }: {
   compareId: number

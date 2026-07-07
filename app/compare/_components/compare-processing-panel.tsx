@@ -42,7 +42,7 @@ export function CompareProcessingPanel({
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-bold text-slate-950 dark:text-foreground">
-                  {compareFile?.name ?? "비교 파일"}
+                  비교 대상 파일
                 </span>
                 <span className="mt-1 block text-xs font-semibold text-slate-500">
                   {compareFile?.sizeLabel ?? "-"}

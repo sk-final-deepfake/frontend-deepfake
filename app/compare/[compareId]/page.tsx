@@ -6,9 +6,9 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
-  ArrowRightLeft,
   Check,
   CheckCircle2,
+  ChevronDown,
   Download,
   Loader2,
   Minus,
@@ -19,6 +19,7 @@ import {
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { Button } from "@/components/ui/button"
+import { CompareReportExportDialog } from "@/app/compare/_components/compare-report-export-dialog"
 import {
   downloadCompareReport,
   fetchCompareResult,
@@ -31,6 +32,7 @@ import {
   type CompareVerdict,
 } from "@/lib/api/compare"
 import { getApiErrorMessage } from "@/lib/api/errors"
+import { getSession, isReviewerSession } from "@/lib/auth"
 import { formatDateTime } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -44,6 +46,8 @@ export default function CompareReportPage() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [reportDialogOpen, setReportDialogOpen] = useState(false)
+  const isReviewer = isReviewerSession(getSession())
 
   useEffect(() => {
     let cancelled = false
@@ -125,12 +129,30 @@ export default function CompareReportPage() {
               <p className="text-base font-bold text-foreground">리포트를 열 수 없습니다.</p>
               <p className="text-sm font-semibold text-muted-foreground">{error}</p>
             </div>
-            <Button variant="outline" className="h-10 rounded-lg px-4 font-bold" onClick={() => router.push("/compare")}>
-              새 비교검증
-            </Button>
+            {!isReviewer ? (
+              <Button variant="outline" className="h-10 rounded-lg px-4 font-bold" onClick={() => router.push("/compare")}>
+                새 비교검증
+              </Button>
+            ) : null}
           </ReportStateCard>
         ) : result ? (
-          <CompareReport result={result} isDownloading={isDownloading} onDownload={handleDownloadReport} />
+          <CompareReport
+            result={result}
+            isDownloading={isDownloading}
+            onOpenReport={() => setReportDialogOpen(true)}
+            readOnly={isReviewer}
+          />
+        ) : null}
+
+        {result ? (
+          <CompareReportExportDialog
+            open={reportDialogOpen}
+            onClose={() => setReportDialogOpen(false)}
+            result={result}
+            isDownloading={isDownloading}
+            downloadError={downloadError}
+            onDownload={handleDownloadReport}
+          />
         ) : null}
 
         {downloadError ? (
@@ -155,11 +177,13 @@ type LayerStatus = {
 function CompareReport({
   result,
   isDownloading,
-  onDownload,
+  onOpenReport,
+  readOnly = false,
 }: {
   result: CompareResult
   isDownloading: boolean
-  onDownload: () => void
+  onOpenReport: () => void
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const verdict = getVerdictDisplay(result)
@@ -168,6 +192,10 @@ function CompareReport({
   const skippedItems = result.items.filter((item) => item.result === "SKIPPED")
   const orderedItems = [...mismatchItems, ...matchItems, ...skippedItems]
 
+  const [itemsOpen, setItemsOpen] = useState(false)
+  const [signatureOpen, setSignatureOpen] = useState(false)
+  const [blockchainOpen, setBlockchainOpen] = useState(false)
+
   const itemsLayer: LayerStatus =
     mismatchItems.length > 0
       ? { status: `불일치 ${mismatchItems.length}건`, tone: "danger" }
@@ -175,8 +203,13 @@ function CompareReport({
   const signatureLayer = result.signature ? getSignatureLayerStatus(result.signature) : null
   const blockchainLayer = result.blockchain ? getBlockchainLayerStatus(result.blockchain) : null
 
-  function scrollToSection(key: string) {
-    document.getElementById(`section-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+  function openSection(key: "items" | "signature" | "blockchain") {
+    if (key === "items") setItemsOpen(true)
+    if (key === "signature") setSignatureOpen(true)
+    if (key === "blockchain") setBlockchainOpen(true)
+    window.setTimeout(() => {
+      document.getElementById(`section-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 80)
   }
 
   return (
@@ -188,25 +221,28 @@ function CompareReport({
             저장된 검증 기록입니다. 이 페이지 주소로 언제든 다시 열 수 있습니다.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-3">
+          {!readOnly ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+              onClick={() => router.push("/compare")}
+            >
+              새 검증
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
-            className="h-10 rounded-lg border-slate-200 bg-white px-4 text-sm font-semibold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
-            onClick={() => router.push("/compare")}
-          >
-            새 검증
-          </Button>
-          <Button
-            type="button"
-            className="h-10 rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow-none hover:bg-teal-700"
-            onClick={onDownload}
+            className="h-12 rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+            onClick={onOpenReport}
             disabled={isDownloading}
           >
             {isDownloading ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              <Loader2 className="size-5 animate-spin" aria-hidden="true" />
             ) : (
-              <Download className="size-4" aria-hidden="true" />
+              <Download className="size-5" aria-hidden="true" />
             )}
             {isDownloading ? "PDF 생성 중" : "PDF 보고서"}
           </Button>
@@ -216,104 +252,70 @@ function CompareReport({
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-border dark:bg-card">
         <div className="flex items-start gap-3.5 px-6 py-5">
           {verdict.icon}
-          <div>
+          <div className="min-w-0">
             <p className={cn("text-lg font-bold", verdict.text)}>{verdict.title}</p>
             <p className="mt-0.5 text-sm font-medium text-slate-500 dark:text-muted-foreground">
               {verdict.description}
             </p>
+            <p className="mt-2.5 truncate text-xs font-semibold text-slate-400">
+              기준 증거 EVD-{result.originalEvidenceId} · 제출본 파일과 비교 · {formatDateTime(result.createdAt)} 검증
+            </p>
           </div>
         </div>
         <div className="grid divide-y divide-slate-100 border-t border-slate-100 dark:divide-border dark:border-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-          <VerdictLayerCell label="항목 비교" layer={itemsLayer} onClick={() => scrollToSection("items")} />
-          {signatureLayer ? (
-            <VerdictLayerCell label="전자서명" layer={signatureLayer} onClick={() => scrollToSection("signature")} />
-          ) : (
-            <VerdictLayerCell label="전자서명" layer={{ status: "정보 없음", tone: "muted" }} />
-          )}
-          {blockchainLayer ? (
-            <VerdictLayerCell
-              label="블록체인 기록"
-              layer={blockchainLayer}
-              onClick={() => scrollToSection("blockchain")}
-            />
-          ) : (
-            <VerdictLayerCell label="블록체인 기록" layer={{ status: "정보 없음", tone: "muted" }} />
-          )}
+          <VerdictLayerCell label="항목 비교" layer={itemsLayer} onClick={() => openSection("items")} />
+          <VerdictLayerCell
+            label="전자서명"
+            layer={signatureLayer ?? { status: "정보 없음", tone: "muted" }}
+            onClick={signatureLayer ? () => openSection("signature") : undefined}
+          />
+          <VerdictLayerCell
+            label="블록체인 기록"
+            layer={blockchainLayer ?? { status: "정보 없음", tone: "muted" }}
+            onClick={blockchainLayer ? () => openSection("blockchain") : undefined}
+          />
         </div>
       </section>
 
-      <section className="grid items-stretch gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-border dark:bg-card lg:grid-cols-[minmax(0,1fr)_44px_minmax(0,1fr)]">
-        <div className="min-w-0">
-          <p className="text-xs font-bold text-slate-400">기준 증거 (원본)</p>
-          <p className="mt-1.5 truncate text-sm font-bold text-slate-950 dark:text-foreground">
-            EVD-{result.originalEvidenceId}
-          </p>
-          <p className="mt-1 text-xs font-semibold text-slate-500">사건에 등록된 원본 증거</p>
-        </div>
-        <div className="hidden items-center justify-center text-slate-300 lg:flex">
-          <ArrowRightLeft className="size-5" aria-hidden="true" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-bold text-slate-400">비교 대상 (제출본)</p>
-          <p className="mt-1.5 truncate text-sm font-bold text-slate-950 dark:text-foreground">
-            {result.candidateFileName || "-"}
-          </p>
-          <p className="mt-1 text-xs font-semibold text-slate-500">
-            {getFileTypeFromName(result.candidateFileName)} 파일 · {formatDateTime(result.createdAt)} 검증
-          </p>
-        </div>
-      </section>
-
-      <section
+      <CollapsibleSection
         id="section-items"
-        className="scroll-mt-24 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-border dark:bg-card"
+        title="항목별 비교"
+        subtitle="해시·메타데이터 항목을 기준 증거와 대조합니다."
+        layer={itemsLayer}
+        open={itemsOpen}
+        onToggle={() => setItemsOpen((current) => !current)}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-6 py-4 dark:border-border">
-          <div>
-            <h2 className="text-base font-bold text-slate-950 dark:text-foreground">항목별 비교</h2>
-            <p className="mt-0.5 text-xs font-semibold text-slate-500">
-              불일치 항목을 먼저 표시합니다. 긴 값은 클릭하면 전체 값이 복사됩니다.
-            </p>
-          </div>
-          <p className="text-xs font-semibold text-slate-400">
-            일치 {result.summary.matchCount} ·{" "}
-            <span className={cn(result.summary.mismatchCount > 0 && "text-red-700 dark:text-red-400")}>
-              불일치 {result.summary.mismatchCount}
-            </span>{" "}
-            · 제외 {result.summary.skippedCount}
-          </p>
-        </div>
-        <ItemComparisonBody orderedItems={orderedItems} mismatchCount={mismatchItems.length} />
-      </section>
+        <ItemComparisonBody
+          orderedItems={orderedItems}
+          mismatchCount={mismatchItems.length}
+          summaryText={`일치 ${result.summary.matchCount} · 불일치 ${result.summary.mismatchCount} · 제외 ${result.summary.skippedCount}`}
+        />
+      </CollapsibleSection>
 
-      {result.signature ? (
-        <section
+      {result.signature && signatureLayer ? (
+        <CollapsibleSection
           id="section-signature"
-          className="scroll-mt-24 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-border dark:bg-card"
+          title="전자서명 검증"
+          subtitle="서명이 유효하지 않으면 서명 이후 파일이 변경되었음을 의미합니다."
+          layer={signatureLayer}
+          open={signatureOpen}
+          onToggle={() => setSignatureOpen((current) => !current)}
         >
-          <div className="border-b border-slate-100 px-6 py-4 dark:border-border">
-            <h2 className="text-base font-bold text-slate-950 dark:text-foreground">전자서명 검증</h2>
-            <p className="mt-0.5 text-xs font-semibold text-slate-500">
-              서명이 유효하지 않으면 서명 이후 파일이 변경되었음을 의미합니다.
-            </p>
-          </div>
           <SignatureBody signature={result.signature} />
-        </section>
+        </CollapsibleSection>
       ) : null}
 
-      {result.blockchain ? (
-        <section
+      {result.blockchain && blockchainLayer ? (
+        <CollapsibleSection
           id="section-blockchain"
-          className="scroll-mt-24 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-border dark:bg-card"
+          title="블록체인 기록 검증"
+          subtitle="원본 등록 시 기록된 해시와 대조해 위·변조 여부를 확인합니다."
+          layer={blockchainLayer}
+          open={blockchainOpen}
+          onToggle={() => setBlockchainOpen((current) => !current)}
         >
-          <div className="border-b border-slate-100 px-6 py-4 dark:border-border">
-            <h2 className="text-base font-bold text-slate-950 dark:text-foreground">블록체인 기록 검증</h2>
-            <p className="mt-0.5 text-xs font-semibold text-slate-500">
-              원본 증거 등록 시 파일 해시가 블록체인에 기록되어 위·변조 여부를 대조할 수 있습니다.
-            </p>
-          </div>
           <BlockchainBody blockchain={result.blockchain} />
-        </section>
+        </CollapsibleSection>
       ) : null}
 
       {result.verdict === "TAMPERED" ? (
@@ -349,24 +351,11 @@ function VerdictLayerCell({
   layer: LayerStatus
   onClick?: () => void
 }) {
-  const toneIcon = {
-    danger: <X className="size-3.5 text-red-700 dark:text-red-400" aria-hidden="true" />,
-    neutral: <Check className="size-3.5 text-slate-400" aria-hidden="true" />,
-    muted: <Minus className="size-3.5 text-slate-300" aria-hidden="true" />,
-  }[layer.tone]
-
   const content = (
     <>
       <p className="text-xs font-semibold text-slate-400">{label}</p>
-      <p
-        className={cn(
-          "mt-1 flex items-center gap-1.5 text-sm font-bold",
-          layer.tone === "danger" && "text-red-700 dark:text-red-400",
-          layer.tone === "neutral" && "text-slate-700 dark:text-foreground",
-          layer.tone === "muted" && "text-slate-400"
-        )}
-      >
-        {toneIcon}
+      <p className={cn("mt-1 flex items-center gap-1.5 text-sm font-bold", getLayerToneClassName(layer.tone))}>
+        {getLayerToneIcon(layer.tone)}
         {layer.status}
       </p>
     </>
@@ -387,7 +376,79 @@ function VerdictLayerCell({
   )
 }
 
-function ItemComparisonBody({ orderedItems, mismatchCount }: { orderedItems: CompareItem[]; mismatchCount: number }) {
+function CollapsibleSection({
+  id,
+  title,
+  subtitle,
+  layer,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string
+  title: string
+  subtitle: string
+  layer: LayerStatus
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  return (
+    <section
+      id={id}
+      className="scroll-mt-24 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-border dark:bg-card"
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-slate-50/70 dark:hover:bg-secondary/30"
+      >
+        <div className="min-w-0">
+          <h2 className="text-base font-bold text-slate-950 dark:text-foreground">{title}</h2>
+          <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">{subtitle}</p>
+        </div>
+        <span className="flex shrink-0 items-center gap-2.5">
+          <span className={cn("flex items-center gap-1.5 text-sm font-bold", getLayerToneClassName(layer.tone))}>
+            {getLayerToneIcon(layer.tone)}
+            {layer.status}
+          </span>
+          <ChevronDown
+            className={cn("size-4 text-slate-300 transition-transform", open && "rotate-180")}
+            aria-hidden="true"
+          />
+        </span>
+      </button>
+      {open ? <div className="border-t border-slate-100 dark:border-border">{children}</div> : null}
+    </section>
+  )
+}
+
+function getLayerToneClassName(tone: LayerTone) {
+  return cn(
+    tone === "danger" && "text-red-700 dark:text-red-400",
+    tone === "neutral" && "text-slate-700 dark:text-foreground",
+    tone === "muted" && "text-slate-400"
+  )
+}
+
+function getLayerToneIcon(tone: LayerTone) {
+  return {
+    danger: <X className="size-3.5 shrink-0 text-red-700 dark:text-red-400" aria-hidden="true" />,
+    neutral: <Check className="size-3.5 shrink-0 text-slate-400" aria-hidden="true" />,
+    muted: <Minus className="size-3.5 shrink-0 text-slate-300" aria-hidden="true" />,
+  }[tone]
+}
+
+function ItemComparisonBody({
+  orderedItems,
+  mismatchCount,
+  summaryText,
+}: {
+  orderedItems: CompareItem[]
+  mismatchCount: number
+  summaryText: string
+}) {
   const [showAllItems, setShowAllItems] = useState(false)
   const defaultVisibleCount = Math.max(mismatchCount + 3, 5)
   const visibleItems = showAllItems ? orderedItems : orderedItems.slice(0, defaultVisibleCount)
@@ -395,6 +456,12 @@ function ItemComparisonBody({ orderedItems, mismatchCount }: { orderedItems: Com
 
   return (
     <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-6 py-3 dark:border-border">
+        <p className="text-xs font-semibold text-slate-500">
+          불일치 항목을 먼저 표시합니다. 긴 값은 클릭하면 전체 값이 복사됩니다.
+        </p>
+        <p className="text-xs font-semibold text-slate-400">{summaryText}</p>
+      </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
@@ -539,10 +606,10 @@ function CompareItemRow({ item }: { item: CompareItem }) {
     <tr className={cn(isSkipped && "text-slate-300")}>
       <td className="px-6 py-3 font-bold text-slate-900 dark:text-foreground">{item.label}</td>
       <td className="max-w-[240px] px-6 py-3">
-        <CompareValue value={item.originalValue} />
+        <CompareValue value={formatCompareItemValue(item, item.originalValue)} />
       </td>
       <td className="max-w-[240px] px-6 py-3">
-        <CompareValue value={item.candidateValue} tone={isMismatch ? "danger" : undefined} />
+        <CompareValue value={formatCompareItemValue(item, item.candidateValue)} tone={isMismatch ? "danger" : undefined} />
       </td>
       <td
         className={cn(
@@ -667,7 +734,10 @@ function getCompareItemResultLabel(result: CompareItemResult) {
   return labels[result]
 }
 
-function getFileTypeFromName(fileName: string) {
-  const extension = fileName?.split(".").pop()
-  return extension ? extension.toUpperCase() : "-"
+function formatCompareItemValue(item: { itemKey: string; label: string }, value: string) {
+  const itemText = `${item.itemKey} ${item.label}`.toLowerCase()
+  if (itemText.includes("filename") || itemText.includes("file_name") || item.label.includes("파일명")) {
+    return "비공개"
+  }
+  return value || "-"
 }

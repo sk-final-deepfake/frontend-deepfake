@@ -58,17 +58,17 @@ export function CaseHistoryList({
       </ul>
 
       {/* 데스크톱: 테이블 */}
-      <div className="hidden md:block">
-        <table className="w-full text-left text-sm">
+      <div className="hidden overflow-hidden md:block">
+        <table className="w-full table-fixed text-left text-sm">
           <thead>
             <tr className="border-b border-border text-xs text-muted-foreground">
-              <th className="px-5 py-3 font-medium">사건</th>
-              <th className="px-5 py-3 font-medium">대표 증거</th>
-              <th className="px-5 py-3 font-medium">증거 수</th>
-              <th className="px-5 py-3 font-medium">분석 상태</th>
-              <th className="px-5 py-3 font-medium">배정/검토 상태</th>
-              <th className="px-5 py-3 font-medium">최근 분석일</th>
-              <th className="px-5 py-3 font-medium">
+              <th className="w-[27%] whitespace-nowrap break-keep px-4 py-3 font-medium">사건</th>
+              <th className="w-[22%] whitespace-nowrap break-keep px-3 py-3 font-medium">대표 증거</th>
+              <th className="w-[7%] whitespace-nowrap break-keep px-2 py-3 text-center font-medium">증거 수</th>
+              <th className="w-[11%] whitespace-nowrap break-keep px-3 py-3 font-medium">분석 상태</th>
+              <th className="w-[10%] whitespace-nowrap break-keep px-3 py-3 font-medium">배정</th>
+              <th className="w-[19%] whitespace-nowrap break-keep px-3 py-3 font-medium">최근 분석일</th>
+              <th className="w-[4%] whitespace-nowrap px-2 py-3 font-medium">
                 <span className="sr-only">상세 보기</span>
               </th>
             </tr>
@@ -76,33 +76,33 @@ export function CaseHistoryList({
           <tbody className="divide-y divide-border">
             {cases.map((item) => (
               <tr key={item.caseId} className="transition-colors hover:bg-accent/40">
-                <td className="px-5 py-3.5">
+                <td className="px-4 py-3.5">
                   <Link
                     href={buildCaseDetailPath(item.caseId)}
-                    className="block max-w-[260px] truncate font-medium text-foreground hover:underline"
+                    className="block truncate font-medium text-foreground hover:underline"
                   >
                     {item.caseName}
                   </Link>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.caseId}</p>
                 </td>
-                <td className="max-w-[220px] px-5 py-3.5">
+                <td className="px-3 py-3.5">
                   <span className="block truncate text-muted-foreground">
                     {formatRepresentativeEvidence(item)}
                   </span>
                 </td>
-                <td className="px-5 py-3.5 whitespace-nowrap text-muted-foreground">
+                <td className="whitespace-nowrap px-2 py-3.5 text-center text-muted-foreground">
                   {item.evidenceCount}건
                 </td>
-                <td className="px-5 py-3.5">
+                <td className="px-3 py-3.5">
                   <CaseStatusBadge status={item.status} />
                 </td>
-                <td className="px-5 py-3.5">
+                <td className="whitespace-nowrap px-3 py-3.5">
                   <ReviewStatusBadge status={item.reviewStatus ?? "NONE"} />
                 </td>
-                <td className="px-5 py-3.5 whitespace-nowrap text-muted-foreground">
+                <td className="truncate whitespace-nowrap px-3 py-3.5 text-muted-foreground">
                   {formatCreatedAt(item.createdAt, dateFormat)}
                 </td>
-                <td className="px-5 py-3.5">
+                <td className="px-2 py-3.5 text-right">
                   <Link
                     href={buildCaseDetailPath(item.caseId)}
                     className="inline-flex items-center gap-0.5 text-muted-foreground transition-colors hover:text-foreground"
@@ -127,7 +127,7 @@ function ReviewStatusBadge({ status }: { status: keyof typeof reviewStatusLabelM
       : "bg-slate-100 text-slate-700"
 
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${tone}`}>
+    <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${tone}`}>
       {reviewStatusLabelMap[status]}
     </span>
   )

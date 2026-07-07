@@ -214,7 +214,7 @@ function canUseMockLogin() {
 }
 
 function getMockLogin(loginId: string, password: string) {
-  if (loginId === "1111" && password === "1111") {
+  if (loginId === "1111" && password === "2222") {
     return {
       userId: 1111,
       name: "김민희",

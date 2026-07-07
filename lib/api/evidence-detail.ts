@@ -64,7 +64,12 @@ export type ModuleResult = {
   detected: boolean
   score: number
   deepfakeScore?: number | null
+  confidence?: number | null
+  modelName?: string | null
+  modelVersion?: string | null
   details: string
+  /** 해당 모듈이 실측으로 보고한 의심 구간. 없으면 UI에 구간을 표시하지 않는다. */
+  affectedSegments?: SuspiciousSegment[] | null
 }
 
 export type FrameScore = {
@@ -89,6 +94,8 @@ export type SuspiciousSegment = {
 }
 
 export type ModelScore = {
+  moduleName: string
+  detected?: boolean
   modelName: string
   score: number
   confidence?: number | null
@@ -108,6 +115,10 @@ export type AnalysisInfo = {
   status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
   /** 백엔드 queueStatus: WAITING / ANALYZING / COMPLETED / FAILED */
   queueStatus?: string | null
+  /** 재현성 확인용 분석 실행 식별자 (예: ANL-20260703-1327) */
+  analysisId?: string | null
+  /** 위험 판정 임계값 (0.0 ~ 1.0). 없으면 UI 기본값 사용 */
+  detectionThreshold?: number | null
   requestedAt: string | null
   completedAt: string | null
   riskScore: number | null
@@ -151,6 +162,11 @@ export type BlockchainInfo = {
   transactionHash?: string | null
   anchoredAt?: string | null
   network?: string | null
+  hashValid?: boolean | null
+  certVerified?: boolean | null
+  errorCode?: string | null
+  verificationMessage?: string | null
+  transactionExplorerUrl?: string | null
 }
 
 export type EvidenceDetailData = {
@@ -201,6 +217,26 @@ export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceD
   }
 
   return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`)
+}
+
+export type EvidenceSecurityEventPayload = {
+  eventType: "PRINT_SCREEN" | "SCREEN_CAPTURE_SHORTCUT"
+  detail?: string
+  mediaMode?: string
+  pagePath?: string
+  clientTimestamp?: string
+}
+
+export async function recordEvidenceSecurityEvent(
+  evidenceId: number,
+  payload: EvidenceSecurityEventPayload
+): Promise<void> {
+  if (features.mockApi) return
+
+  await apiRequest<void>(`/api/v1/evidences/${evidenceId}/access-events`, {
+    method: "POST",
+    body: payload,
+  })
 }
 
 export async function fetchCaseDetail(caseId: string): Promise<CaseDetailData> {

@@ -26,8 +26,11 @@ type CompareStep = "source" | "upload" | "processing" | "result"
 
 export type SourceEvidence = {
   id: number
+  caseId: string
   displayLabel: string
   name: string
+  analysisStatus: string
+  isCompareReady: boolean
   dateLabel: string
   sizeLabel: string
   codecLabel: string
@@ -64,8 +67,11 @@ const EMPTY_CASE: SourceCase = {
 
 const EMPTY_EVIDENCE: SourceEvidence = {
   id: 0,
+  caseId: "",
   displayLabel: "기준 증거",
   name: "기준 증거를 선택하세요",
+  analysisStatus: "PENDING",
+  isCompareReady: false,
   dateLabel: "-",
   sizeLabel: "-",
   codecLabel: "-",
@@ -138,17 +144,17 @@ export function CompareVerificationFlow() {
                 : [hydratedCase, ...current]
             )
             const preferredEvidenceId =
-              hasPreselectedEvidence &&
-              hydratedCase.evidences.some((evidence) => evidence.id === preselectedEvidenceId)
-                ? preselectedEvidenceId
-                : hydratedCase.evidences[0]?.id ?? null
+              getPreferredEvidenceId(
+                hydratedCase.evidences,
+                hasPreselectedEvidence ? preselectedEvidenceId : null
+              )
 
             setSelectedEvidenceId(preferredEvidenceId)
 
             if (hasPreselectedEvidence && preferredEvidenceId === preselectedEvidenceId) {
               setStep("upload")
             } else if (hasPreselectedEvidence) {
-              setSourceError("선택한 사건에서 해당 기준 증거를 찾지 못했습니다. 기준 증거를 다시 선택해 주세요.")
+              setSourceError("딥페이크 분석이 완료된 증거만 비교검증 기준으로 사용할 수 있습니다.")
             }
           } catch (detailError) {
             if (cancelled) return
@@ -218,7 +224,7 @@ export function CompareVerificationFlow() {
   }
 
   async function startCompare() {
-    if (!compareFile || selectedEvidenceId === null) return
+    if (!compareFile || selectedEvidenceId === null || !selectedEvidence.isCompareReady) return
 
     const requestId = compareRequestRef.current + 1
     const requestToken =
@@ -269,7 +275,7 @@ export function CompareVerificationFlow() {
     setStep("source")
     setProgress(0)
     setSelectedCaseId(sourceCases[0]?.id ?? "")
-    setSelectedEvidenceId(sourceCases[0]?.evidences[0]?.id ?? null)
+    setSelectedEvidenceId(getPreferredEvidenceId(sourceCases[0]?.evidences ?? []))
     setEvidenceQuery("")
     clearCompareFile()
     setCompareResult(null)
@@ -293,13 +299,13 @@ export function CompareVerificationFlow() {
     if (!nextCase) return
 
     setSelectedCaseId(caseId)
-    setSelectedEvidenceId(nextCase.evidences[0]?.id ?? null)
+    setSelectedEvidenceId(getPreferredEvidenceId(nextCase.evidences))
     setEvidenceQuery("")
+    setSourceError(null)
 
     if (nextCase.evidences.length > 0) return
 
     setIsLoadingEvidences(true)
-    setSourceError(null)
 
     try {
       const detail = await fetchCaseDetail(caseId)
@@ -309,7 +315,7 @@ export function CompareVerificationFlow() {
           sourceCase.id === hydratedCase.id ? hydratedCase : sourceCase
         )
       )
-      setSelectedEvidenceId(hydratedCase.evidences[0]?.id ?? null)
+      setSelectedEvidenceId(getPreferredEvidenceId(hydratedCase.evidences))
     } catch (error) {
       setSourceError(getApiErrorMessage(error, "선택한 사건의 증거 목록을 불러오지 못했습니다."))
     } finally {
@@ -319,13 +325,13 @@ export function CompareVerificationFlow() {
 
   const selectedCase =
     sourceCases.find((sourceCase) => sourceCase.id === selectedCaseId) ?? sourceCases[0] ?? EMPTY_CASE
+  const compareReadyEvidences = selectedCase.evidences.filter((evidence) => evidence.isCompareReady)
   const selectedEvidence =
-    selectedCase.evidences.find((evidence) => evidence.id === selectedEvidenceId) ??
-    selectedCase.evidences[0] ??
+    compareReadyEvidences.find((evidence) => evidence.id === selectedEvidenceId) ??
     EMPTY_EVIDENCE
-  const filteredEvidences = selectedCase.evidences.filter((evidence) => {
+  const filteredEvidences = compareReadyEvidences.filter((evidence) => {
     const searchValue =
-      `${evidence.id} ${evidence.displayLabel} ${evidence.name} ${evidence.dateLabel}`.toLowerCase()
+      `${evidence.id} ${evidence.displayLabel} ${evidence.dateLabel}`.toLowerCase()
     return searchValue.includes(evidenceQuery.toLowerCase())
   })
 
@@ -347,7 +353,15 @@ export function CompareVerificationFlow() {
           onEvidenceQueryChange={setEvidenceQuery}
           onSelectCase={selectCase}
           onSelectEvidence={setSelectedEvidenceId}
-          onNext={() => setStep("upload")}
+          onUnavailableEvidenceSelect={showAnalysisRequiredAlert}
+          onNext={() => {
+            if (!selectedEvidence.isCompareReady) {
+              setSourceError("딥페이크 분석이 완료된 증거만 비교검증 기준으로 사용할 수 있습니다.")
+              return
+            }
+
+            setStep("upload")
+          }}
         />
       ) : step === "upload" ? (
         <CompareFileUploader
@@ -453,15 +467,22 @@ function ResultStep({ result, onReset }: { result: CompareResult | null; onReset
 }
 
 function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
+  const activeEvidences = caseDetail.evidences.filter(
+    (evidence) => (evidence.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
+  )
+
   return {
     id: caseDetail.caseId,
     title: caseDetail.caseName,
     department: getCaseStatusLabel(caseDetail.status),
     updatedAtLabel: formatDateTimeLabel(caseDetail.createdAt),
-    evidences: caseDetail.evidences.map((evidence, index) => ({
+    evidences: activeEvidences.map((evidence, index) => ({
       id: evidence.evidenceId,
+      caseId: caseDetail.caseId,
       displayLabel: evidence.displayLabel || `기준 증거 ${index + 1}`,
       name: evidence.fileName,
+      analysisStatus: evidence.analysisStatus,
+      isCompareReady: isCompareReadyStatus(evidence.analysisStatus),
       dateLabel: getCaseStatusLabel(evidence.analysisStatus),
       sizeLabel: "-",
       codecLabel: getMediaTypeLabel(evidence.mediaType),
@@ -473,6 +494,23 @@ function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
       fileUrl: evidence.fileUrl,
     })),
   }
+}
+
+function getPreferredEvidenceId(evidences: SourceEvidence[], preferredEvidenceId?: number | null) {
+  if (preferredEvidenceId != null) {
+    const preferredEvidence = evidences.find((evidence) => evidence.id === preferredEvidenceId)
+    if (preferredEvidence?.isCompareReady) return preferredEvidence.id
+  }
+
+  return evidences.find((evidence) => evidence.isCompareReady)?.id ?? null
+}
+
+function isCompareReadyStatus(status: string) {
+  return status === "COMPLETED"
+}
+
+function showAnalysisRequiredAlert() {
+  window.alert("딥페이크 분석 완료 후 비교검증에 사용할 수 있습니다.")
 }
 
 function getCaseStatusLabel(status: string) {

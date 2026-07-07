@@ -12,6 +12,10 @@ import { canCreateCase, getAppUserFromSession } from "@/lib/permissions"
 import { buildCaseDetailPath } from "@/lib/route-params"
 import { cn } from "@/lib/utils"
 
+const MAX_INITIAL_EVIDENCE_FILE_SIZE = 500 * 1024 * 1024
+const ALLOWED_INITIAL_EVIDENCE_EXTENSIONS = new Set(["mp4", "mov", "avi", "mkv"])
+const INITIAL_EVIDENCE_ACCEPT = ".mp4,.mov,.avi,.mkv,video/mp4,video/quicktime,video/x-msvideo,video/x-matroska"
+
 export function CaseCreateDialog({
   open,
   onClose,
@@ -28,6 +32,7 @@ export function CaseCreateDialog({
   const [newCaseName, setNewCaseName] = useState("")
   const [representativeFile, setRepresentativeFile] = useState<File | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [recoverableCase, setRecoverableCase] = useState<{ caseId: string; caseName: string } | null>(null)
   const [isCreating, setIsCreating] = useState(false)
 
   if (!open) return null
@@ -44,32 +49,85 @@ export function CaseCreateDialog({
       return
     }
 
+    const fileError = validateOptionalEvidenceFile(representativeFile)
+    if (fileError) {
+      setCreateError(fileError)
+      return
+    }
+    const initialEvidenceFile = representativeFile
+
     setIsCreating(true)
     setCreateError(null)
 
     try {
       const created = await createCase(trimmed)
-      const representativeEvidence = representativeFile
-        ? await uploadEvidenceToCase(
-            created.caseId,
-            created.caseName,
-            representativeFile
-          )
-        : null
+      if (!initialEvidenceFile) {
+        resetForm()
+        onClose()
+        router.push(buildCaseDetailPath(created.caseId))
+        return
+      }
 
-      if (representativeEvidence) {
-        try {
-          await setRepresentativeEvidence(created.caseId, representativeEvidence.evidenceId)
-        } catch {
-          // 실제 API 계약 전에는 대표 증거 지정이 지원되지 않을 수 있다.
-        }
+      let representativeEvidence: Awaited<ReturnType<typeof uploadEvidenceToCase>>
+      try {
+        representativeEvidence = await uploadEvidenceToCase(
+          created.caseId,
+          created.caseName,
+          initialEvidenceFile
+        )
+      } catch (uploadError) {
+        setRecoverableCase({ caseId: created.caseId, caseName: created.caseName })
+        setCreateError(getEvidenceUploadRecoveryMessage(uploadError))
+        return
+      }
+
+      try {
+        await setRepresentativeEvidence(created.caseId, representativeEvidence.evidenceId)
+      } catch {
+        // 실제 API 계약 전에는 대표 증거 지정이 지원되지 않을 수 있다.
       }
 
       resetForm()
       onClose()
-      router.push(buildCaseDetailPath(created.caseId, representativeEvidence?.evidenceId))
+      router.push(buildCaseDetailPath(created.caseId, representativeEvidence.evidenceId))
     } catch (error) {
       setCreateError(getCreateCaseErrorMessage(error))
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  async function retryEvidenceUpload() {
+    if (!recoverableCase) return
+
+    const fileError = validateOptionalEvidenceFile(representativeFile)
+    if (fileError) {
+      setCreateError(fileError)
+      return
+    }
+    const initialEvidenceFile = representativeFile
+    if (!initialEvidenceFile) return
+
+    setIsCreating(true)
+    setCreateError(null)
+
+    try {
+      const representativeEvidence = await uploadEvidenceToCase(
+        recoverableCase.caseId,
+        recoverableCase.caseName,
+        initialEvidenceFile
+      )
+      try {
+        await setRepresentativeEvidence(recoverableCase.caseId, representativeEvidence.evidenceId)
+      } catch {
+        // 실제 API 계약 전에는 대표 증거 지정이 지원되지 않을 수 있다.
+      }
+      const targetPath = buildCaseDetailPath(recoverableCase.caseId, representativeEvidence.evidenceId)
+      resetForm()
+      onClose()
+      router.push(targetPath)
+    } catch (error) {
+      setCreateError(getEvidenceUploadRecoveryMessage(error))
     } finally {
       setIsCreating(false)
     }
@@ -85,6 +143,7 @@ export function CaseCreateDialog({
     setNewCaseName("")
     setRepresentativeFile(null)
     setCreateError(null)
+    setRecoverableCase(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
@@ -93,6 +152,16 @@ export function CaseCreateDialog({
   function selectRepresentativeFile(fileList: FileList | null) {
     const file = fileList?.item(0)
     if (!file) return
+
+    const fileError = validateOptionalEvidenceFile(file)
+    if (fileError) {
+      setRepresentativeFile(null)
+      setCreateError(fileError)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+      }
+      return
+    }
 
     setRepresentativeFile(file)
     setCreateError(null)
@@ -110,7 +179,7 @@ export function CaseCreateDialog({
           <div>
             <h2 className="text-xl font-bold text-foreground">사건 등록</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              사건을 먼저 접수하고, 증거는 지금 또는 사건 상세 화면에서 추가합니다.
+              사건을 먼저 등록하고, 필요하면 증거 영상을 함께 업로드합니다.
             </p>
           </div>
           <button
@@ -168,7 +237,7 @@ export function CaseCreateDialog({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  대표 증거가 준비되어 있으면 함께 등록할 수 있습니다.
+                  영상이 준비되어 있으면 사건 등록과 함께 업로드할 수 있습니다.
                 </p>
               </div>
             </div>
@@ -213,7 +282,7 @@ export function CaseCreateDialog({
               ref={fileInputRef}
               id="dashboardEvidenceFile"
               type="file"
-              accept="video/*"
+              accept={INITIAL_EVIDENCE_ACCEPT}
               className="sr-only"
               onChange={(event) => {
                 selectRepresentativeFile(event.target.files)
@@ -223,14 +292,37 @@ export function CaseCreateDialog({
         </div>
 
         {createError ? (
-          <p className="mt-3 flex items-center gap-2 text-sm font-bold text-red-500">
-            <AlertCircle className="size-4" aria-hidden="true" />
-            {createError}
-          </p>
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">
+            <p className="flex items-center gap-2">
+              <AlertCircle className="size-4" aria-hidden="true" />
+              {createError}
+            </p>
+            {recoverableCase ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 border-red-200 bg-white px-3 text-xs font-bold text-red-700 hover:bg-red-50"
+                  disabled={isCreating}
+                  onClick={() => router.push(buildCaseDetailPath(recoverableCase.caseId))}
+                >
+                  사건 상세로 이동
+                </Button>
+                <Button
+                  type="button"
+                  className="h-8 bg-red-700 px-3 text-xs font-bold text-white hover:bg-red-800"
+                  disabled={isCreating}
+                  onClick={() => void retryEvidenceUpload()}
+                >
+                  다시 업로드 시도
+                </Button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
         <div className="mt-6 flex justify-end gap-2">
           <p className="mr-auto self-center text-xs font-semibold text-muted-foreground">
-            증거를 함께 등록하면 원본 저장, SHA-256 해시 생성, 메타데이터 추출이 자동으로 진행됩니다.
+            영상까지 선택하면 원본 저장, SHA-256 해시 생성, 메타데이터 추출이 자동으로 진행됩니다.
           </p>
           <Button
             type="button"
@@ -245,9 +337,15 @@ export function CaseCreateDialog({
             type="button"
             className="h-10 bg-teal-600 px-4 font-bold hover:bg-teal-700"
             disabled={isCreating}
-            onClick={handleCreateCase}
+            onClick={() => void (recoverableCase ? retryEvidenceUpload() : handleCreateCase())}
           >
-            {isCreating ? "등록 중" : representativeFile ? "사건 + 증거 등록" : "사건만 등록"}
+            {isCreating
+              ? "등록 중"
+              : recoverableCase
+                ? "증거 다시 업로드"
+                : representativeFile
+                  ? "사건 + 증거 등록"
+                  : "사건 등록"}
           </Button>
         </div>
       </section>
@@ -261,6 +359,29 @@ export function canRegisterCase(session: AuthSession | null) {
 
 function normalizeCaseNameForCompare(caseName: string) {
   return caseName.trim().toLowerCase()
+}
+
+function validateOptionalEvidenceFile(file: File | null) {
+  if (!file) return null
+
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? ""
+  const hasAllowedExtension = ALLOWED_INITIAL_EVIDENCE_EXTENSIONS.has(extension)
+  const hasValidMimeType = !file.type || file.type.startsWith("video/")
+
+  if (!hasAllowedExtension || !hasValidMimeType) {
+    return "지원하지 않는 영상 형식입니다. mp4, mov, avi, mkv 파일만 등록할 수 있습니다."
+  }
+
+  if (file.size > MAX_INITIAL_EVIDENCE_FILE_SIZE) {
+    return "파일 크기가 너무 큽니다. 500MB 이하의 영상을 선택해주세요."
+  }
+
+  return null
+}
+
+function getEvidenceUploadRecoveryMessage(error: unknown) {
+  const detail = getCreateCaseErrorMessage(error)
+  return `사건은 생성되었지만 증거 영상 업로드에 실패했습니다. 사건 상세 화면에서 증거를 다시 업로드할 수 있습니다. (${detail})`
 }
 
 function getCreateCaseErrorMessage(error: unknown) {
