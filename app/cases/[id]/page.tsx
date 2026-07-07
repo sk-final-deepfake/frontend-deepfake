@@ -114,9 +114,8 @@ import { getLatestCompareResultSummary, type StoredCompareResultSummary } from "
 import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
-import { normalizeEvidenceDetailForUi } from "@/lib/api/normalize-analysis"
-import { readinessTargetFromCaseEvidence } from "@/lib/readiness"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
+import { readinessTargetFromCaseEvidence } from "@/lib/readiness"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 
@@ -3125,6 +3124,7 @@ function CaseWorkflowPanel({
                   </div>
                 ) : null}
               </div>
+              </div>
             ) : (
               <div className="min-h-[372px] space-y-3">
                 <div>
@@ -3295,8 +3295,6 @@ function CaseWorkflowPanel({
                   className="h-11 rounded-full bg-foreground px-6 text-sm font-bold text-background hover:bg-foreground/90"
                   disabled={
                     analysisBusy ||
-                    (!selectedEvidenceCompleted &&
-                    isWorking ||
                     (!showSelectedEvidenceResultAction &&
                       selectedAnalysisCount === 0 &&
                       !selectedEvidenceAnalysisSelectable &&
@@ -3313,13 +3311,11 @@ function CaseWorkflowPanel({
                   {analysisBusy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
                   {isCheckingReadiness
                     ? "품질 검사 중..."
-                    : selectedEvidenceCompleted
-                  {isWorking ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                  {selectedAnalysisCount > 1
-                    ? "전체 분석하기"
-                    : showSelectedEvidenceResultAction
-                      ? "결과보기"
-                      : "분석하기"}
+                    : selectedAnalysisCount > 1
+                      ? "전체 분석하기"
+                      : showSelectedEvidenceResultAction
+                        ? "결과보기"
+                        : "분석하기"}
                 </Button>
               ) : null}
             </div>
