@@ -81,6 +81,37 @@ export function hasBlockingReadiness(summaries: ReadinessCheckSummary[]): boolea
   return summaries.some((item) => item.readiness.readinessTier === "BLOCK")
 }
 
+/** 화질 안내 다이얼로그 상단 설명 (등급별) */
+export function getQualityDialogSummary(
+  worstTier: ReadinessTier,
+  blocking: boolean
+): string {
+  if (blocking) {
+    return "이 영상은 분석을 진행할 수 없습니다. 아래 사유를 확인해 주세요."
+  }
+
+  switch (worstTier) {
+    case "GOOD":
+      return "메타데이터·프레임 기준 화질이 양호합니다. 분석을 계속 진행해도 됩니다. 위변조 판별 결과가 아니라 사전 품질 안내입니다."
+    case "CAUTION":
+      return "일부 화질 지표가 권장 범위를 벗어났습니다. 분석은 가능하나 분석 신뢰도가 제한될 수 있습니다. 위변조 판별 결과가 아니라 사전 품질 안내입니다."
+    case "POOR":
+      return "화질이 분석에 적합하지 않을 수 있습니다. 분석 신뢰도가 제한될 수 있습니다. 위변조 판별 결과가 아니라 사전 품질 안내입니다."
+    case "BLOCK":
+      return "이 영상은 분석을 진행할 수 없습니다."
+    default:
+      return "사전 화질 검사 결과입니다. 위변조 판별 결과가 아니라 품질 안내입니다."
+  }
+}
+
+export function formatReadinessMetric(
+  value: number | null | undefined,
+  digits = 1
+): string {
+  if (value == null || Number.isNaN(value)) return "-"
+  return value.toFixed(digits)
+}
+
 export function readinessTierLabel(tier: ReadinessTier): string {
   switch (tier) {
     case "GOOD":

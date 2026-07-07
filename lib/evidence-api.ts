@@ -35,6 +35,22 @@ export type EvidenceReadinessResponse = {
   } | null
   frameCheckStatus?: string | null
   frameCheckMessage?: string | null
+  frameMetrics?: {
+    blur?: ReadinessMetricAggregate | null
+    blockiness?: ReadinessMetricAggregate | null
+    fftPeak?: ReadinessMetricAggregate | null
+  } | null
+  spatial?: {
+    worstRegion?: string | null
+    worstRegionScore?: number | null
+    spatiallyUniform?: boolean | null
+  } | null
+}
+
+export type ReadinessMetricAggregate = {
+  mean?: number | null
+  min?: number | null
+  max?: number | null
 }
 
 export type FileUploadResponse = {
