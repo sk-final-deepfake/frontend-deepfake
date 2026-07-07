@@ -1,9 +1,13 @@
 import type {
   AnalysisInfo,
+  ClipRisk,
   EvidenceDetailData,
   FrameScore,
   ModelScore,
   ModuleResult,
+  ModuleTimeline,
+  ModuleTimelineKind,
+  PairRisk,
   RepresentativeFrame,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
@@ -15,6 +19,8 @@ type UiFlags = {
   useMockFrames: boolean
   useMockDetectionSignals: boolean
   useMockModelInsights: boolean
+  /** 실 API가 모듈별 타임라인(clip/pair)을 주지 않아 Xception 프레임만 표시하는 상태 */
+  useMockTimelines: boolean
   hasUnknownAnalysisStatus: boolean
   analysisStatusLabel: string
 }
@@ -181,6 +187,91 @@ function normalizeModelScores(models: ModelScore[]): ModelScore[] {
   })
 }
 
+function normalizeClipRisks(clips: ClipRisk[] | null | undefined): ClipRisk[] {
+  if (!Array.isArray(clips)) return []
+  return clips
+    .map((clip, index) => {
+      const startTimeSec = normalizeTimeSec(clip.startTimeSec, index) ?? index
+      const endTimeSec = normalizeTimeSec(clip.endTimeSec, startTimeSec) ?? startTimeSec
+      return {
+        clipIndex: typeof clip.clipIndex === "number" ? clip.clipIndex : index,
+        startFrameIndex: Math.max(0, Math.round(Number(clip.startFrameIndex) || 0)),
+        endFrameIndex: Math.max(0, Math.round(Number(clip.endFrameIndex) || 0)),
+        startTimeSec,
+        endTimeSec: Math.max(endTimeSec, startTimeSec),
+        score: scoreOrZero(clip.riskScore),
+      }
+    })
+    .map((clip) => ({
+      clipIndex: clip.clipIndex,
+      startFrameIndex: clip.startFrameIndex,
+      endFrameIndex: clip.endFrameIndex,
+      startTimeSec: clip.startTimeSec,
+      endTimeSec: clip.endTimeSec,
+      // scoreOrZero는 0~100으로 변환하므로 다시 0~1 스케일로 저장해 다른 타임라인과 단위를 맞춘다
+      riskScore: clip.score / 100,
+    }))
+}
+
+function normalizePairRisks(pairs: PairRisk[] | null | undefined): PairRisk[] {
+  if (!Array.isArray(pairs)) return []
+  return pairs.map((pair, index) => ({
+    pairIndex: typeof pair.pairIndex === "number" ? pair.pairIndex : index,
+    frameIndexA: Math.max(0, Math.round(Number(pair.frameIndexA) || 0)),
+    frameIndexB: Math.max(0, Math.round(Number(pair.frameIndexB) || 0)),
+    timestampSec: normalizeTimeSec(pair.timestampSec, index) ?? index,
+    riskScore: scoreOrZero(pair.riskScore) / 100,
+    motionMagnitude:
+      pair.motionMagnitude == null || !Number.isFinite(Number(pair.motionMagnitude))
+        ? null
+        : Number(pair.motionMagnitude),
+  }))
+}
+
+const MODULE_TIMELINE_KINDS: ModuleTimelineKind[] = ["cnn", "temporal", "optical"]
+
+function normalizeModuleKind(value: unknown): ModuleTimelineKind | null {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : ""
+  if (MODULE_TIMELINE_KINDS.includes(normalized as ModuleTimelineKind)) return normalized as ModuleTimelineKind
+  if (["deepfake_cnn", "xception"].includes(normalized)) return "cnn"
+  if (["deepfake_temporal", "timesformer"].includes(normalized)) return "temporal"
+  if (["deepfake_optical", "gmflow"].includes(normalized)) return "optical"
+  return null
+}
+
+function normalizeModuleTimelines(timelines: ModuleTimeline[] | null | undefined): ModuleTimeline[] {
+  if (!Array.isArray(timelines)) return []
+  return timelines
+    .map((timeline): ModuleTimeline | null => {
+      const module = normalizeModuleKind(timeline.module)
+      if (!module) return null
+      return {
+        module,
+        modelName: normalizeText(timeline.modelName, module),
+        modelVersion: normalizeText(timeline.modelVersion, null),
+        videoScore: scoreOrZero(timeline.videoScore) / 100,
+        threshold:
+          timeline.threshold != null && Number.isFinite(Number(timeline.threshold))
+            ? clamp01(Number(timeline.threshold))
+            : 0.5,
+        detected: Boolean(timeline.detected),
+        frameRisks: (timeline.frameRisks ?? []).map((risk, index) => ({
+          frameIndex: Math.max(0, Math.round(Number(risk.frameIndex) || index)),
+          timestampSec: normalizeTimeSec(risk.timestampSec, index) ?? index,
+          riskScore: scoreOrZero(risk.riskScore) / 100,
+        })),
+        clipRisks: normalizeClipRisks(timeline.clipRisks),
+        pairRisks: normalizePairRisks(timeline.pairRisks),
+        suspiciousSegments: normalizeSuspiciousSegments(timeline.suspiciousSegments ?? []),
+      }
+    })
+    .filter((timeline): timeline is ModuleTimeline => timeline != null)
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value))
+}
+
 function normalizeSuspiciousSegments(segments: SuspiciousSegment[]): SuspiciousSegment[] {
   return segments
     .map((segment) => {
@@ -229,10 +320,20 @@ export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): Normal
   const suspiciousSegments = normalizeSuspiciousSegments(detail.analysisInfo.suspiciousSegments ?? [])
   const representativeFrames = normalizeRepresentativeFrames(detail.analysisInfo.representativeFrames ?? [])
   const evidenceItems = normalizeEvidenceItems(detail.analysisInfo.evidenceItems)
+  const clipRisks = normalizeClipRisks(detail.analysisInfo.clipRisks)
+  const pairRisks = normalizePairRisks(detail.analysisInfo.pairRisks)
+  const temporalSuspiciousSegments = normalizeSuspiciousSegments(
+    detail.analysisInfo.temporalSuspiciousSegments ?? []
+  )
+  const opticalSuspiciousSegments = normalizeSuspiciousSegments(
+    detail.analysisInfo.opticalSuspiciousSegments ?? []
+  )
+  const moduleTimelines = normalizeModuleTimelines(detail.analysisInfo.moduleTimelines)
 
   const useMockFrames = frameScores.length === 0
   const useMockDetectionSignals = moduleResults.length === 0
   const useMockModelInsights = modelScores.length === 0
+  const useMockTimelines = moduleTimelines.length === 0
 
   return {
     ...detail,
@@ -247,6 +348,11 @@ export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): Normal
       moduleResults,
       modelScores,
       suspiciousSegments,
+      clipRisks,
+      pairRisks,
+      temporalSuspiciousSegments,
+      opticalSuspiciousSegments,
+      moduleTimelines,
       frameScores,
       representativeFrames,
     },
@@ -254,6 +360,7 @@ export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): Normal
       useMockFrames,
       useMockDetectionSignals,
       useMockModelInsights,
+      useMockTimelines,
       hasUnknownAnalysisStatus,
       analysisStatusLabel: hasUnknownAnalysisStatus ? "상태 확인 필요" : "",
     },

@@ -67,6 +67,8 @@ export type ModuleResult = {
   confidence?: number | null
   modelName?: string | null
   modelVersion?: string | null
+  /** 모델 개발 시점의 검증 성능 (예: "AUC 0.97 · FaceForensics++ (c23)"). 이번 분석 측정값과 무관 */
+  modelBenchmark?: string | null
   details: string
   /** 해당 모듈이 실측으로 보고한 의심 구간. 없으면 UI에 구간을 표시하지 않는다. */
   affectedSegments?: SuspiciousSegment[] | null
@@ -85,12 +87,54 @@ export type FrameRisk = {
   riskScore: number
 }
 
+/** TimeSformer 클립 단위 위험도 */
+export type ClipRisk = {
+  clipIndex: number
+  startFrameIndex: number
+  endFrameIndex: number
+  startTimeSec: number
+  endTimeSec: number
+  /** 0.0 ~ 1.0 */
+  riskScore: number
+}
+
+/** GMFlow 연속 프레임쌍 단위 motion anomaly */
+export type PairRisk = {
+  pairIndex: number
+  frameIndexA: number
+  frameIndexB: number
+  timestampSec: number
+  /** 0.0 ~ 1.0 (영상 내 상대값, 히트맵용) */
+  riskScore: number
+  /** GMFlow raw flow magnitude mean */
+  motionMagnitude?: number | null
+}
+
 export type SuspiciousSegment = {
   startTime: number
   endTime: number
   /** 0.0 ~ 1.0 */
   maxRiskScore: number
   reason: string
+}
+
+/** AI 모듈 종류. cnn=Xception, temporal=TimeSformer, optical=GMFlow */
+export type ModuleTimelineKind = "cnn" | "temporal" | "optical"
+
+/** 상세 UI용 모듈별 타임라인 묶음 (BE/FE 계약 확장) */
+export type ModuleTimeline = {
+  module: ModuleTimelineKind
+  modelName: string
+  modelVersion?: string | null
+  /** 영상 전체 판정 점수 (0.0 ~ 1.0) */
+  videoScore: number
+  /** 판정 임계값 (0.0 ~ 1.0) */
+  threshold: number
+  detected: boolean
+  frameRisks?: FrameRisk[] | null
+  clipRisks?: ClipRisk[] | null
+  pairRisks?: PairRisk[] | null
+  suspiciousSegments?: SuspiciousSegment[] | null
 }
 
 export type ModelScore = {
@@ -132,6 +176,16 @@ export type AnalysisInfo = {
   evidenceItems?: string[] | null
   frameRisks?: FrameRisk[] | null
   suspiciousSegments?: SuspiciousSegment[] | null
+  /** TimeSformer 클립 타임라인 */
+  clipRisks?: ClipRisk[] | null
+  /** GMFlow 프레임쌍 타임라인 */
+  pairRisks?: PairRisk[] | null
+  /** TimeSformer 클립 점수 기반 의심 구간 */
+  temporalSuspiciousSegments?: SuspiciousSegment[] | null
+  /** GMFlow optical motion 기반 의심 구간 */
+  opticalSuspiciousSegments?: SuspiciousSegment[] | null
+  /** 3모듈(cnn/temporal/optical) 통합 타임라인. 상세 차트용 */
+  moduleTimelines?: ModuleTimeline[] | null
   frameScores?: FrameScore[] | null
   representativeFrames?: RepresentativeFrame[] | null
   overlayVideoUrl?: string | null

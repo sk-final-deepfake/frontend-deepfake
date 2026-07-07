@@ -1,6 +1,7 @@
 import type {
   EvidenceDetailData,
   FrameScore,
+  ModelScore,
   ModuleResult,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
@@ -48,6 +49,12 @@ export type UiMethodologyModel = {
   name: string
   version: string
   role: string
+  /** 이번 분석에서 이 모델이 담당한 신호들의 최고 위험 점수 (0~1) */
+  score: number
+  /** 판정 임계값 초과 여부 */
+  overThreshold: boolean
+  /** 모델 개발 시점의 검증 성능. 백엔드 미제공 시 null */
+  benchmark: string | null
 }
 
 export type UiModelSetting = {
@@ -378,33 +385,109 @@ export function getPriorityReviewRange(data: EvidenceDetailData | null, frameSco
   }
 }
 
+/** modelScores.moduleName → 화면 표시용 모델명·역할 매핑 (BE 계약: deepfake_cnn 등) */
+const MODEL_SCORE_DISPLAY: Record<string, { name: string; role: string }> = {
+  deepfake: { name: "Late Fusion", role: "3개 모델 종합 판정" },
+  deepfake_cnn: { name: "Xception", role: "얼굴 합성·공간 특징 탐지" },
+  deepfake_temporal: { name: "TimeSformer", role: "프레임 시계열 일관성 분석" },
+  deepfake_optical: { name: "GMFlow", role: "광류 기반 움직임 보조 신호" },
+}
+
+/** 모델 개발 시점의 고정 벤치마크 (분석 데이터가 아닌 모델 카드 참조값) */
+const MODEL_BENCHMARKS: Record<string, string> = {
+  Xception: "AUC 0.97 · FaceForensics++ (c23)",
+  TimeSformer: "정확도 0.91 · 내부 시계열 검증 세트",
+  GMFlow: "광류 보조 신호 · 단독 판정에 사용하지 않음",
+}
+
+/** "timesformer/v1.1.0-celeb1k" → "v1.1.0-celeb1k" 로 모델명 접두어 제거 */
+function cleanModelVersion(version: string | null | undefined) {
+  const trimmed = version?.trim()
+  if (!trimmed) return "-"
+  return trimmed.includes("/") ? (trimmed.split("/").pop() || trimmed) : trimmed
+}
+
+function buildMethodologyModels(data: EvidenceDetailData | null, threshold: number): UiMethodologyModel[] {
+  const modelScores = data?.analysisInfo.modelScores ?? []
+  const visibleModelScores = modelScores.filter((model) => model.moduleName?.toLowerCase() !== TIMELINE_MODULE)
+
+  if (visibleModelScores.length > 0) {
+    return visibleModelScores.map((model) => buildModelScoreMethodologyModel(model, threshold))
+  }
+
+  const modelMap = new Map<
+    string,
+    {
+      name: string
+      version: string
+      roles: Set<string>
+      score: number
+      overThreshold: boolean
+      benchmark: string | null
+    }
+  >()
+
+  for (const module of getDetectionModules(data?.analysisInfo.moduleResults ?? [])) {
+    const name = module.modelName?.trim()
+    if (!name) continue
+    const version = cleanModelVersion(module.modelVersion)
+    const key = `${name}::${version}`
+    const score = normalizeResultValue(module.score)
+    const entry =
+      modelMap.get(key) ??
+      {
+        name,
+        version,
+        roles: new Set<string>(),
+        score: 0,
+        overThreshold: false,
+        benchmark: module.modelBenchmark?.trim() || MODEL_BENCHMARKS[name] || null,
+      }
+
+    entry.roles.add(formatModuleLabel(module.moduleName))
+    entry.score = Math.max(entry.score, score)
+    entry.overThreshold = entry.overThreshold || module.detected || score >= threshold
+    modelMap.set(key, entry)
+  }
+
+  return [...modelMap.values()].map((entry) => ({
+    name: entry.name,
+    version: entry.version,
+    role: [...entry.roles].join(" · "),
+    score: entry.score,
+    overThreshold: entry.overThreshold,
+    benchmark: entry.benchmark,
+  }))
+}
+
+function buildModelScoreMethodologyModel(model: ModelScore, threshold: number): UiMethodologyModel {
+  const moduleName = model.moduleName?.toLowerCase() ?? ""
+  const display = MODEL_SCORE_DISPLAY[moduleName]
+  const name = display?.name ?? model.modelName?.trim() ?? model.moduleName
+  const score = normalizeResultValue(model.score)
+
+  return {
+    name,
+    version: cleanModelVersion(model.modelVersion),
+    role: display?.role ?? formatModuleLabel(model.moduleName),
+    score,
+    overThreshold: Boolean(model.detected) || score >= threshold,
+    benchmark: MODEL_BENCHMARKS[name] ?? null,
+  }
+}
+
 /**
  * 분석 방법론 탭: 실제 실행된 모델과 재현에 필요한 파라미터만 담는다.
  * 백엔드가 제공하지 않은 값은 "-"로 표시하고 UI에서 만들어내지 않는다.
+ * modelScores(4모델 계약)가 있으면 그것을 우선 사용하고, 없으면 moduleResults로 대체한다.
  */
 export function buildMethodologyInfo(
   data: EvidenceDetailData | null,
   frameScores: FrameScore[]
 ): UiMethodologyInfo {
-  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
   const metadata = data?.evidenceInfo.technicalMetadata
   const threshold = getDetectionThreshold(data)
-
-  const modelMap = new Map<string, { name: string; version: string; roles: Set<string> }>()
-  for (const module of modules) {
-    const name = module.modelName?.trim()
-    if (!name) continue
-    const version = module.modelVersion?.trim() || "-"
-    const key = `${name}::${version}`
-    const entry = modelMap.get(key) ?? { name, version, roles: new Set<string>() }
-    entry.roles.add(formatModuleLabel(module.moduleName))
-    modelMap.set(key, entry)
-  }
-  const models: UiMethodologyModel[] = [...modelMap.values()].map((entry) => ({
-    name: entry.name,
-    version: entry.version,
-    role: [...entry.roles].join(" · "),
-  }))
+  const models = buildMethodologyModels(data, threshold)
 
   const analyzedFrameCount =
     frameScores.length > 0 ? frameScores.length : parseAnalyzedFrameCount(data)
