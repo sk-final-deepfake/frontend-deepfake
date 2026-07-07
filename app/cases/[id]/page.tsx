@@ -2981,7 +2981,7 @@ function CaseWorkflowPanel({
                 </div>
               ) : null}
 
-              <div className="flex max-h-[340px] min-h-[220px] flex-col overflow-y-auto pr-1 lg:max-h-[540px]">
+              <div className="flex max-h-[384px] min-h-[220px] flex-col overflow-y-auto overscroll-contain pr-1">
                 {filteredEvidences.length === 0 ? (
                   <p className="flex min-h-[220px] items-center justify-center px-3 text-center text-[13px] font-bold text-muted-foreground">
                     해당 상태의 증거가 없습니다.
