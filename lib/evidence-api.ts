@@ -14,6 +14,29 @@ export type MediaMetadata = {
   channels?: number
 }
 
+export type ReadinessTier = "GOOD" | "CAUTION" | "POOR" | "BLOCK"
+
+export type ReadinessSource = "FFPROBE" | "FRAME_SAMPLE"
+
+export type EvidenceReadinessResponse = {
+  evidenceId: number
+  source?: ReadinessSource | null
+  checkedAt?: string | null
+  readinessTier: ReadinessTier
+  confidenceCap: number
+  reasons: string[]
+  requiresAcknowledgement: boolean
+  thresholdsVersion?: string | null
+  videoMetadata?: {
+    width?: number | null
+    height?: number | null
+    fps?: number | null
+    durationSec?: number | null
+  } | null
+  frameCheckStatus?: string | null
+  frameCheckMessage?: string | null
+}
+
 export type FileUploadResponse = {
   success: boolean
   message: string
@@ -24,6 +47,7 @@ export type FileUploadResponse = {
   hashAlgorithm: string
   hashValue: string
   metadata: MediaMetadata | string | null
+  readiness?: EvidenceReadinessResponse | null
 }
 
 export type UploadResult = {
@@ -34,6 +58,7 @@ export type UploadResult = {
   hashAlgorithm: string
   hashValue: string
   metadata: MediaMetadata | string | null
+  readiness?: EvidenceReadinessResponse | null
   uploadedAt: string
   analysisStatus?: AnalysisStatus
 }
@@ -100,14 +125,42 @@ export type StartAnalysisResponse = {
   evidenceIds: number[]
 }
 
+export type StartAnalysisOptions = {
+  acknowledgeQualityWarning?: boolean
+}
+
 export async function startEvidenceAnalysis(
   evidenceIds: number[],
-  caseName: string
+  caseName: string,
+  options: StartAnalysisOptions = {}
 ): Promise<StartAnalysisResponse> {
+  const body: Record<string, unknown> = { evidenceIds, caseName }
+
+  if (options.acknowledgeQualityWarning === true) {
+    body.acknowledgeQualityWarning = true
+  }
+
   return apiRequest<StartAnalysisResponse>("/api/v1/evidences/analyze", {
     method: "POST",
-    body: { evidenceIds, caseName },
+    body,
   })
+}
+
+export async function fetchEvidenceReadiness(
+  evidenceId: number
+): Promise<EvidenceReadinessResponse> {
+  return apiRequest<EvidenceReadinessResponse>(
+    `/api/v1/evidences/${evidenceId}/readiness`
+  )
+}
+
+export async function runEvidenceReadinessCheck(
+  evidenceId: number
+): Promise<EvidenceReadinessResponse> {
+  return apiRequest<EvidenceReadinessResponse>(
+    `/api/v1/evidences/${evidenceId}/readiness-check`,
+    { method: "POST" }
+  )
 }
 
 export type AnalysisStatusResponse = {
@@ -166,6 +219,7 @@ export async function uploadEvidence(
     hashAlgorithm: data.hashAlgorithm,
     hashValue: data.hashValue,
     metadata: data.metadata,
+    readiness: data.readiness ?? null,
     uploadedAt: new Date().toISOString(),
   }
 }
