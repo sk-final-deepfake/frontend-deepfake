@@ -47,6 +47,9 @@ import {
   X,
 } from "lucide-react"
 
+import { QualityWarningDialog } from "@/components/quality-warning-dialog"
+import { ReadinessBadge } from "@/components/readiness-badge"
+import { useAnalyzeWithReadiness } from "@/hooks/use-analyze-with-readiness"
 import { CaseHero } from "./_components/case-hero"
 import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
@@ -103,7 +106,7 @@ import {
   startCaseAnalysis,
   uploadEvidenceToCase,
 } from "@/lib/api/case-workflow"
-import { fetchAnalysisStatus } from "@/lib/evidence-api"
+import { fetchAnalysisStatus, fetchEvidenceReadiness, type EvidenceReadinessResponse } from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
@@ -111,6 +114,8 @@ import { getLatestCompareResultSummary, type StoredCompareResultSummary } from "
 import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
+import { normalizeEvidenceDetailForUi } from "@/lib/api/normalize-analysis"
+import { readinessTargetFromCaseEvidence } from "@/lib/readiness"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
@@ -2306,6 +2311,21 @@ function CaseWorkflowPanel({
   const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
+  const [readinessByEvidenceId, setReadinessByEvidenceId] = useState<
+    Record<number, EvidenceReadinessResponse>
+  >({})
+  const {
+    isCheckingReadiness,
+    qualityDialogOpen,
+    qualityDialogLoading,
+    qualityDialogSummaries,
+    qualityDialogWorstTier,
+    startAnalysisWithReadiness,
+    confirmQualityDialog,
+    cancelQualityDialog,
+  } = useAnalyzeWithReadiness()
+
+  const analysisBusy = isWorking || isCheckingReadiness || qualityDialogOpen
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [statusFilter, setStatusFilter] = useState<EvidenceStatusBucket | "all">("all")
 
@@ -2401,6 +2421,26 @@ function CaseWorkflowPanel({
 
     setSelectedCompareResult(getLatestCompareResultSummary(selectedEvidence.evidenceId))
   }, [selectedEvidence])
+
+  useEffect(() => {
+    if (!selectedEvidence) return
+
+    const evidenceId = selectedEvidence.evidenceId
+    let cancelled = false
+
+    void fetchEvidenceReadiness(evidenceId)
+      .then((readiness) => {
+        if (cancelled) return
+        setReadinessByEvidenceId((current) =>
+          current[evidenceId] ? current : { ...current, [evidenceId]: readiness }
+        )
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedEvidence?.evidenceId])
 
   useEffect(() => {
     if (message?.type !== "success") return
@@ -2540,6 +2580,12 @@ function CaseWorkflowPanel({
       let firstEvidenceId: number | null = null
       for (const file of selectedFiles) {
         const result = await uploadEvidenceToCase(caseData.caseId, caseData.caseName, file)
+        if (result.readiness) {
+          setReadinessByEvidenceId((current) => ({
+            ...current,
+            [result.evidenceId]: result.readiness!,
+          }))
+        }
         firstEvidenceId ??= result.evidenceId
       }
       if (firstEvidenceId) onSelectEvidence(firstEvidenceId)
@@ -2609,23 +2655,52 @@ function CaseWorkflowPanel({
           ? selectedSelectableAnalysisIds
           : fallbackAnalysisIds
 
-    await runAction(
-      async () => {
-        await startCaseAnalysis({
-          caseId: caseData.caseId,
-          caseName: caseData.caseName,
-          analysisType,
-          evidenceIds: targetIds,
-          baseEvidenceId,
-          targetEvidenceId,
+    const targetEvidenceSummaries = targetIds
+      .map((id) => evidences.find((evidence) => evidence.evidenceId === id))
+      .filter((evidence): evidence is CaseEvidenceSummary => evidence != null)
+
+    setMessage(null)
+
+    await startAnalysisWithReadiness({
+      targets: targetEvidenceSummaries.map(readinessTargetFromCaseEvidence),
+      onReadinessChecked: (summaries) => {
+        setReadinessByEvidenceId((current) => {
+          const next = { ...current }
+          for (const item of summaries) {
+            next[item.evidenceId] = item.readiness
+          }
+          return next
         })
+      },
+      runAnalyze: (ack) =>
+        startCaseAnalysis(
+          {
+            caseId: caseData.caseId,
+            caseName: caseData.caseName,
+            analysisType,
+            evidenceIds: targetIds,
+            baseEvidenceId,
+            targetEvidenceId,
+          },
+          { acknowledgeQualityWarning: ack || undefined }
+        ),
+      onSuccess: () => {
         if (targetIds[0]) onSelectEvidence(targetIds[0])
         setSelectedAnalysisIds([])
         setActionMode("idle")
+        setMessage({
+          type: "success",
+          text: `${getAnalysisTypeLabel(analysisType)} 요청이 등록되었습니다.`,
+        })
+        onRefresh()
       },
-      `${getAnalysisTypeLabel(analysisType)} 요청이 등록되었습니다.`,
-      { showSuccess: false, refresh: true }
-    )
+      onError: (error) => {
+        setMessage({
+          type: "error",
+          text: getErrorMessage(error, "분석 요청에 실패했습니다."),
+        })
+      },
+    })
   }
 
   async function handleCancelSelectedAnalysis() {
@@ -2965,6 +3040,14 @@ function CaseWorkflowPanel({
 
                   <div className="min-h-[372px] min-w-0 flex-none lg:flex-1 lg:border-l lg:border-border lg:pl-5">
             {infoTab === "metadata" ? (
+              <div>
+                {readinessByEvidenceId[selectedEvidence.evidenceId] ? (
+                  <div className="mb-3">
+                    <ReadinessBadge
+                      tier={readinessByEvidenceId[selectedEvidence.evidenceId].readinessTier}
+                    />
+                  </div>
+                ) : null}
               <div className="min-h-[372px]">
                 <dl className="space-y-3">
                   <CaseMetadataRow label="파일 유형" value={selectedEvidence.mediaType || "-"} />
@@ -3211,6 +3294,8 @@ function CaseWorkflowPanel({
                   type="button"
                   className="h-11 rounded-full bg-foreground px-6 text-sm font-bold text-background hover:bg-foreground/90"
                   disabled={
+                    analysisBusy ||
+                    (!selectedEvidenceCompleted &&
                     isWorking ||
                     (!showSelectedEvidenceResultAction &&
                       selectedAnalysisCount === 0 &&
@@ -3225,6 +3310,10 @@ function CaseWorkflowPanel({
                     void handleStartAnalysis()
                   }}
                 >
+                  {analysisBusy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                  {isCheckingReadiness
+                    ? "품질 검사 중..."
+                    : selectedEvidenceCompleted
                   {isWorking ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
                   {selectedAnalysisCount > 1
                     ? "전체 분석하기"
@@ -3404,6 +3493,15 @@ function CaseWorkflowPanel({
           </div>
         </div>
       ) : null}
+
+      <QualityWarningDialog
+        open={qualityDialogOpen}
+        summaries={qualityDialogSummaries}
+        worstTier={qualityDialogWorstTier}
+        loading={qualityDialogLoading}
+        onConfirm={() => void confirmQualityDialog()}
+        onCancel={cancelQualityDialog}
+      />
     </section>
   )
 }

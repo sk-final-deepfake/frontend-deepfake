@@ -93,14 +93,21 @@ export async function setEvidenceRole(evidenceId: number, role: EvidenceRole): P
   throw new Error("증거 역할 변경 기능은 백엔드 API 계약 후 사용할 수 있습니다.")
 }
 
+export type StartCaseAnalysisOptions = {
+  acknowledgeQualityWarning?: boolean
+}
+
 export async function startCaseAnalysis(
-  payload: StartCaseAnalysisPayload
+  payload: StartCaseAnalysisPayload,
+  options: StartCaseAnalysisOptions = {}
 ): Promise<StartAnalysisResponse> {
   if (features.mockApi) {
     return mockStartCaseAnalysis(payload)
   }
 
-  return startEvidenceAnalysis(payload.evidenceIds, payload.caseName)
+  return startEvidenceAnalysis(payload.evidenceIds, payload.caseName, {
+    acknowledgeQualityWarning: options.acknowledgeQualityWarning,
+  })
 }
 
 export async function cancelCaseAnalysis(evidenceId: number): Promise<void> {

@@ -4,6 +4,7 @@ import { Info, FileCode, Hash, Calendar, HardDrive, Clock } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { AnalysisStatusBadge } from "@/components/analysis-status-badge"
+import { ReadinessBadge } from "@/components/readiness-badge"
 import type { MetadataDisplayItem } from "@/lib/metadata-types"
 import type { MediaMetadata } from "@/lib/evidence-api"
 import { formatFileSize } from "@/lib/formatters"
@@ -89,16 +90,19 @@ function UploadedMetadataCard({
 
   return (
     <div className="rounded-lg border border-border bg-muted/20 p-4">
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <p className="truncate text-sm font-medium text-foreground">{upload.fileName}</p>
-        {analysisStatus ? (
-          <AnalysisStatusBadge status={analysisStatus} />
-        ) : (
-          <Badge variant="outline" className="shrink-0 text-[10px]">
-            업로드 완료
-          </Badge>
-        )}
-      </div>
+        <div className="mb-3 flex flex-wrap items-start justify-end gap-2">
+          {upload.readiness ? (
+            <ReadinessBadge tier={upload.readiness.readinessTier} />
+          ) : null}
+          {analysisStatus ? (
+            <AnalysisStatusBadge status={analysisStatus} />
+          ) : (
+            <Badge variant="outline" className="shrink-0 text-[10px]">
+              업로드 완료
+            </Badge>
+          )}
+        </div>
+        <p className="mb-3 truncate text-sm font-medium text-foreground">{upload.fileName}</p>
       <dl className="space-y-3">
         {upload.caseName ? (
           <div className="flex flex-col gap-1">
