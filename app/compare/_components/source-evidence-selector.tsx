@@ -1,4 +1,7 @@
-import { AlertTriangle, ArrowRight, Search } from "lucide-react"
+"use client"
+
+import { useEffect, useRef, useState } from "react"
+import { AlertTriangle, ArrowRight, Check, ChevronDown, Search } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -39,6 +42,41 @@ export function SourceEvidenceSelector({
   onNext,
 }: SourceEvidenceSelectorProps) {
   const selectedEvidence = selectedCase.evidences.find((evidence) => evidence.id === selectedEvidenceId)
+  const selectedCaseOption = cases.find((sourceCase) => sourceCase.id === selectedCaseId)
+  const selectedCaseLabel = isLoadingCases
+    ? "사건 목록을 불러오는 중..."
+    : selectedCaseOption
+      ? `${selectedCaseOption.title} · ${selectedCaseOption.department}`
+      : "사건을 선택하세요"
+  const [caseMenuOpen, setCaseMenuOpen] = useState(false)
+  const caseMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!caseMenuOpen) return
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!caseMenuRef.current?.contains(event.target as Node)) {
+        setCaseMenuOpen(false)
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setCaseMenuOpen(false)
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    document.addEventListener("keydown", handleKeyDown)
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [caseMenuOpen])
+
+  function selectCase(caseId: string) {
+    setCaseMenuOpen(false)
+    if (caseId !== selectedCaseId) onSelectCase(caseId)
+  }
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
@@ -58,22 +96,62 @@ export function SourceEvidenceSelector({
         ) : null}
 
         <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="min-w-0 flex-1 sm:max-w-sm">
+          <div className="min-w-0 flex-1 sm:max-w-sm">
             <span className="mb-1.5 block text-xs font-bold text-slate-400">사건</span>
-            <select
-              value={selectedCaseId}
-              onChange={(event) => onSelectCase(event.target.value)}
-              disabled={isLoadingCases}
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-950 outline-none transition-colors focus:border-slate-400 disabled:opacity-60 dark:border-border dark:bg-card dark:text-foreground"
-            >
-              {isLoadingCases ? <option value="">사건 목록을 불러오는 중...</option> : null}
-              {cases.map((sourceCase) => (
-                <option key={sourceCase.id} value={sourceCase.id}>
-                  {sourceCase.title} · {sourceCase.department}
-                </option>
-              ))}
-            </select>
-          </label>
+            <div ref={caseMenuRef} className="relative">
+              <button
+                type="button"
+                disabled={isLoadingCases}
+                aria-haspopup="listbox"
+                aria-expanded={caseMenuOpen}
+                onClick={() => setCaseMenuOpen((open) => !open)}
+                className="flex h-10 w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm font-semibold text-slate-950 outline-none transition-colors hover:border-slate-300 focus:border-slate-400 disabled:opacity-60 dark:border-border dark:bg-card dark:text-foreground"
+              >
+                <span className="min-w-0 truncate">{selectedCaseLabel}</span>
+                <ChevronDown
+                  className={cn(
+                    "size-4 shrink-0 text-slate-500 transition-transform",
+                    caseMenuOpen && "rotate-180"
+                  )}
+                  aria-hidden="true"
+                />
+              </button>
+
+              {caseMenuOpen && !isLoadingCases ? (
+                <div
+                  role="listbox"
+                  className="absolute left-0 right-0 z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-border dark:bg-card"
+                >
+                  {cases.map((sourceCase) => {
+                    const isSelectedCase = sourceCase.id === selectedCaseId
+                    const label = `${sourceCase.title} · ${sourceCase.department}`
+
+                    return (
+                      <button
+                        key={sourceCase.id}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelectedCase}
+                        onClick={() => selectCase(sourceCase.id)}
+                        className={cn(
+                          "flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm font-semibold transition-colors",
+                          isSelectedCase
+                            ? "bg-slate-950 text-white dark:bg-foreground dark:text-background"
+                            : "text-slate-700 hover:bg-slate-50 dark:text-foreground dark:hover:bg-secondary"
+                        )}
+                      >
+                        <Check
+                          className={cn("size-4 shrink-0", isSelectedCase ? "opacity-100" : "opacity-0")}
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 truncate">{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </div>
           <label className="min-w-0 flex-1">
             <span className="mb-1.5 block text-xs font-bold text-slate-400">증거 검색</span>
             <span className="relative block">
