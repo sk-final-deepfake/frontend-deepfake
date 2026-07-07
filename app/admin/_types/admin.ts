@@ -33,6 +33,7 @@ export interface AdminLog {
   category: LogCategory
   actor: string
   actorId: string
+  actorName?: string | null
   department: string
   action: string
   detail?: string

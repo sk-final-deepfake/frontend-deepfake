@@ -1,5 +1,7 @@
 import { apiDownload, apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
+import { mockAssignReviewerToCase } from "@/lib/mock/forensic-api"
+import { mockUsers } from "@/lib/permissions"
 import {
   MOCK_ADMIN_LOGS,
   MOCK_ADMIN_PROFILE,
@@ -30,6 +32,19 @@ type AdminUserPageResponse = {
 type AdminUserStatusResponse = {
   userId: string
   status: UserStatus
+}
+
+export type AdminReviewer = {
+  id: string
+  name: string
+  department?: string | null
+  organizationId?: string | null
+  organizationName?: string | null
+  organizationType?: string | null
+}
+
+type AdminReviewerListResponse = {
+  reviewers: AdminReviewer[]
 }
 
 export type AdminDashboardStats = {
@@ -590,6 +605,52 @@ export async function deleteAdminUser(userId: string): Promise<void> {
       patchMockAdminUser(userId, { status: "SUSPENDED" })
       return undefined
     }
+  )
+}
+
+export async function fetchAdminReviewers(department?: string | null): Promise<AdminReviewer[]> {
+  const params = new URLSearchParams()
+  if (department && department !== "ALL") {
+    params.set("department", department)
+  }
+  const query = params.toString()
+
+  return withMockFallback(
+    async () => {
+      const data = await apiRequest<AdminReviewerListResponse>(
+        `/api/v1/admin/reviewers${query ? `?${query}` : ""}`
+      )
+      return data.reviewers ?? []
+    },
+    () =>
+      mockUsers
+        .filter((user) => user.role === "REVIEWER")
+        .filter((user) => !department || department === "ALL" || user.department === department)
+        .map((user) => ({
+          id: user.id,
+          name: user.name,
+          department: user.department,
+          organizationId: user.organizationId,
+          organizationName: user.organizationName,
+        }))
+  )
+}
+
+export async function assignAdminCaseReviewer(
+  caseId: string,
+  reviewerId: string,
+  uploaderId?: string | null
+): Promise<void> {
+  await withMockFallback(
+    () =>
+      apiRequest<void>(`/api/v1/cases/${encodeURIComponent(caseId)}/reviewer`, {
+        method: "PATCH",
+        body: {
+          reviewerId,
+          ...(uploaderId ? { uploaderId } : {}),
+        },
+      }),
+    () => mockAssignReviewerToCase(caseId, reviewerId)
   )
 }
 

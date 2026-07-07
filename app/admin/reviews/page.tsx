@@ -15,14 +15,16 @@ import { useAdminToast } from "@/app/admin/_components/admin-toast-provider";
 import type { CaseSummary } from "@/app/mypage/_types/case";
 import { ORG_TYPES, type OrgType } from "@/app/signup/organizationData";
 import { Button } from "@/components/ui/button";
+import {
+    assignAdminCaseReviewer,
+    fetchAdminReviewers,
+    type AdminReviewer,
+} from "@/lib/api/admin";
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { mockAssignReviewerToCase } from "@/lib/mock/forensic-api";
 import { cn } from "@/lib/utils";
 import { mockUsers } from "@/lib/permissions";
 import { fetchDepartments } from "@/lib/signup-api";
-
-const reviewers = mockUsers.filter((user) => user.role === "REVIEWER");
 
 const REQUESTED_REVIEW_STATUS = "REVIEW_REQUESTED" as const;
 const ASSIGNED_REVIEW_STATUS = "REVIEW_ASSIGNED" as const;
@@ -54,6 +56,7 @@ type QueueTab = "REQUESTED" | "ASSIGNED" | "SUPPLEMENT_REQUESTED" | "COMPLETED";
 type RiskFilter = "ALL" | "HIGH" | "NORMAL";
 type SortMode = "DELAYED" | "REQUESTED_DESC" | "RISK_DESC";
 type OrganizationFilter = OrgType | "ALL";
+type ReviewerOption = AdminReviewer;
 
 type QueueFilters = {
     organizationType: OrganizationFilter;
@@ -75,7 +78,7 @@ const sortLabels: Record<SortMode, string> = {
     RISK_DESC: "위험도순",
 };
 
-type ReviewerStat = (typeof reviewers)[number] & {
+type ReviewerStat = ReviewerOption & {
     assignedCount: number;
     delayedCount: number;
 };
@@ -121,6 +124,13 @@ function hasReviewStatus(caseItem: CaseSummary, statuses: readonly string[]) {
     return statuses.includes(String(caseItem.reviewStatus ?? "NONE"));
 }
 
+function isCompletedAnalysisPendingReview(caseItem: CaseSummary) {
+    return (
+        caseItem.status === "COMPLETED" &&
+        (!caseItem.reviewStatus || caseItem.reviewStatus === "NONE")
+    );
+}
+
 function isCompletedReview(caseItem: CaseSummary) {
     return hasReviewStatus(caseItem, COMPLETED_REVIEW_STATUSES);
 }
@@ -152,10 +162,10 @@ function getRiskText(caseItem: CaseSummary) {
     return caseItem.aiResult ?? "-";
 }
 
-function reviewerName(reviewerId?: string | null) {
+function reviewerName(reviewerId?: string | null, reviewerOptions: readonly ReviewerOption[] = []) {
     if (!reviewerId) return "미배정";
     return (
-        reviewers.find((reviewer) => reviewer.id === reviewerId)?.name ?? reviewerId
+        reviewerOptions.find((reviewer) => reviewer.id === reviewerId)?.name ?? reviewerId
     );
 }
 
@@ -226,6 +236,7 @@ export default function AdminReviewAssignmentPage() {
     const [sortMode, setSortMode] = useState<SortMode>("DELAYED");
     const [query, setQuery] = useState("");
     const [casePage, setCasePage] = useState(1);
+    const [reviewers, setReviewers] = useState<ReviewerOption[]>([]);
     const [assignmentCase, setAssignmentCase] = useState<CaseSummary | null>(
         null,
     );
@@ -262,8 +273,29 @@ export default function AdminReviewAssignmentPage() {
         return () => window.clearTimeout(timer);
     }, [loadCases]);
 
+    useEffect(() => {
+        let cancelled = false;
+
+        fetchAdminReviewers()
+            .then((items) => {
+                if (!cancelled) setReviewers(items);
+            })
+            .catch(() => {
+                if (!cancelled) setReviewers([]);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const reviewCases = useMemo(
-        () => cases.filter((item) => hasReviewStatus(item, REVIEW_QUEUE_STATUSES)),
+        () =>
+            cases.filter(
+                (item) =>
+                    hasReviewStatus(item, REVIEW_QUEUE_STATUSES) ||
+                    isCompletedAnalysisPendingReview(item),
+            ),
         [cases],
     );
 
@@ -336,7 +368,8 @@ export default function AdminReviewAssignmentPage() {
     const requestedCases = useMemo(
         () =>
             scopedReviewCases.filter((caseItem) =>
-                hasReviewStatus(caseItem, [REQUESTED_REVIEW_STATUS]),
+                hasReviewStatus(caseItem, [REQUESTED_REVIEW_STATUS]) ||
+                isCompletedAnalysisPendingReview(caseItem),
             ),
         [scopedReviewCases],
     );
@@ -467,7 +500,7 @@ export default function AdminReviewAssignmentPage() {
                     getOrganizationName(item.organizationId),
                     item.department ?? "",
                     item.representativeFileName ?? "",
-                    reviewerName(item.reviewerId),
+                    reviewerName(item.reviewerId, reviewers),
                 ]
                     .join(" ")
                     .toLowerCase()
@@ -496,7 +529,7 @@ export default function AdminReviewAssignmentPage() {
                     getRequestAgeHours(first.reviewRequestedAt)
                 );
             });
-    }, [activeTab, baseCases, filters, query, sortMode]);
+    }, [activeTab, baseCases, filters, query, reviewers, sortMode]);
 
     const totalCaseCount = filteredCases.length;
     const totalCasePages = Math.max(
@@ -596,9 +629,10 @@ export default function AdminReviewAssignmentPage() {
 
         setProcessingCaseId(assignmentCase.caseId);
         try {
-            await mockAssignReviewerToCase(
+            await assignAdminCaseReviewer(
                 assignmentCase.caseId,
                 selectedReviewer.id,
+                assignmentCase.createdBy,
             );
             toast({
                 title: isReassignment ? "담당자 변경 완료" : "담당자 배정 완료",
@@ -652,8 +686,8 @@ export default function AdminReviewAssignmentPage() {
                     </div>
                 </section>
 
-                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                    <div className="border-b border-slate-100 px-5 py-4">
+                <section className="relative overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <div className="relative z-30 border-b border-slate-100 bg-white px-5 py-4">
                         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                             <div className="relative grid w-full max-w-[520px] grid-cols-4 rounded-lg border border-slate-200 bg-slate-50 p-1">
                 <span
@@ -764,7 +798,7 @@ export default function AdminReviewAssignmentPage() {
                                             isSupplementRequestedReview(caseItem);
                                         const actionLabel = hasReviewStatus(caseItem, [
                                             REQUESTED_REVIEW_STATUS,
-                                        ])
+                                        ]) || isCompletedAnalysisPendingReview(caseItem)
                                             ? "배정"
                                             : "변경";
 
@@ -806,7 +840,7 @@ export default function AdminReviewAssignmentPage() {
                                                     ) : null}
                                                 </td>
                                                 <td className="px-5 py-4 align-top text-slate-700">
-                                                    {reviewerName(caseItem.reviewerId)}
+                                                    {reviewerName(caseItem.reviewerId, reviewers)}
                                                 </td>
                                                 <td className="px-5 py-4 text-right align-top">
                                                     {completed || supplementRequested ? (
@@ -919,7 +953,7 @@ function FilterPopover({
     onReset: () => void;
 }) {
     return (
-        <div className="absolute right-0 z-20 mt-2 w-[320px] max-w-[calc(100vw-3rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
+        <div className="absolute right-0 z-50 mt-2 w-[320px] max-w-[calc(100vw-3rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
             <div className="space-y-4">
                 <FilterSelect
                     label="기관"
@@ -1121,7 +1155,7 @@ function AssignmentModal({
                         </p>
                         <div className="mt-2 grid gap-1 text-sm text-slate-600">
                             <p>소속: {getScopeLabel(caseItem)}</p>
-                            <p>현재 담당자: {reviewerName(caseItem.reviewerId)}</p>
+                            <p>현재 담당자: {reviewerName(caseItem.reviewerId, reviewers)}</p>
                             <p>
                                 위험도:{" "}
                                 <span className={riskTextClass(caseItem)}>

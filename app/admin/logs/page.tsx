@@ -68,10 +68,12 @@ function getTypeBadge(action: string, category: LogCategory) {
 }
 
 function formatUserCell(log: AdminLog) {
+  const secondaryLabel = log.actorName?.trim() || `ID ${log.actorId}`
+
   return (
     <div>
       <p className="font-medium text-slate-900">{log.actor}</p>
-      <p className="text-xs text-slate-500">{log.actorId}</p>
+      <p className="text-xs text-slate-500">{secondaryLabel}</p>
     </div>
   )
 }
