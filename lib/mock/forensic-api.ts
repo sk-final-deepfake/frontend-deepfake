@@ -79,6 +79,7 @@ type MockEvidenceRecord = UploadResult & {
 type MockCaseRecord = {
   caseId: string
   caseName: string
+  caseNumber?: string | null
   createdAt: string
   representativeEvidenceId?: number | null
   organizationId?: string | null
@@ -1061,11 +1062,12 @@ export async function mockUploadEvidence(file: File, caseName?: string): Promise
   return record
 }
 
-export async function mockCreateCase(caseName: string): Promise<CaseDetailData> {
+export async function mockCreateCase(caseName: string, caseNumber?: string): Promise<CaseDetailData> {
   await delay(180)
 
   const trimmed = caseName.trim()
   if (!trimmed) throw new Error("사건명을 입력해 주세요.")
+  const trimmedCaseNumber = caseNumber?.trim() || trimmed
 
   const store = readStore()
   const normalizedName = normalizeCaseNameForCompare(trimmed)
@@ -1080,6 +1082,7 @@ export async function mockCreateCase(caseName: string): Promise<CaseDetailData> 
   const record: MockCaseRecord = {
     caseId: createCaseId(trimmed),
     caseName: trimmed,
+    caseNumber: trimmedCaseNumber,
     createdAt: new Date().toISOString(),
     representativeEvidenceId: null,
     ...defaultCaseAccessFields(),
@@ -1093,6 +1096,7 @@ export async function mockCreateCase(caseName: string): Promise<CaseDetailData> 
   return {
     caseId: record.caseId,
     caseName: record.caseName,
+    caseNumber: record.caseNumber,
     status: "PENDING",
     createdAt: record.createdAt,
     representativeEvidenceId: null,

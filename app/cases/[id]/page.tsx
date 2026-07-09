@@ -2792,7 +2792,12 @@ function CaseWorkflowPanel({
     await runAction(async () => {
       let firstEvidenceId: number | null = null
       for (const file of selectedFiles) {
-        const result = await uploadEvidenceToCase(caseData.caseId, caseData.caseName, file)
+        const result = await uploadEvidenceToCase(
+          caseData.caseId,
+          caseData.caseName,
+          file,
+          caseData.caseNumber ?? undefined
+        )
         if (result.readiness) {
           setReadinessByEvidenceId((current) => ({
             ...current,
