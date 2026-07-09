@@ -270,7 +270,9 @@ export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceD
     return mockFetchEvidenceDetail(evidenceId)
   }
 
-  return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`)
+  return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`, {
+    stepUp: true,
+  })
 }
 
 export type EvidenceSecurityEventPayload = {
