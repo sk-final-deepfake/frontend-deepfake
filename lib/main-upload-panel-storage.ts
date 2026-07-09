@@ -11,6 +11,7 @@ export type PersistedUploadEntry = {
 
 export type MainUploadPanelSession = {
   caseName: string
+  caseNumber?: string
   entries: PersistedUploadEntry[]
   hasUploadedOnce: boolean
 }
@@ -33,7 +34,7 @@ export function loadMainUploadPanelSession(): MainUploadPanelSession | null {
 export function saveMainUploadPanelSession(session: MainUploadPanelSession) {
   if (typeof window === "undefined") return
 
-  if (session.entries.length === 0 && !session.caseName && !session.hasUploadedOnce) {
+  if (session.entries.length === 0 && !session.caseName && !session.caseNumber && !session.hasUploadedOnce) {
     localStorage.removeItem(MAIN_UPLOAD_PANEL_KEY)
     return
   }

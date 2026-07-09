@@ -37,6 +37,7 @@ export function AnalysisRequestFlow() {
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [activeEvidenceIndex, setActiveEvidenceIndex] = useState(0)
   const [caseName, setCaseName] = useState("")
+  const [caseNumber, setCaseNumber] = useState("")
   const [uploadMessage, setUploadMessage] = useState<{
     type: "success" | "error"
     text: string
@@ -109,12 +110,13 @@ export function AnalysisRequestFlow() {
 
     setUploadMessage(null)
     const trimmedCaseName = caseName.trim()
+    const trimmedCaseNumber = caseNumber.trim()
 
     try {
       const uploadedItems: UploadItem[] = []
 
       for (const item of uploadItems) {
-        const result = await uploadEvidence(item.file, trimmedCaseName)
+        const result = await uploadEvidence(item.file, trimmedCaseName, trimmedCaseNumber)
         uploadedItems.push({
           file: item.file,
           evidenceId: result.evidenceId,
@@ -175,6 +177,7 @@ export function AnalysisRequestFlow() {
         evidences={evidences}
         activeEvidenceIndex={activeEvidenceIndex}
         caseName={caseName}
+        caseNumber={caseNumber}
         uploadMessage={uploadMessage}
         totalSizeLabel={formatTotalSizeLabel(evidences)}
         metadataPreview={
@@ -193,6 +196,7 @@ export function AnalysisRequestFlow() {
         onDrop={handleDrop}
         onFileChange={handleFileChange}
         onCaseNameChange={setCaseName}
+        onCaseNumberChange={setCaseNumber}
         onRemoveFile={removeEvidence}
         onSelectEvidence={setActiveEvidenceIndex}
         onStart={startAnalysis}
