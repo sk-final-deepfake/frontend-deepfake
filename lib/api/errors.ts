@@ -23,3 +23,8 @@ export function isStepUpRequiredError(error: unknown): boolean {
     error.errorCode === "STEP_UP_REQUIRED"
   )
 }
+
+// Rate limit(429) 여부.
+export function isRateLimitError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 429 && error.errorCode === "RATE_LIMIT_EXCEEDED"
+}
