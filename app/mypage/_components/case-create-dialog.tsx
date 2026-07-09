@@ -30,6 +30,7 @@ export function CaseCreateDialog({
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [newCaseName, setNewCaseName] = useState("")
+  const [newCaseNumber, setNewCaseNumber] = useState("")
   const [representativeFile, setRepresentativeFile] = useState<File | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   const [recoverableCase, setRecoverableCase] = useState<{ caseId: string; caseName: string } | null>(null)
@@ -73,7 +74,8 @@ export function CaseCreateDialog({
         representativeEvidence = await uploadEvidenceToCase(
           created.caseId,
           created.caseName,
-          initialEvidenceFile
+          initialEvidenceFile,
+          newCaseNumber.trim() || undefined
         )
       } catch (uploadError) {
         setRecoverableCase({ caseId: created.caseId, caseName: created.caseName })
@@ -115,7 +117,8 @@ export function CaseCreateDialog({
       const representativeEvidence = await uploadEvidenceToCase(
         recoverableCase.caseId,
         recoverableCase.caseName,
-        initialEvidenceFile
+        initialEvidenceFile,
+        newCaseNumber.trim() || undefined
       )
       try {
         await setRepresentativeEvidence(recoverableCase.caseId, representativeEvidence.evidenceId)
@@ -141,6 +144,7 @@ export function CaseCreateDialog({
 
   function resetForm() {
     setNewCaseName("")
+    setNewCaseNumber("")
     setRepresentativeFile(null)
     setCreateError(null)
     setRecoverableCase(null)
@@ -212,9 +216,24 @@ export function CaseCreateDialog({
                   id="newCaseName"
                   value={newCaseName}
                   onChange={(event) => setNewCaseName(event.target.value)}
-                  placeholder="예: 2026-서울-0123 영상 증거 분석"
+                  placeholder="예: 딥페이크 유포 사건"
                   className="mt-2 h-11 w-full rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-teal-300 focus:ring-4 focus:ring-teal-100"
                 />
+              </div>
+              <div>
+                <label htmlFor="newCaseNumber" className="block text-sm font-bold text-foreground">
+                  사건번호
+                </label>
+                <input
+                  id="newCaseNumber"
+                  value={newCaseNumber}
+                  onChange={(event) => setNewCaseNumber(event.target.value)}
+                  placeholder="예: 2026-서울-0123"
+                  className="mt-2 h-11 w-full rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-teal-300 focus:ring-4 focus:ring-teal-100"
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  입력 시 S3 저장 파일명이 사건명-사건번호 형식으로 생성됩니다.
+                </p>
               </div>
             </div>
 

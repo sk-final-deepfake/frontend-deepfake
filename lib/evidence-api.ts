@@ -59,6 +59,7 @@ export type FileUploadResponse = {
   evidenceId: number
   fileName: string
   caseName?: string | null
+  caseNumber?: string | null
   fileSize: number
   hashAlgorithm: string
   hashValue: string
@@ -70,6 +71,7 @@ export type UploadResult = {
   evidenceId: number
   fileName: string
   caseName?: string | null
+  caseNumber?: string | null
   fileSize: number
   hashAlgorithm: string
   hashValue: string
@@ -214,13 +216,22 @@ export async function cancelAnalysis(evidenceId: number): Promise<void> {
 
 export async function uploadEvidence(
   file: File,
-  caseName?: string
+  caseName?: string,
+  caseNumber?: string
 ): Promise<UploadResult> {
   const formData = new FormData()
   formData.append("file", file)
   const trimmedCaseName = caseName?.trim()
-  const path = trimmedCaseName
-    ? `/api/v1/evidences/upload?${new URLSearchParams({ caseName: trimmedCaseName })}`
+  const trimmedCaseNumber = caseNumber?.trim()
+  const query = new URLSearchParams()
+  if (trimmedCaseName) {
+    query.set("caseName", trimmedCaseName)
+  }
+  if (trimmedCaseNumber) {
+    query.set("caseNumber", trimmedCaseNumber)
+  }
+  const path = query.size > 0
+    ? `/api/v1/evidences/upload?${query.toString()}`
     : "/api/v1/evidences/upload"
 
   const data = await apiRequestForm<FileUploadResponse>(path, {
@@ -231,6 +242,7 @@ export async function uploadEvidence(
     evidenceId: data.evidenceId,
     fileName: data.fileName,
     caseName: data.caseName,
+    caseNumber: data.caseNumber,
     fileSize: data.fileSize,
     hashAlgorithm: data.hashAlgorithm,
     hashValue: data.hashValue,
