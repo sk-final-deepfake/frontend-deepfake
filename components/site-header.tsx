@@ -6,7 +6,14 @@ import { usePathname } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { SiteHeaderAuth } from "@/components/site-header-auth"
+import {
+  clearStepUpToken,
+  getStepUpRemainingSeconds,
+  isStepUpValid,
+  STEP_UP_CHANGE_EVENT,
+} from "@/lib/api/step-up-auth"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
+import { features } from "@/lib/features"
 import { cn } from "@/lib/utils"
 
 const defaultNavItems = [
@@ -37,6 +44,7 @@ export function SiteHeader({
   const pathname = usePathname()
   const [hash, setHash] = useState("")
   const [session, setSessionState] = useState<AuthSession | null>(() => getSession())
+  const [stepUpRemainingSeconds, setStepUpRemainingSeconds] = useState(0)
   const showNav = variant !== "minimal"
   const showAuth = variant !== "minimal"
   const activeKey = getActiveNavKey(pathname, hash)
@@ -74,6 +82,38 @@ export function SiteHeader({
       window.clearInterval(interval)
     }
   }, [pathname])
+
+  useEffect(() => {
+    if (features.mockApi) {
+      setStepUpRemainingSeconds(0)
+      return
+    }
+
+    function syncStepUpRemaining() {
+      if (!isStepUpValid()) {
+        setStepUpRemainingSeconds(0)
+        return
+      }
+
+      const remaining = getStepUpRemainingSeconds()
+      if (remaining <= 0) {
+        clearStepUpToken()
+        setStepUpRemainingSeconds(0)
+        return
+      }
+
+      setStepUpRemainingSeconds(remaining)
+    }
+
+    syncStepUpRemaining()
+    window.addEventListener(STEP_UP_CHANGE_EVENT, syncStepUpRemaining)
+    const interval = window.setInterval(syncStepUpRemaining, 1000)
+
+    return () => {
+      window.removeEventListener(STEP_UP_CHANGE_EVENT, syncStepUpRemaining)
+      window.clearInterval(interval)
+    }
+  }, [])
 
   function handleMainNavigation(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (!href.startsWith("/main")) return
@@ -167,6 +207,16 @@ export function SiteHeader({
             <Lock className="size-4" aria-hidden="true" />
             {variant === "admin" ? "관리자 전용" : "내부망 전용"}
           </Badge>
+          {showAuth && stepUpRemainingSeconds > 0 ? (
+            <Badge
+              variant="outline"
+              className="hidden h-8 gap-1.5 rounded-full border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 sm:inline-flex dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+              title="Step-up 재인증 남은 시간"
+            >
+              <ShieldCheck className="size-3.5" aria-hidden="true" />
+              {formatStepUpRemaining(stepUpRemainingSeconds)}
+            </Badge>
+          ) : null}
           {showAuth && <SiteHeaderAuth />}
         </div>
       </div>
@@ -189,4 +239,13 @@ function getActiveNavKey(pathname: string, hash: string) {
   if (hash === "#new-analysis") return "analysis"
 
   return "dashboard"
+}
+
+function formatStepUpRemaining(totalSeconds: number) {
+  if (totalSeconds >= 60) {
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}:${String(seconds).padStart(2, "0")}`
+  }
+  return `${totalSeconds}초`
 }

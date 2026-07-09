@@ -6,12 +6,13 @@ import { AlertCircle, ArrowLeft, Loader2 } from "lucide-react"
 
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
+import { StepUpGateDialogs } from "@/components/step-up-gate"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { fetchEvidenceDetail } from "@/lib/api/evidence-detail"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { buildCaseDetailPath } from "@/lib/route-params"
+import { isStepUpCancelledError, useStepUpGate } from "@/hooks/use-step-up-gate"
 
 function getDetailErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -24,6 +25,10 @@ function getDetailErrorMessage(error: unknown, fallback: string) {
     }
   }
 
+  if (isStepUpCancelledError(error)) {
+    return "민감 정보 조회를 위해 비밀번호 재인증이 필요합니다."
+  }
+
   return getApiErrorMessage(error, fallback)
 }
 
@@ -32,6 +37,7 @@ export default function EvidenceDetailRedirectPage() {
   const router = useRouter()
   const evidenceId = Array.isArray(id) ? Number(id[0]) : Number(id)
   const [error, setError] = useState<string | null>(null)
+  const stepUp = useStepUpGate()
 
   useEffect(() => {
     let cancelled = false
@@ -45,7 +51,7 @@ export default function EvidenceDetailRedirectPage() {
           throw new Error("올바르지 않은 증거 ID입니다.")
         }
 
-        const detail = await fetchEvidenceDetail(evidenceId)
+        const detail = await stepUp.fetchEvidenceDetailWithStepUp(evidenceId)
         if (cancelled) return
 
         const caseKey = detail.evidenceInfo.caseId ?? detail.evidenceInfo.caseName
@@ -66,7 +72,7 @@ export default function EvidenceDetailRedirectPage() {
     return () => {
       cancelled = true
     }
-  }, [id, evidenceId, router])
+  }, [id, evidenceId, router, stepUp.fetchEvidenceDetailWithStepUp])
 
   return (
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
@@ -100,6 +106,16 @@ export default function EvidenceDetailRedirectPage() {
       </main>
 
       <SiteFooter />
+
+      <StepUpGateDialogs
+        mode={stepUp.dialogMode}
+        loginId={stepUp.loginId}
+        loading={stepUp.passwordLoading}
+        error={stepUp.passwordError}
+        onSubmit={(password) => void stepUp.submitPassword(password)}
+        onCancel={stepUp.cancelPassword}
+        onSuccessClose={stepUp.closeSuccessDialog}
+      />
     </div>
   )
 }

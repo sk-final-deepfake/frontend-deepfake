@@ -48,9 +48,11 @@ import {
 } from "lucide-react"
 
 import { QualityWarningDialog } from "@/components/quality-warning-dialog"
+import { StepUpGateDialogs } from "@/components/step-up-gate"
 import { ReadinessCheckOverlay } from "@/components/readiness-check-overlay"
 import { ReadinessBadge } from "@/components/readiness-badge"
 import { useAnalyzeWithReadiness } from "@/hooks/use-analyze-with-readiness"
+import { isStepUpCancelledError, useStepUpGate } from "@/hooks/use-step-up-gate"
 import { CaseHero } from "./_components/case-hero"
 import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
@@ -94,7 +96,6 @@ import {
 import {
   type AnalysisType,
   fetchCaseDetail,
-  fetchEvidenceDetail,
   recordEvidenceSecurityEvent,
   type CaseDetailData,
   type CaseEvidenceSummary,
@@ -246,6 +247,16 @@ export default function CaseDetailPage() {
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
   const isReviewer = isReviewerSession(session)
+  const {
+    dialogMode,
+    loginId: stepUpLoginId,
+    passwordLoading,
+    passwordError,
+    submitPassword,
+    cancelPassword,
+    closeSuccessDialog,
+    fetchEvidenceDetailWithStepUp,
+  } = useStepUpGate()
 
   useEffect(() => {
     function syncSession() {
@@ -328,14 +339,18 @@ export default function CaseDetailPage() {
       setEvidenceDetail(null)
 
       try {
-        const result = await fetchEvidenceDetail(selectedEvidenceId)
+        const result = await fetchEvidenceDetailWithStepUp(selectedEvidenceId)
         if (!cancelled) {
           setEvidenceDetail(normalizeEvidenceDetailForUi(result))
         }
       } catch (error) {
         if (!cancelled) {
           setEvidenceDetail(null)
-          setDetailError(getErrorMessage(error, "증거 상세 정보를 불러오지 못했습니다."))
+          if (isStepUpCancelledError(error)) {
+            setDetailError("민감 정보 조회를 위해 비밀번호 재인증이 필요합니다.")
+          } else {
+            setDetailError(getErrorMessage(error, "증거 상세 정보를 불러오지 못했습니다."))
+          }
         }
       } finally {
         if (!cancelled) {
@@ -349,7 +364,7 @@ export default function CaseDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedEvidenceId])
+  }, [selectedEvidenceId, fetchEvidenceDetailWithStepUp])
 
   async function copyHash(hash: string) {
     try {
@@ -476,6 +491,16 @@ export default function CaseDetailPage() {
       </main>
 
       {showResultDashboard ? null : <SiteFooter />}
+
+      <StepUpGateDialogs
+        mode={dialogMode}
+        loginId={stepUpLoginId}
+        loading={passwordLoading}
+        error={passwordError}
+        onSubmit={(password) => void submitPassword(password)}
+        onCancel={cancelPassword}
+        onSuccessClose={closeSuccessDialog}
+      />
     </div>
   )
 }
