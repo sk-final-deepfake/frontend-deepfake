@@ -14,3 +14,17 @@ export function getApiErrorMessage(error: unknown, fallback = "요청 처리 중
 export function isUnauthorizedError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401
 }
+
+// Step-up 재인증 필요(403 STEP_UP_REQUIRED) 여부.
+export function isStepUpRequiredError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 403 &&
+    error.errorCode === "STEP_UP_REQUIRED"
+  )
+}
+
+// Rate limit(429) 여부.
+export function isRateLimitError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 429 && error.errorCode === "RATE_LIMIT_EXCEEDED"
+}

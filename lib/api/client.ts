@@ -2,6 +2,7 @@ import {
   API_FETCH_CREDENTIALS,
   shouldRetryAfterUnauthorized,
 } from "@/lib/api/interceptor"
+import { resolveStepUpHeaderValue, STEP_UP_HEADER } from "@/lib/api/step-up-auth"
 import { getToken } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api/config"
 
@@ -25,6 +26,8 @@ type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
   body?: unknown
   auth?: boolean
+  /** true면 유효한 Step-up 토큰을 X-Step-Up-Token 헤더로 첨부 */
+  stepUp?: boolean
 }
 
 type FormRequestOptions = {
@@ -60,7 +63,7 @@ export async function apiRequest<T>(
   options: RequestOptions = {},
   retried = false
 ): Promise<T> {
-  const { method = "GET", body, auth = true } = options
+  const { method = "GET", body, auth = true, stepUp = false } = options
   const headers: Record<string, string> = {
     Accept: "application/json",
   }
@@ -75,6 +78,13 @@ export async function apiRequest<T>(
       throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
     }
     headers.Authorization = `Bearer ${token}`
+  }
+
+  if (stepUp) {
+    const stepUpToken = resolveStepUpHeaderValue()
+    if (stepUpToken) {
+      headers[STEP_UP_HEADER] = stepUpToken
+    }
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
