@@ -32,6 +32,10 @@ export function ReportExportDialog({
   const [typeMenuOpen, setTypeMenuOpen] = useState(false)
   const [pdfActionLoading, setPdfActionLoading] = useState(false)
   const [pdfActionError, setPdfActionError] = useState<string | null>(null)
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false)
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null)
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null)
+  const [pdfPreviewReloadKey, setPdfPreviewReloadKey] = useState(0)
 
   const { evidenceInfo } = data
   const fileName = `ForenShield_Report_EVD-${evidenceInfo.evidenceId}_${new Date().toISOString().slice(0, 10)}.pdf`
@@ -59,10 +63,53 @@ export function ReportExportDialog({
     }
   }, [evidenceInfo.evidenceId])
 
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl: string | null = null
+
+    setPdfActionError(null)
+
+    if (!open) {
+      setPdfPreviewLoading(false)
+      setPdfPreviewError(null)
+      setPdfPreviewUrl(null)
+      return
+    }
+
+    setPdfPreviewLoading(true)
+    setPdfPreviewError(null)
+    setPdfPreviewUrl(null)
+
+    async function loadBackendPdfPreview() {
+      try {
+        const blob = await downloadEvidenceReport(evidenceInfo.evidenceId, { preview: !reviewApproved })
+        if (cancelled) return
+
+        objectUrl = URL.createObjectURL(blob)
+        setPdfPreviewUrl(objectUrl)
+      } catch (error) {
+        if (!cancelled) {
+          setPdfPreviewError(getApiErrorMessage(error, "백엔드 PDF 미리보기를 불러오지 못했습니다."))
+        }
+      } finally {
+        if (!cancelled) {
+          setPdfPreviewLoading(false)
+        }
+      }
+    }
+
+    void loadBackendPdfPreview()
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [evidenceInfo.evidenceId, open, pdfPreviewReloadKey, reviewApproved])
+
   if (!open) return null
 
   async function handleDownload() {
-    if (!reviewApproved || pdfActionLoading) return
+    if (!reviewApproved || pdfActionLoading || pdfPreviewLoading) return
 
     setPdfActionError(null)
     setPdfActionLoading(true)
@@ -201,7 +248,9 @@ export function ReportExportDialog({
             </div>
 
             <div className="rounded-xl border border-teal-100 bg-teal-50/70 p-3 text-xs font-semibold leading-5 text-teal-800">
-              화면은 프론트 HTML 미리보기입니다. 다운로드 시 현재 백엔드에서 생성한 PDF 파일을 받습니다.
+              {reviewApproved
+                ? "승인된 보고서는 백엔드에서 생성한 PDF를 바로 미리보고 다운로드합니다."
+                : "승인 전에도 백엔드 PDF를 미리 볼 수 있지만 다운로드는 잠겨 있습니다."}
             </div>
           </div>
 
@@ -218,12 +267,12 @@ export function ReportExportDialog({
             ) : null}
             <Button
               type="button"
-              disabled={!reviewApproved || pdfActionLoading}
+              disabled={!reviewApproved || pdfActionLoading || pdfPreviewLoading}
               onClick={handleDownload}
               className="h-11 w-full bg-teal-600 text-base font-bold text-white hover:bg-teal-700 disabled:bg-muted disabled:text-muted-foreground"
             >
               {pdfActionLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Download className="size-4" aria-hidden="true" />}
-              {pdfActionLoading ? "PDF 준비 중" : "PDF 다운로드"}
+              {pdfActionLoading || pdfPreviewLoading ? "PDF 준비 중" : "PDF 다운로드"}
             </Button>
           </div>
         </div>
@@ -239,12 +288,81 @@ export function ReportExportDialog({
           </button>
           <p className="mb-4 pr-12 text-center text-sm font-bold text-slate-600">
             {fileName}
-            <span className="ml-2 text-xs font-semibold text-slate-400">프론트 HTML 미리보기</span>
+            <span className="ml-2 text-xs font-semibold text-slate-400">
+              백엔드 PDF 미리보기
+            </span>
           </p>
 
-          <ReportPreviewPages type={reportType} preview={preview} />
+          <BackendPdfPreview
+            fileName={fileName}
+            loading={pdfPreviewLoading}
+            error={pdfPreviewError}
+            url={pdfPreviewUrl}
+            onRetry={() => setPdfPreviewReloadKey((key) => key + 1)}
+          />
         </div>
       </section>
+    </div>
+  )
+}
+
+function BackendPdfPreview({
+  fileName,
+  loading,
+  error,
+  url,
+  onRetry,
+}: {
+  fileName: string
+  loading: boolean
+  error: string | null
+  url: string | null
+  onRetry: () => void
+}) {
+  if (loading) {
+    return (
+      <div className="flex min-h-[68vh] flex-col items-center justify-center rounded-sm bg-white shadow-xl">
+        <Loader2 className="size-8 animate-spin text-teal-600" aria-hidden="true" />
+        <p className="mt-4 text-sm font-bold text-slate-700">백엔드 PDF를 생성하고 있습니다.</p>
+        <p className="mt-1 text-xs font-semibold text-slate-400">잠시만 기다려 주세요.</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-[68vh] flex-col items-center justify-center rounded-sm bg-white px-6 text-center shadow-xl">
+        <AlertCircle className="size-10 text-red-600" aria-hidden="true" />
+        <p className="mt-4 text-base font-bold text-slate-950">PDF를 표시하지 못했습니다.</p>
+        <p className="mt-2 max-w-md text-sm font-semibold leading-6 text-slate-500">{error}</p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-5 h-10 rounded-lg px-4 font-bold"
+          onClick={onRetry}
+        >
+          다시 불러오기
+        </Button>
+      </div>
+    )
+  }
+
+  if (!url) {
+    return (
+      <div className="flex min-h-[68vh] flex-col items-center justify-center rounded-sm bg-white px-6 text-center shadow-xl">
+        <AlertCircle className="size-10 text-slate-400" aria-hidden="true" />
+        <p className="mt-4 text-base font-bold text-slate-950">표시할 PDF가 없습니다.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-sm bg-white shadow-xl">
+      <iframe
+        title={`${fileName} 미리보기`}
+        src={`${url}#toolbar=0&navpanes=0`}
+        className="h-[min(72vh,920px)] min-h-[680px] w-full border-0 bg-white"
+      />
     </div>
   )
 }

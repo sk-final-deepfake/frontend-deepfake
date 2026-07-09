@@ -51,7 +51,7 @@ export function getAppNotifications(): AppNotification[] {
     if (!raw) return defaultNotifications.filter(isFreshNotification)
 
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return defaultNotifications
+    if (!Array.isArray(parsed)) return defaultNotifications.filter(isFreshNotification)
 
     const validNotifications = parsed.filter((item): item is AppNotification => {
       return (
@@ -70,7 +70,7 @@ export function getAppNotifications(): AppNotification[] {
 
     return freshNotifications
   } catch {
-    return defaultNotifications
+    return defaultNotifications.filter(isFreshNotification)
   }
 }
 

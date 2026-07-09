@@ -143,6 +143,11 @@ function normalizeStatus(status: string | null | undefined): AnalysisStatus {
   return normalizeAnalysisStatus(status)
 }
 
+function clampAnalysisProgress(progress: number | null | undefined) {
+  if (!Number.isFinite(progress)) return 0
+  return Math.max(0, Math.min(100, Math.round(progress ?? 0)))
+}
+
 function getFileExtension(fileName: string, mediaType?: string) {
   const extension = fileName.split(".").pop()
   if (extension) return extension.toUpperCase()
@@ -2380,6 +2385,9 @@ function CaseWorkflowPanel({
   const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
+  const [analysisProgressOverrides, setAnalysisProgressOverrides] = useState<
+    Record<number, { status: AnalysisStatus; progress: number }>
+  >({})
   const [readinessByEvidenceId, setReadinessByEvidenceId] = useState<
     Record<number, EvidenceReadinessResponse>
   >({})
@@ -2398,7 +2406,42 @@ function CaseWorkflowPanel({
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [statusFilter, setStatusFilter] = useState<EvidenceStatusBucket | "all">("all")
 
-  const evidences = caseData.evidences
+  const evidences = useMemo(
+    () =>
+      caseData.evidences.map((evidence) => {
+        const override = analysisProgressOverrides[evidence.evidenceId]
+        if (!override) return evidence
+
+        const serverStatus = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+        if (serverStatus === "COMPLETED" || serverStatus === "FAILED") return evidence
+
+        const serverProgress = clampAnalysisProgress(evidence.analysisProgress)
+        return {
+          ...evidence,
+          analysisStatus: override.status,
+          analysisProgress: Math.max(serverProgress, override.progress),
+        }
+      }),
+    [analysisProgressOverrides, caseData.evidences]
+  )
+  const trackedAnalysisIdsKey = useMemo(() => {
+    const ids = new Set<number>()
+
+    for (const evidence of caseData.evidences) {
+      if (isEvidenceAnalysisRunning(evidence)) ids.add(evidence.evidenceId)
+    }
+
+    for (const [evidenceId, override] of Object.entries(analysisProgressOverrides)) {
+      if (override.status === "PROCESSING" || override.status === "PENDING") {
+        ids.add(Number(evidenceId))
+      }
+    }
+
+    return Array.from(ids)
+      .filter((id) => Number.isFinite(id))
+      .sort((a, b) => a - b)
+      .join(",")
+  }, [analysisProgressOverrides, caseData.evidences])
   const activeEvidences = evidences.filter((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE")
   const bucketCounts = evidences.reduce(
     (counts, evidence) => {
@@ -2422,7 +2465,7 @@ function CaseWorkflowPanel({
     ? isEvidenceAnalysisRunning(selectedEvidence)
     : false
   const selectedEvidenceProgress = selectedEvidenceRunning
-    ? selectedEvidence?.analysisProgress ?? 0
+    ? clampAnalysisProgress(selectedEvidence?.analysisProgress)
     : selectedEvidenceStatus === "COMPLETED"
       ? 100
       : 0
@@ -2524,6 +2567,74 @@ function CaseWorkflowPanel({
   }, [message])
 
   useEffect(() => {
+    setAnalysisProgressOverrides((current) => {
+      let changed = false
+      const next = { ...current }
+      const activeIds = new Set(caseData.evidences.map((evidence) => evidence.evidenceId))
+
+      for (const evidence of caseData.evidences) {
+        const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+        const progress = clampAnalysisProgress(evidence.analysisProgress)
+
+        if (status === "COMPLETED" || status === "FAILED") {
+          if (next[evidence.evidenceId]) {
+            delete next[evidence.evidenceId]
+            changed = true
+          }
+          continue
+        }
+
+        if (status === "PROCESSING") {
+          const previous = next[evidence.evidenceId]
+          const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+          if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
+            next[evidence.evidenceId] = { status: "PROCESSING", progress: nextProgress }
+            changed = true
+          }
+        }
+      }
+
+      for (const id of Object.keys(next)) {
+        if (!activeIds.has(Number(id))) {
+          delete next[Number(id)]
+          changed = true
+        }
+      }
+
+      return changed ? next : current
+    })
+  }, [caseData.evidences])
+
+  useEffect(() => {
+    const hasRunningOverride = Object.values(analysisProgressOverrides).some(
+      (item) => item.status === "PROCESSING" && item.progress < 92
+    )
+    if (!hasRunningOverride) return
+
+    const timer = window.setInterval(() => {
+      setAnalysisProgressOverrides((current) => {
+        let changed = false
+        const next = { ...current }
+
+        for (const [rawId, item] of Object.entries(current)) {
+          if (item.status !== "PROCESSING" || item.progress >= 92) continue
+
+          const increment = item.progress < 18 ? 3 : item.progress < 55 ? 2 : 1
+          const progress = Math.min(92, item.progress + increment)
+          if (progress !== item.progress) {
+            next[Number(rawId)] = { ...item, progress }
+            changed = true
+          }
+        }
+
+        return changed ? next : current
+      })
+    }, 1500)
+
+    return () => window.clearInterval(timer)
+  }, [analysisProgressOverrides])
+
+  useEffect(() => {
     const selectableIds = new Set(selectableAnalysisEvidences.map((evidence) => evidence.evidenceId))
     setSelectedAnalysisIds((current) => {
       const next = current.filter((id) => selectableIds.has(id))
@@ -2551,9 +2662,10 @@ function CaseWorkflowPanel({
   }, [selectedAnalysisCount])
 
   useEffect(() => {
-    const pollIds = evidences
-      .filter((evidence) => isEvidenceAnalysisRunning(evidence))
-      .map((evidence) => evidence.evidenceId)
+    const pollIds = trackedAnalysisIdsKey
+      .split(",")
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id))
 
     if (pollIds.length === 0) return
 
@@ -2583,6 +2695,36 @@ function CaseWorkflowPanel({
       }
 
       failedPollCount = 0
+      setAnalysisProgressOverrides((current) => {
+        let changed = false
+        const next = { ...current }
+
+        for (const statusUpdate of validStatuses) {
+          const status = normalizeStatus(statusUpdate.status)
+          const progress = clampAnalysisProgress(statusUpdate.progressPercent)
+
+          if (status === "COMPLETED" || status === "FAILED") {
+            const nextProgress = status === "COMPLETED" ? 100 : progress
+            const previous = next[statusUpdate.evidenceId]
+            if (!previous || previous.status !== status || previous.progress !== nextProgress) {
+              next[statusUpdate.evidenceId] = { status, progress: nextProgress }
+              changed = true
+            }
+            continue
+          }
+
+          if (status === "PROCESSING" || progress > 0) {
+            const previous = next[statusUpdate.evidenceId]
+            const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+            if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
+              next[statusUpdate.evidenceId] = { status: "PROCESSING", progress: nextProgress }
+              changed = true
+            }
+          }
+        }
+
+        return changed ? next : current
+      })
       const hasTerminalStatus = statuses.some(
         (status) => normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
       )
@@ -2613,7 +2755,7 @@ function CaseWorkflowPanel({
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [evidences, onRefresh])
+  }, [onRefresh, trackedAnalysisIdsKey])
 
   async function runAction(
     action: () => Promise<void>,
@@ -2756,6 +2898,16 @@ function CaseWorkflowPanel({
           { acknowledgeQualityWarning: ack || undefined }
         ),
       onSuccess: () => {
+        setAnalysisProgressOverrides((current) => {
+          const next = { ...current }
+          for (const evidenceId of targetIds) {
+            next[evidenceId] = {
+              status: "PROCESSING",
+              progress: Math.max(current[evidenceId]?.progress ?? 0, 6),
+            }
+          }
+          return next
+        })
         if (targetIds[0]) onSelectEvidence(targetIds[0])
         setSelectedAnalysisIds([])
         setActionMode("idle")
