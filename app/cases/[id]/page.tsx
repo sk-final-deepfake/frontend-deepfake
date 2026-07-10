@@ -101,9 +101,13 @@ import {
   type UiSummaryAction,
 } from "@/lib/api/analysis-result-ui"
 import {
+  type AnalysisModelSnapshot,
+  type AnalysisModuleSnapshot,
   type BlockchainAnchorRecord,
   type BlockchainAnchorStatusResponse,
   fetchEvidenceBlockchainStatus,
+  parseAnalysisModelJson,
+  parseAnalysisModulesJson,
   parseOffchainRef,
 } from "@/lib/api/blockchain"
 import {
@@ -2261,6 +2265,8 @@ type BlockchainAnchorItem = {
   reportId: number | null
   merkleBatchDate: string | null
   merkleLeafCount: number | null
+  analysisModel: AnalysisModelSnapshot | null
+  analysisModules: AnalysisModuleSnapshot[]
   verificationResult: string
   verificationTone: "safe" | "danger" | "neutral"
 }
@@ -2299,6 +2305,11 @@ function BlockchainAnchorCard({
                 )}
               >
                 {anchor.certVerified ? "서명 검증됨" : "서명 미검증"}
+              </span>
+            ) : null}
+            {anchor.analysisModel ? (
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                {anchor.analysisModel.identifier ?? anchor.analysisModel.version}
               </span>
             ) : null}
           </div>
@@ -2424,6 +2435,56 @@ function BlockchainAnchorCard({
               />
             ) : null}
           </div>
+          {anchor.analysisModel || anchor.analysisModules.length > 0 ? (
+            <div className="mt-4 border-t border-slate-200/80 pt-4 dark:border-border">
+              <p className="text-xs font-bold text-slate-400">AI 분석 모델 스냅샷 (원장)</p>
+              {anchor.analysisModel ? (
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <IntegrityInfoRow label="모델명" value={anchor.analysisModel.name} />
+                  <IntegrityInfoRow label="버전" value={anchor.analysisModel.version} mono />
+                  {anchor.analysisModel.identifier ? (
+                    <IntegrityInfoRow
+                      label="식별자"
+                      value={anchor.analysisModel.identifier}
+                      mono
+                      copyValue={anchor.analysisModel.identifier}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {anchor.analysisModules.length > 0 ? (
+                <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:bg-background">
+                      <tr>
+                        <th className="px-3 py-2">모듈</th>
+                        <th className="px-3 py-2">이름</th>
+                        <th className="px-3 py-2">버전</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {anchor.analysisModules.map((module) => (
+                        <tr
+                          key={`${module.module}-${module.version}`}
+                          className="border-t border-slate-100 dark:border-border"
+                        >
+                          <td className="px-3 py-2 font-mono font-semibold text-slate-600 dark:text-foreground">
+                            {module.module || "-"}
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-slate-700 dark:text-foreground">
+                            {module.name || "-"}
+                          </td>
+                          <td className="px-3 py-2 font-mono font-semibold text-slate-500">
+                            {module.version || "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </article>
@@ -5031,6 +5092,8 @@ function mapBlockchainRecordToItem(
     reportId: record.reportId ?? null,
     merkleBatchDate: record.merkleBatchDate ?? null,
     merkleLeafCount: record.merkleLeafCount ?? null,
+    analysisModel: parseAnalysisModelJson(record.analysisModelJson),
+    analysisModules: parseAnalysisModulesJson(record.analysisModulesJson),
     verificationResult: verification.label,
     verificationTone: verification.tone,
   }
