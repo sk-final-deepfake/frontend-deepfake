@@ -48,6 +48,11 @@ type AdminReviewerListResponse = {
   reviewers: AdminReviewer[]
 }
 
+type FetchAdminReviewersOptions = {
+  department?: string | null
+  uploaderId?: string | null
+}
+
 export type AdminDashboardStats = {
   pendingUsers: number
   totalUsers: number
@@ -664,10 +669,16 @@ export async function deleteAdminUser(userId: string): Promise<void> {
   )
 }
 
-export async function fetchAdminReviewers(department?: string | null): Promise<AdminReviewer[]> {
+export async function fetchAdminReviewers(
+  options: FetchAdminReviewersOptions = {}
+): Promise<AdminReviewer[]> {
+  const { department, uploaderId } = options
   const params = new URLSearchParams()
   if (department && department !== "ALL") {
     params.set("department", department)
+  }
+  if (uploaderId) {
+    params.set("uploaderId", uploaderId)
   }
   const query = params.toString()
 
@@ -678,10 +689,22 @@ export async function fetchAdminReviewers(department?: string | null): Promise<A
       )
       return data.reviewers ?? []
     },
-    () =>
-      mockUsers
+    () => {
+      const uploader = uploaderId ? mockUsers.find((user) => user.id === uploaderId) : null
+      const departmentFilter = uploader?.department ?? department
+      const organizationIdFilter = uploader?.organizationId ?? null
+
+      return mockUsers
         .filter((user) => user.role === "REVIEWER")
-        .filter((user) => !department || department === "ALL" || user.department === department)
+        .filter(
+          (user) =>
+            !departmentFilter ||
+            departmentFilter === "ALL" ||
+            user.department === departmentFilter
+        )
+        .filter(
+          (user) => !organizationIdFilter || user.organizationId === organizationIdFilter
+        )
         .map((user) => ({
           id: user.id,
           name: user.name,
@@ -689,6 +712,7 @@ export async function fetchAdminReviewers(department?: string | null): Promise<A
           organizationId: user.organizationId,
           organizationName: user.organizationName,
         }))
+    }
   )
 }
 

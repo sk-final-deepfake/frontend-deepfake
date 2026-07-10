@@ -1459,6 +1459,18 @@ export async function mockAssignReviewerToCase(caseId: string, reviewerId: strin
     throw new Error("검토 배정할 사건을 찾을 수 없습니다.")
   }
 
+  const caseDepartment = targetCase.department?.trim().toLowerCase()
+  const reviewerDepartment = reviewer.department.trim().toLowerCase()
+  const caseOrganizationId = targetCase.organizationId?.trim().toLowerCase()
+  const reviewerOrganizationId = reviewer.organizationId.trim().toLowerCase()
+  if (
+    !caseDepartment ||
+    caseDepartment !== reviewerDepartment ||
+    caseOrganizationId !== reviewerOrganizationId
+  ) {
+    throw new Error("사건 담당 분석관과 같은 기관/부서의 검토자만 배정할 수 있습니다.")
+  }
+
   const cases = store.cases.some((item) => item.caseId === caseId)
     ? store.cases.map((item) =>
         item.caseId === caseId
