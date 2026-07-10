@@ -298,7 +298,6 @@ function normalizeRepresentativeFrames(frames: RepresentativeFrame[]): Represent
         : index + 1,
     score: frame.score == null ? null : normalizeScore(frame.score),
     imageUrl: normalizeText(frame.imageUrl, null),
-    heatmapUrl: normalizeText(frame.heatmapUrl, null),
   }))
 }
 

@@ -125,7 +125,7 @@ function VideoPlayerPanel({ fileName, duration }: { fileName: string; duration: 
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-semibold text-foreground">영상 플레이어</h3>
         <div className="flex rounded-full bg-muted/50 p-1">
-          {["원본", "오버레이", "히트맵"].map((label, index) => (
+          {["원본", "오버레이"].map((label, index) => (
             <span
               key={label}
               className={cn(

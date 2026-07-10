@@ -33,7 +33,7 @@ type DeepfakeV2TabProps = {
   data: EvidenceDetailData
 }
 
-type ViewMode = "original" | "overlay" | "heatmap"
+type ViewMode = "original" | "overlay"
 type TimelineTabKey = ModuleTimelineKind
 
 const DEFAULT_THRESHOLD = 0.6
@@ -96,7 +96,6 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const videoUrl = getPlayableVideoUrl(data)
   const hlsPlayback = data.hlsPlayback ?? null
   const overlayVideoUrl = analysisInfo.overlayVideoUrl ?? evidenceInfo.overlayVideoUrl ?? null
-  const heatmapImageUrl = analysisInfo.heatmapImageUrl ?? evidenceInfo.heatmapImageUrl ?? null
   const modelScoreCards = buildModelScoreCards(data, threshold)
   const timelineTabs = buildTimelineTabs(data, threshold)
 
@@ -111,7 +110,6 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
           hlsPlayback={hlsPlayback}
           videoUrl={videoUrl}
           overlayVideoUrl={overlayVideoUrl}
-          heatmapImageUrl={heatmapImageUrl}
         />
         <ModelInfoSidebar data={data} threshold={threshold} />
       </div>
@@ -135,17 +133,14 @@ function VideoPlayerCard({
   hlsPlayback,
   videoUrl,
   overlayVideoUrl,
-  heatmapImageUrl,
 }: {
   duration: string
   hlsPlayback: EvidenceDetailData["hlsPlayback"]
   videoUrl: string | null
   overlayVideoUrl: string | null
-  heatmapImageUrl: string | null
 }) {
   const [view, setView] = useState<ViewMode>("original")
   const canShowOverlay = Boolean(overlayVideoUrl)
-  const canShowHeatmap = Boolean(heatmapImageUrl)
 
   return (
     <section className="rounded-xl border border-border bg-card p-3 shadow-sm">
@@ -174,20 +169,11 @@ function VideoPlayerCard({
           </div>
         )}
 
-        {view === "heatmap" && heatmapImageUrl ? (
-          <img
-            src={heatmapImageUrl}
-            alt=""
-            className="absolute inset-0 size-full object-cover opacity-70 mix-blend-screen"
-          />
-        ) : null}
-
         <div className="absolute right-3 top-3 flex rounded-full bg-black/45 p-1 backdrop-blur-sm">
           {(
             [
               ["original", "원본", true],
               ["overlay", "오버레이", canShowOverlay],
-              ["heatmap", "히트맵", canShowHeatmap],
             ] as const
           ).map(([mode, label, enabled]) => (
             <button
@@ -224,9 +210,9 @@ function VideoPlayerCard({
           </div>
         ) : null}
       </div>
-      {!canShowOverlay || !canShowHeatmap ? (
+      {!canShowOverlay ? (
         <p className="mt-2 text-xs font-medium text-muted-foreground">
-          오버레이와 히트맵은 AI 산출물이 제공될 때 활성화됩니다.
+          오버레이는 AI 산출물이 제공될 때 활성화됩니다.
         </p>
       ) : null}
     </section>
@@ -620,9 +606,8 @@ function RepresentativeFrames({ frames }: { frames: RepresentativeFrame[] }) {
                       <span className="text-muted-foreground/70"> (프레임 {frame.frameNumber})</span>
                     ) : null}
                   </p>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="mt-2">
                     <FrameImage src={frame.imageUrl} label="대표 프레임 이미지" />
-                    <FrameImage src={frame.heatmapUrl} label="AI 히트맵 이미지" />
                   </div>
                   <p className="mt-2 text-xs font-bold text-foreground">
                     점수 {frame.score == null ? "-" : normalizeProbability(frame.score).toFixed(2)}
@@ -642,7 +627,7 @@ function RepresentativeFrames({ frames }: { frames: RepresentativeFrame[] }) {
       ) : (
         <EmptyState
           title="대표 프레임 결과가 없습니다."
-          description="AI가 대표 프레임 이미지나 히트맵을 제공하면 이 영역에 표시됩니다."
+          description="AI가 대표 프레임 이미지를 제공하면 이 영역에 표시됩니다."
         />
       )}
     </section>

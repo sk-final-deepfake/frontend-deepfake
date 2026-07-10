@@ -595,7 +595,7 @@ function CaseBreadcrumb() {
   )
 }
 
-type ResultMediaMode = "original" | "overlay" | "heatmap"
+type ResultMediaMode = "original" | "overlay"
 
 function MockAnalysisOverlay() {
   return (
@@ -605,38 +605,6 @@ function MockAnalysisOverlay() {
       <div className="absolute left-[34%] top-[56%] h-[18%] w-[36%] rounded-md border border-red-700/40 bg-red-700/10" />
       <div className="absolute bottom-4 left-4 rounded-md bg-red-700/95 px-2.5 py-1 text-xs font-bold text-white">
         얼굴 경계 불연속 · 압축 흔적
-      </div>
-    </div>
-  )
-}
-
-function HeatmapLayer({ heatmapImageUrl }: { heatmapImageUrl: string | null }) {
-  const [imageFailed, setImageFailed] = useState(false)
-
-  useEffect(() => {
-    setImageFailed(false)
-  }, [heatmapImageUrl])
-
-  const showGeneratedHeatmap = Boolean(heatmapImageUrl) && !imageFailed
-
-  return (
-    <div className="pointer-events-none absolute inset-0 z-20">
-      {showGeneratedHeatmap ? (
-        <img
-          src={heatmapImageUrl ?? undefined}
-          alt=""
-          onError={() => setImageFailed(true)}
-          className="absolute inset-0 size-full object-cover opacity-80"
-          style={{ mixBlendMode: "hard-light" }}
-        />
-      ) : (
-        <>
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_52%_32%,rgba(255,0,0,0.58),rgba(255,210,0,0.42)_16%,rgba(0,210,255,0.18)_34%,rgba(0,0,0,0)_58%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_48%_57%,rgba(255,80,0,0.42),rgba(255,220,0,0.2)_20%,rgba(0,0,0,0)_50%)]" />
-        </>
-      )}
-      <div className="absolute bottom-16 left-4 rounded-md bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
-        위험도가 높은 영역을 색상으로 표시합니다.
       </div>
     </div>
   )
@@ -733,24 +701,11 @@ function CaseResultView({
     evidenceDetail?.analysisInfo.overlayVideoUrl ??
     evidenceDetail?.evidenceInfo.overlayVideoUrl ??
     null
-  const heatmapImageUrl =
-    evidenceDetail?.analysisInfo.heatmapImageUrl ??
-    evidenceDetail?.evidenceInfo.heatmapImageUrl ??
-    evidenceDetail?.analysisInfo.representativeFrames?.find((frame) => Boolean(frame.heatmapUrl))?.heatmapUrl ??
-    null
-  const useOverlaySrc =
-    (mediaMode === "overlay" && Boolean(overlayVideoUrl)) ||
-    (mediaMode === "heatmap" && Boolean(heatmapImageUrl) && !hasHlsOriginal && Boolean(overlayVideoUrl))
+  const useOverlaySrc = mediaMode === "overlay" && Boolean(overlayVideoUrl)
   const showResultPlayer = useOverlaySrc || hasHlsOriginal || Boolean(hlsPlayback)
   const playerSurfaceKey = useOverlaySrc
     ? `direct-${overlayVideoUrl ?? "none"}`
     : `hls-${hlsPlayback?.streamToken ?? hlsPlayback?.hlsStatus ?? "pending"}`
-  const showHeatmapOnly =
-    mediaMode === "heatmap" &&
-    Boolean(heatmapImageUrl) &&
-    !useOverlaySrc &&
-    !hasHlsOriginal &&
-    !Boolean(hlsPlayback)
   const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
@@ -873,14 +828,13 @@ function CaseResultView({
                 <div>
                   <h2 className="text-base font-bold text-slate-950 dark:text-foreground">증거 영상</h2>
                   <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                    원본, 오버레이, 히트맵을 같은 위치에서 비교합니다.
+                    원본과 오버레이를 같은 위치에서 비교합니다.
                   </p>
                 </div>
                 <div className="flex rounded-full bg-slate-950/80 p-1 backdrop-blur-sm">
                   {([
                     ["original", "원본"],
                     ["overlay", "오버레이"],
-                    ["heatmap", "히트맵"],
                   ] as const).map(([mode, label]) => (
                     <button
                       key={mode}
@@ -897,21 +851,7 @@ function CaseResultView({
                 </div>
               </div>
               <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-                {showHeatmapOnly ? (
-                  <div className="relative size-full">
-                    <img
-                      src={heatmapImageUrl ?? undefined}
-                      alt="위험도 히트맵"
-                      className="absolute inset-0 size-full object-contain"
-                    />
-                    <div className="absolute left-4 top-4 z-20 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
-                      히트맵
-                    </div>
-                    <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
-                      위험도가 높은 영역을 색상으로 표시합니다.
-                    </div>
-                  </div>
-                ) : showResultPlayer ? (
+                {showResultPlayer ? (
                   <ProtectedEvidencePlayer
                     key={`result-player-${selectedEvidenceId ?? "none"}-${playerSurfaceKey}`}
                     src={useOverlaySrc ? overlayVideoUrl : null}
@@ -922,7 +862,6 @@ function CaseResultView({
                     onSecurityEvent={reportSecurityEvent}
                   >
                     {mediaMode === "overlay" && !overlayVideoUrl ? <MockAnalysisOverlay /> : null}
-                    {mediaMode === "heatmap" ? <HeatmapLayer heatmapImageUrl={heatmapImageUrl} /> : null}
                     {mediaMode === "original" ? (
                       <EvidenceWatermarkOverlay
                         caseId={caseData.caseId}
@@ -931,9 +870,9 @@ function CaseResultView({
                         viewerLoginId={currentSession?.loginId ?? null}
                       />
                     ) : null}
-                    {mediaMode !== "original" ? (
+                    {mediaMode === "overlay" ? (
                       <div className="absolute left-4 top-4 z-20 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
-                        {mediaMode === "overlay" ? "탐지 오버레이" : "히트맵"}
+                        탐지 오버레이
                       </div>
                     ) : null}
                   </ProtectedEvidencePlayer>
@@ -1226,7 +1165,7 @@ function CaseResultView({
                         <div>
                           <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">상위 위험 프레임</h4>
                           <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                            행을 선택하면 영상이 해당 지점으로 이동하고, 히트맵으로 조작 의심 영역을 확인할 수 있습니다.
+                            행을 선택하면 영상이 해당 지점으로 이동합니다.
                           </p>
                         </div>
                         <div className="mt-2 divide-y divide-slate-100 dark:divide-border">
@@ -1237,12 +1176,12 @@ function CaseResultView({
                                 item.timestamp === frame.time
                             )
                             return (
-                              <div key={frame.time} className="flex items-center gap-2 py-2">
-                                <button
-                                  type="button"
-                                  onClick={() => seekResultVideo(frame.seconds)}
-                                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-secondary/40"
-                                >
+                              <button
+                                key={frame.time}
+                                type="button"
+                                onClick={() => seekResultVideo(frame.seconds)}
+                                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-secondary/40"
+                              >
                                   <span className="w-4 shrink-0 text-xs font-bold text-slate-400">{index + 1}</span>
                                   <span className="h-11 w-[74px] shrink-0 overflow-hidden rounded-md bg-slate-100 dark:bg-secondary">
                                     {representative?.imageUrl ? (
@@ -1266,15 +1205,6 @@ function CaseResultView({
                                     {frame.signal}
                                   </span>
                                 </button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 shrink-0 rounded-lg border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                  onClick={() => seekResultVideo(frame.seconds, "heatmap")}
-                                >
-                                  히트맵
-                                </Button>
-                              </div>
                             )
                           })}
                         </div>
@@ -3994,23 +3924,15 @@ function RiskSignalCard({
       {signal.segments.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {signal.segments.map((segment) => (
-            <span key={`${segment.label}-${segment.startSec}`} className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
-              <button
-                type="button"
-                onClick={() => onSeek?.(segment.startSec)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:text-foreground dark:hover:bg-secondary/40"
-              >
-                <Play className="size-3 text-teal-600 dark:text-teal-300" aria-hidden="true" />
-                {segment.label}
-              </button>
-              <button
-                type="button"
-                onClick={() => onSeek?.(segment.startSec, "heatmap")}
-                className="inline-flex items-center border-l border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:border-border dark:hover:bg-secondary/40"
-              >
-                히트맵
-              </button>
-            </span>
+            <button
+              key={`${segment.label}-${segment.startSec}`}
+              type="button"
+              onClick={() => onSeek?.(segment.startSec)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground dark:hover:bg-secondary/40"
+            >
+              <Play className="size-3 text-teal-600 dark:text-teal-300" aria-hidden="true" />
+              {segment.label}
+            </button>
           ))}
         </div>
       ) : null}
@@ -4019,12 +3941,10 @@ function RiskSignalCard({
 }
 
 function RepresentativeFrameDetailCard({ frame, index }: { frame: RepresentativeFrame; index: number }) {
-  const [view, setView] = useState<"original" | "heatmap">("original")
   const score = frame.score == null ? null : Math.round(normalizeResultValue(frame.score) * 100)
   const tone = score == null ? null : getDetectionTone(score / 100)
   const timeLabel =
     frame.timestamp ?? (frame.timeSec != null ? formatDuration(frame.timeSec) : `프레임 ${index + 1}`)
-  const hasHeatmap = Boolean(frame.heatmapUrl)
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50/70 dark:border-border dark:bg-background">
@@ -4037,47 +3957,17 @@ function RepresentativeFrameDetailCard({ frame, index }: { frame: Representative
             대표 프레임
           </div>
         )}
-        {view === "heatmap" && frame.heatmapUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={frame.heatmapUrl}
-            alt=""
-            className="pointer-events-none absolute inset-0 size-full object-cover opacity-70 mix-blend-screen"
-          />
-        ) : null}
 
         <div className="absolute left-3 top-3 rounded-md bg-black/55 px-2 py-1 text-xs font-bold text-white">
           {timeLabel}
         </div>
-        {hasHeatmap ? (
-          <div className="absolute right-3 top-3 flex rounded-full bg-black/45 p-0.5 backdrop-blur-sm">
-            {([
-              ["original", "원본"],
-              ["heatmap", "히트맵"],
-            ] as const).map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setView(mode)}
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-[11px] font-bold transition-colors",
-                  view === mode ? "bg-teal-500 text-white" : "text-white/80 hover:text-white"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-slate-950 dark:text-foreground">
             {frame.frameNumber != null ? `프레임 ${frame.frameNumber}` : `대표 ${index + 1}`}
           </p>
-          <p className="mt-0.5 text-xs font-semibold text-slate-500">
-            {view === "heatmap" ? "위험 영역 히트맵" : "원본 프레임"}
-          </p>
+          <p className="mt-0.5 text-xs font-semibold text-slate-500">원본 프레임</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="font-mono text-sm font-bold text-slate-950 dark:text-foreground">

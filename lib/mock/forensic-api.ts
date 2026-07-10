@@ -1847,7 +1847,6 @@ function buildMockRepresentativeFrames(record: MockEvidenceRecord): Representati
     return {
       ...frame,
       imageUrl: `/mock/frames/${key}.jpg`,
-      heatmapUrl: `/mock/frames/${key}-heatmap.jpg`,
     }
   })
 }
@@ -2266,7 +2265,6 @@ function buildEvidenceDetail(
   const representativeFrames = buildMockRepresentativeFrames(record)
   const frameScores = buildMockFrameScores(record)
   const timelineData = buildMockTimelineData(record, frameScores)
-  const firstHeatmapUrl = representativeFrames[0]?.heatmapUrl ?? null
 
   return {
     evidenceInfo: {
@@ -2288,7 +2286,6 @@ function buildEvidenceDetail(
       videoUrl: playableVideoUrl,
       fileUrl: playableVideoUrl,
       streamUrl: playableVideoUrl,
-      heatmapImageUrl: firstHeatmapUrl,
       technicalMetadata: technicalMetadataFor(record),
     },
     integrityInfo: {
@@ -2332,7 +2329,6 @@ function buildEvidenceDetail(
       moduleTimelines: timelineData.moduleTimelines,
       frameScores,
       representativeFrames,
-      heatmapImageUrl: firstHeatmapUrl,
     },
     cocLogs: buildCocLogs(record),
     hlsPlayback:

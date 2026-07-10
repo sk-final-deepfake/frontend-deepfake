@@ -54,7 +54,6 @@ export type EvidenceInfo = {
   fileUrl?: string | null
   streamUrl?: string | null
   overlayVideoUrl?: string | null
-  heatmapImageUrl?: string | null
   technicalMetadata: TechnicalMetadata
 }
 
@@ -111,7 +110,7 @@ export type PairRisk = {
   frameIndexA: number
   frameIndexB: number
   timestampSec: number
-  /** 0.0 ~ 1.0 (영상 내 상대값, 히트맵용) */
+  /** 0.0 ~ 1.0 (영상 내 상대값) */
   riskScore: number
   /** GMFlow raw flow magnitude mean */
   motionMagnitude?: number | null
@@ -159,7 +158,6 @@ export type RepresentativeFrame = {
   frameNumber?: number | null
   score?: number | null
   imageUrl?: string | null
-  heatmapUrl?: string | null
 }
 
 export type AnalysisInfo = {
@@ -196,7 +194,6 @@ export type AnalysisInfo = {
   frameScores?: FrameScore[] | null
   representativeFrames?: RepresentativeFrame[] | null
   overlayVideoUrl?: string | null
-  heatmapImageUrl?: string | null
 }
 
 export type CocLog = {
