@@ -270,10 +270,15 @@ export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceD
     return mockFetchEvidenceDetail(evidenceId)
   }
 
-  return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`)
+  return apiRequest<EvidenceDetailData>(`/api/v1/evidences/${evidenceId}/detail`, {
+    stepUp: true,
+  })
 }
 
-export async function downloadEvidenceReport(evidenceId: number): Promise<Blob> {
+export async function downloadEvidenceReport(
+  evidenceId: number,
+  options: { preview?: boolean } = {}
+): Promise<Blob> {
   if (features.mockApi) {
     const response = await fetch("/mock/report-sample.pdf")
     if (!response.ok) {
@@ -282,7 +287,11 @@ export async function downloadEvidenceReport(evidenceId: number): Promise<Blob> 
     return response.blob()
   }
 
-  return apiDownload(`/api/v1/evidences/${evidenceId}/reports/pdf`)
+  const params = new URLSearchParams()
+  if (options.preview) params.set("preview", "true")
+  const query = params.toString()
+
+  return apiDownload(`/api/v1/evidences/${evidenceId}/reports/pdf${query ? `?${query}` : ""}`)
 }
 
 export type EvidenceSecurityEventPayload = {

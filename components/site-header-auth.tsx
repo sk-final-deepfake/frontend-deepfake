@@ -7,6 +7,7 @@ import { Bell, ChevronDown, LogOut, Moon, Sun, UserCog, User } from "lucide-reac
 import { useUserSettings } from "@/hooks/use-user-settings"
 import { fetchMyProfile } from "@/lib/api/user"
 import { logoutApi } from "@/lib/auth-api"
+import { clearStepUpToken } from "@/lib/api/step-up-auth"
 import { clearSession, getSession, isMockAuthSession, type AuthSession } from "@/lib/auth"
 import { getAppUserFromSession, roleLabelMap } from "@/lib/permissions"
 import {
@@ -130,6 +131,7 @@ export function SiteHeaderAuth() {
         await logoutApi()
       }
     } finally {
+      clearStepUpToken()
       clearSession()
       setOpen(false)
       setSession(null)
