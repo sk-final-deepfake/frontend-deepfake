@@ -1125,7 +1125,7 @@ function CaseResultView({
           <Button
             type="button"
             variant="outline"
-            disabled={!evidenceDetail}
+            disabled={!evidenceDetail || caseData.reviewStatus !== "REPORT_APPROVED"}
             onClick={() => setReportDialogOpen(true)}
             className="h-10 rounded-lg border-slate-200 bg-white px-4 text-sm font-semibold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
           >
