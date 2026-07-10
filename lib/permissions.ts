@@ -42,6 +42,15 @@ export const roleLabelMap: Record<UserRole, string> = {
   REVIEWER: "검토자",
 }
 
+export function getRoleLabel(role?: string | null, fallback = "역할 미지정") {
+  const normalized = normalizeUserRole(role)
+  if (normalized !== "UNKNOWN") {
+    return roleLabelMap[normalized]
+  }
+  const raw = role?.trim()
+  return raw || fallback
+}
+
 export const reviewStatusLabelMap: Record<ReviewStatus, string> = {
   NONE: "배정대기",
   REVIEW_REQUESTED: "배정대기",

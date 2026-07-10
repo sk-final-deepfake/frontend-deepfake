@@ -27,7 +27,7 @@ import {
   updateAdminUser,
 } from "@/lib/api/admin"
 import { getApiErrorMessage } from "@/lib/api/errors"
-import { roleLabelMap } from "@/lib/permissions"
+import { getRoleLabel } from "@/lib/permissions"
 import { Button } from "@/components/ui/button"
 
 const PAGE_SIZE = 10
@@ -265,7 +265,7 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
                     <td className="px-5 py-4 text-slate-700">
-                      {roleLabelMap[user.role ?? "INVESTIGATOR"]}
+                      {getRoleLabel(user.role)}
                     </td>
                     <td className="px-5 py-4">
                       <StatusPill status={user.status} />

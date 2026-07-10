@@ -1,7 +1,7 @@
 import { apiDownload, apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
 import { mockAssignReviewerToCase } from "@/lib/mock/forensic-api"
-import { mockUsers } from "@/lib/permissions"
+import { mockUsers, normalizeUserRole, type UserRole } from "@/lib/permissions"
 import {
   MOCK_ADMIN_LOGS,
   MOCK_ADMIN_PROFILE,
@@ -242,6 +242,18 @@ function mapAdminProfile(profile: AdminProfile): AdminProfile {
   return {
     ...profile,
     phone: profile.phone ?? "",
+  }
+}
+
+function normalizeAdminUserRole(role?: string | null): UserRole | undefined {
+  const normalized = normalizeUserRole(role)
+  return normalized === "UNKNOWN" ? undefined : normalized
+}
+
+function mapAdminUser(user: AdminUser & { role?: string | null }): AdminUser {
+  return {
+    ...user,
+    role: normalizeAdminUserRole(user.role),
   }
 }
 
@@ -514,7 +526,11 @@ export async function fetchAdminUsers(options?: {
       const data = await apiRequest<BackendPageResponse<AdminUser>>(
         `/api/v1/admin/users?${query}`
       )
-      return mapPage(data)
+      const pageData = mapPage(data)
+      return {
+        ...pageData,
+        items: pageData.items.map(mapAdminUser),
+      }
     },
     () => {
       const filtered = mockAdminUsers.filter((user) => {
@@ -589,7 +605,7 @@ export async function updateAdminUser(
       apiRequest<AdminUser>(`/api/v1/admin/users/${userId}`, {
         method: "PATCH",
         body: requestPayload,
-      }),
+      }).then(mapAdminUser),
     () => patchMockAdminUser(userId, payload)
   )
 }

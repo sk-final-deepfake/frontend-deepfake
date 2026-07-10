@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import type { ReactNode } from "react"
 import {
   Check,
@@ -25,6 +25,7 @@ type MetadataReportTabProps = {
   extension: string
   reportReady: boolean
   verificationCode: string
+  reviewApproved?: boolean
 }
 
 type PdfStatus = "NOT_CREATED" | "GENERATING" | "CREATED" | "FAILED"
@@ -116,6 +117,7 @@ export function MetadataReportTab({
   extension,
   reportReady,
   verificationCode,
+  reviewApproved = false,
 }: MetadataReportTabProps) {
   const { evidenceInfo, analysisInfo } = data
   const metadata = evidenceInfo.technicalMetadata
@@ -128,7 +130,6 @@ export function MetadataReportTab({
     reportReady ? (analysisInfo.completedAt ?? evidenceInfo.uploadedAt) : null
   )
 
-  const [reviewApproved, setReviewApproved] = useState(false)
   const [pdfActionLoading, setPdfActionLoading] = useState(false)
   const [pdfActionError, setPdfActionError] = useState<string | null>(null)
 
@@ -139,27 +140,6 @@ export function MetadataReportTab({
   const reportHash = makeReportHash(`${fileName}:${verificationCode}`)
   const isCreated = pdfStatus === "CREATED"
   const isGenerating = pdfStatus === "GENERATING"
-
-  // 검토자 승인 여부 — 검토 화면의 승인 버튼이 localStorage에 기록하고 이벤트로 알린다
-  useEffect(() => {
-    const approvalKey = `fs-report-approval:${evidenceInfo.evidenceId}`
-
-    function syncApproval() {
-      try {
-        setReviewApproved(window.localStorage.getItem(approvalKey) === "1")
-      } catch {
-        setReviewApproved(false)
-      }
-    }
-
-    syncApproval()
-    window.addEventListener("storage", syncApproval)
-    window.addEventListener("fs-report-approval-change", syncApproval)
-    return () => {
-      window.removeEventListener("storage", syncApproval)
-      window.removeEventListener("fs-report-approval-change", syncApproval)
-    }
-  }, [evidenceInfo.evidenceId])
 
   function handleReportTypeChange(nextType: ReportTypeId) {
     setReportType(nextType)

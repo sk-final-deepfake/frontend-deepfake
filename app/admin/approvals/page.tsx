@@ -11,7 +11,7 @@ import {
   rejectAdminUser,
 } from "@/lib/api/admin"
 import { getApiErrorMessage } from "@/lib/api/errors"
-import { roleLabelMap, type UserRole } from "@/lib/permissions"
+import { getRoleLabel, roleLabelMap, type UserRole } from "@/lib/permissions"
 import { Button } from "@/components/ui/button"
 
 const HISTORY_PAGE_SIZE = 8
@@ -242,7 +242,7 @@ export default function AdminApprovalsPage() {
                       </td>
                       <td className="px-6 py-4 text-slate-700">{user.department || "-"}</td>
                       <td className="px-6 py-4 text-slate-700">
-                        {roleLabelMap[user.role ?? "INVESTIGATOR"]}
+                        {getRoleLabel(user.role)}
                       </td>
                       <td className="px-6 py-4 text-slate-500">{user.joinedAt}</td>
                       <td className="px-6 py-4 text-slate-500">{user.joinedAt}</td>
