@@ -1,6 +1,14 @@
 "use client"
 
-import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react"
+import {
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+} from "react"
 import { useSearchParams } from "next/navigation"
 import {
   AlertCircle,
@@ -8,6 +16,7 @@ import {
   CheckCircle2,
   Copy,
   FileCheck2,
+  FileUp,
   Link2,
   Loader2,
   PenLine,
@@ -22,7 +31,10 @@ import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage } from "@/lib/api/errors"
 import {
   fetchReportVerification,
+  verifyReportFileHash,
+  type ReportFileHashVerification,
   type ReportVerification,
+  type ReportVerificationLookup,
   type ReportVerifyStatus,
 } from "@/lib/api/public-report"
 import { formatDateTime } from "@/lib/formatters"
@@ -158,7 +170,10 @@ function VerifyPageBody() {
           }
         />
       ) : result ? (
-        <VerifyResult result={result} />
+        <VerifyResult
+          result={result}
+          lookup={token ? { token } : { code: activeCode }}
+        />
       ) : null}
     </VerifyShell>
   )
@@ -260,7 +275,7 @@ function VerifyShell({ children }: { children: ReactNode }) {
         {children}
 
         <p className="px-1 pt-1 text-center text-[11px] font-medium leading-5 text-slate-400">
-          이 페이지는 ForenShield가 발급한 보고서의 위·변조 여부만 확인하며, 보고서 내용은 제공하지
+          이 페이지는 발행 기록과 사용자가 선택한 PDF의 무결성을 확인하며, 보고서 내용은 제공하지
           않습니다.
         </p>
       </main>
@@ -309,34 +324,41 @@ const VERDICT_DISPLAY: Record<
   { title: string; fallbackMessage: string; icon: ReactNode; text: string }
 > = {
   VALID: {
-    title: "검증 완료",
-    fallbackMessage: "이 보고서는 발급 이후 변조되지 않았습니다.",
+    title: "발행 기록 확인됨",
+    fallbackMessage: "ForenShield에 등록된 공식 발행 기록입니다.",
     icon: <CheckCircle2 className="size-11 text-teal-600 dark:text-teal-300" aria-hidden="true" />,
     text: "text-teal-700 dark:text-teal-300",
   },
   WARNING: {
-    title: "일부 확인 필요",
-    fallbackMessage: "일부 항목을 자동으로 확인하지 못했습니다. 발급 기관에 문의해 주세요.",
+    title: "발행 기록 일부 확인 필요",
+    fallbackMessage: "발행 기록의 일부 상태를 자동으로 확인하지 못했습니다.",
     icon: <AlertCircle className="size-11 text-amber-600 dark:text-amber-400" aria-hidden="true" />,
     text: "text-amber-600 dark:text-amber-400",
   },
   INVALID: {
-    title: "검증 실패",
-    fallbackMessage: "발급 기록과 일치하지 않는 보고서입니다. 위·변조되었거나 등록되지 않은 문서일 수 있습니다.",
+    title: "발행 기록 검증 실패",
+    fallbackMessage: "발행 기록에 문제가 있습니다. 발급 기관에 문의해 주세요.",
     icon: <XCircle className="size-11 text-red-700 dark:text-red-400" aria-hidden="true" />,
     text: "text-red-700 dark:text-red-400",
   },
 }
 
-type CheckTone = "ok" | "danger" | "muted"
+type CheckTone = "ok" | "warning" | "danger" | "muted"
 
 const CHECK_BADGE_CLASS: Record<CheckTone, string> = {
   ok: "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300",
+  warning: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
   danger: "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400",
   muted: "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground",
 }
 
-function VerifyResult({ result }: { result: ReportVerification }) {
+function VerifyResult({
+  result,
+  lookup,
+}: {
+  result: ReportVerification
+  lookup: ReportVerificationLookup
+}) {
   const verdict = VERDICT_DISPLAY[result.status] ?? VERDICT_DISPLAY.WARNING
 
   const signature = getSignatureCheck(result)
@@ -348,23 +370,25 @@ function VerifyResult({ result }: { result: ReportVerification }) {
         <div className="flex justify-center">{verdict.icon}</div>
         <h1 className={cn("mt-3 text-xl font-bold", verdict.text)}>{verdict.title}</h1>
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-muted-foreground">
-          {result.message?.trim() || verdict.fallbackMessage}
+          {getRecordSummary(result, verdict.fallbackMessage)}
         </p>
         <p className="mt-3 font-mono text-xs font-semibold text-slate-400">{result.reportNo}</p>
       </section>
 
+      <ReportFileVerification lookup={lookup} />
+
       <CheckCard
         icon={<FileCheck2 className="size-4" aria-hidden="true" />}
-        title="PDF 해시"
-        badge={result.hashMatched ? "일치" : "불일치"}
+        title="발행 원본 보관 상태"
+        badge={result.hashMatched ? "정상" : "확인 필요"}
         tone={result.hashMatched ? "ok" : "danger"}
         note={
           result.hashMatched
-            ? "발급 시 등록된 해시와 동일합니다."
-            : "발급 시 등록된 해시와 다릅니다. 파일이 변경되었을 수 있습니다."
+            ? "서버 보관 원본이 발급 시 등록된 해시와 일치합니다."
+            : "서버 보관 원본 상태를 확인할 수 없습니다. 발급 기관에 문의해 주세요."
         }
       >
-        <HashLine label="보고서 해시 (SHA-256)" value={result.reportHash} />
+        <HashLine label="등록된 최종 PDF 해시 (SHA-256)" value={result.reportHash} />
       </CheckCard>
 
       <CheckCard
@@ -399,6 +423,166 @@ function VerifyResult({ result }: { result: ReportVerification }) {
       </section>
     </div>
   )
+}
+
+function getRecordSummary(result: ReportVerification, fallbackMessage: string) {
+  if (result.status === "VALID") {
+    return "공식 발행 기록과 보관 상태를 확인했습니다. 현재 보유한 PDF는 아래에서 별도로 검사할 수 있습니다."
+  }
+  if (result.status === "WARNING") {
+    return "공식 발행 기록은 확인됐지만 일부 상태를 자동으로 확인하지 못했습니다. 현재 PDF는 아래에서 별도로 검사하세요."
+  }
+  return result.message?.trim() || fallbackMessage
+}
+
+type FileCheckProgress = "idle" | "hashing" | "verifying" | "done" | "error"
+
+function ReportFileVerification({ lookup }: { lookup: ReportVerificationLookup }) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [progress, setProgress] = useState<FileCheckProgress>("idle")
+  const [fileName, setFileName] = useState("")
+  const [fileHash, setFileHash] = useState("")
+  const [verification, setVerification] = useState<ReportFileHashVerification | null>(null)
+  const [errorMessage, setErrorMessage] = useState("")
+  const isProcessing = progress === "hashing" || progress === "verifying"
+
+  async function inspectFile(file: File) {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setProgress("error")
+      setFileName(file.name)
+      setFileHash("")
+      setVerification(null)
+      setErrorMessage("PDF 파일만 검사할 수 있습니다.")
+      return
+    }
+
+    setProgress("hashing")
+    setFileName(file.name)
+    setFileHash("")
+    setVerification(null)
+    setErrorMessage("")
+
+    try {
+      const hash = await calculateFileSha256(file)
+      setFileHash(hash)
+      setProgress("verifying")
+      const checked = await verifyReportFileHash({ ...lookup, fileHash: hash })
+      setVerification(checked)
+      setProgress("done")
+    } catch (error) {
+      setProgress("error")
+      setErrorMessage(getApiErrorMessage(error, "PDF 파일을 검사하지 못했습니다."))
+    }
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (file) void inspectFile(file)
+  }
+
+  function chooseFile() {
+    if (fileInputRef.current) fileInputRef.current.value = ""
+    fileInputRef.current?.click()
+  }
+
+  const tone: CheckTone = verification
+    ? verification.status === "MATCH"
+      ? "ok"
+      : verification.status === "WARNING"
+        ? "warning"
+        : "danger"
+    : progress === "error"
+      ? "danger"
+      : "muted"
+  const badge = verification
+    ? verification.status === "MATCH"
+      ? "원본 일치"
+      : verification.status === "WARNING"
+        ? "추가 확인 필요"
+        : "불일치"
+    : isProcessing
+      ? "검사 중"
+      : progress === "error"
+        ? "검사 실패"
+        : "선택 전"
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-border dark:bg-card">
+      <div className="flex items-center justify-between gap-3">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-slate-950 dark:text-foreground">
+          <FileUp className="size-4 text-teal-600 dark:text-teal-300" aria-hidden="true" />
+          내 PDF 파일 검사
+        </p>
+        <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold", CHECK_BADGE_CLASS[tone])}>
+          {badge}
+        </span>
+      </div>
+
+      <p className="mt-1.5 text-xs font-semibold leading-5 text-slate-500 dark:text-muted-foreground">
+        PDF는 서버로 전송하지 않습니다. 이 브라우저에서 SHA-256을 계산하고 해시값만 확인합니다.
+      </p>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {isProcessing ? (
+        <div className="mt-3 flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-3 dark:bg-background/60">
+          <Loader2 className="size-5 shrink-0 animate-spin text-teal-600 dark:text-teal-300" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="truncate text-xs font-bold text-slate-700 dark:text-foreground">{fileName}</p>
+            <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+              {progress === "hashing" ? "PDF 해시를 계산하고 있습니다." : "등록된 최종 해시와 비교하고 있습니다."}
+            </p>
+          </div>
+        </div>
+      ) : verification ? (
+        <div className="mt-3">
+          <p className={cn(
+            "rounded-lg px-3 py-2.5 text-xs font-bold leading-5",
+            verification.status === "MATCH"
+              ? "bg-teal-50 text-teal-800 dark:bg-teal-500/10 dark:text-teal-300"
+              : verification.status === "WARNING"
+                ? "bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300"
+                : "bg-red-50 text-red-800 dark:bg-red-500/10 dark:text-red-300"
+          )}>
+            {verification.message}
+          </p>
+          <HashLine label="선택한 PDF 해시 (SHA-256)" value={fileHash} />
+          {!verification.matched ? (
+            <HashLine label="등록된 최종 PDF 해시 (SHA-256)" value={verification.registeredHash} />
+          ) : null}
+        </div>
+      ) : progress === "error" ? (
+        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2.5 text-xs font-bold leading-5 text-red-700 dark:bg-red-500/10 dark:text-red-300">
+          {errorMessage}
+        </p>
+      ) : null}
+
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-3 h-10 w-full rounded-lg font-bold"
+        disabled={isProcessing}
+        onClick={chooseFile}
+      >
+        <FileUp className="size-4" aria-hidden="true" />
+        {verification || progress === "error" ? "다른 PDF 검사" : "PDF 선택"}
+      </Button>
+    </section>
+  )
+}
+
+async function calculateFileSha256(file: File) {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("이 브라우저에서는 로컬 파일 해시 계산을 지원하지 않습니다.")
+  }
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", await file.arrayBuffer())
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
 function getSignatureCheck(result: ReportVerification): { badge: string; tone: CheckTone; note: string } {

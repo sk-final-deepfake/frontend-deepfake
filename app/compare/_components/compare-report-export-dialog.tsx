@@ -30,7 +30,7 @@ export function CompareReportExportDialog({
   const mismatchItems = result.items.filter((item) => item.result === "MISMATCH")
   const matchItems = result.items.filter((item) => item.result === "MATCH")
   const skippedItems = result.items.filter((item) => item.result === "SKIPPED")
-  const verdictTone = result.verdict === "TAMPERED" ? "text-red-700" : "text-teal-700"
+  const generatedAt = formatDateTime(new Date().toISOString())
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
@@ -111,61 +111,140 @@ export function CompareReportExportDialog({
           </button>
           <p className="mb-3 text-center text-xs font-bold text-slate-500">{fileName}</p>
 
-          <div className="mx-auto flex aspect-[210/297] w-full max-w-[520px] flex-col bg-white p-8 text-slate-900 shadow-lg">
-            <header className="border-b-2 border-slate-900 pb-3">
-              <p className="text-[10px] font-bold tracking-widest text-slate-500">FORENSHIELD AI · 비교검증</p>
-              <h3 className="mt-1.5 text-lg font-black">비교검증 보고서</h3>
-              <div className="mt-2 flex justify-between text-[10px] font-semibold text-slate-500">
-                <span>보고서 번호: COMPARE-{result.compareId}</span>
-                <span>생성일: {formatDateTime(new Date().toISOString())}</span>
+          <article className="mx-auto flex min-h-[760px] w-full max-w-[560px] flex-col bg-white px-10 py-9 font-serif leading-relaxed text-slate-950 shadow-lg [font-variant-numeric:tabular-nums]">
+            <header>
+              <div className="flex items-end justify-between gap-4 text-[10px] leading-4 text-slate-600">
+                <p>ForenShield AI 디지털 증거 분석 시스템</p>
+                <div className="text-right">
+                  <p>보고서 번호: COMPARE-{result.compareId}</p>
+                  <p>보안 등급: 내부망 전용</p>
+                </div>
               </div>
+              <div className="mt-1.5 border-t-2 border-slate-900" />
+              <div className="mt-[2px] border-t border-slate-900" />
+              <h3 className="mt-7 text-center text-[20px] font-bold tracking-[0.3em] text-slate-950">
+                비교검증 보고서
+              </h3>
+              <div className="mx-auto mt-3.5 w-20 border-t-2 border-slate-900" />
             </header>
 
-            <PreviewSection title="1. 검증 개요">
-              <PreviewRow label="기준 증거" value={`EVD-${result.originalEvidenceId}`} />
-              <PreviewRow label="비교 대상" value={result.candidateFileName || "제출본"} />
-              <PreviewRow label="검증 일시" value={formatDateTime(result.createdAt)} />
-              <PreviewRow label="판정" value={result.summary.verdictLabel} valueClassName={verdictTone} />
-            </PreviewSection>
+            <div className="mt-6 flex-1">
+              <DocSection number={1} title="검증 개요">
+                <DocGrid
+                  rows={[
+                    ["기준 증거", `EVD-${result.originalEvidenceId}`],
+                    ["비교 대상", result.candidateFileName || "제출본"],
+                    ["검증 일시", formatDateTime(result.createdAt)],
+                    ["생성 일시", generatedAt],
+                  ]}
+                />
+              </DocSection>
 
-            <PreviewSection title="2. 비교 결과">
-              <PreviewRow label="일치" value={`${matchItems.length}건`} />
-              <PreviewRow label="불일치" value={`${mismatchItems.length}건`} valueClassName="text-red-700" />
-              <PreviewRow label="제외" value={`${skippedItems.length}건`} />
-            </PreviewSection>
-
-            <PreviewSection title="3. 주요 불일치 항목">
-              {mismatchItems.length > 0 ? (
-                mismatchItems.slice(0, 4).map((item) => (
-                  <PreviewRow
-                    key={item.itemKey}
-                    label={item.label}
-                    value={`${formatPreviewValue(item.originalValue)} → ${formatPreviewValue(item.candidateValue)}`}
-                    mono
-                    valueClassName="text-red-700"
+              <DocSection number={2} title="검증 결과">
+                <div className="border-2 border-slate-900 px-4 py-3 text-center">
+                  <p className="text-[11px] text-slate-600">종합 판정</p>
+                  <p className="mt-0.5 text-[16px] font-bold tracking-[0.08em] text-slate-950">
+                    {result.summary.verdictLabel}
+                  </p>
+                </div>
+                <div className="mt-2">
+                  <DocGrid
+                    rows={[
+                      ["일치 항목", `${matchItems.length}건`],
+                      ["불일치 항목", `${mismatchItems.length}건`],
+                      ["제외 항목", `${skippedItems.length}건`],
+                      ["검증 범위", "항목 대조 · 전자서명 · 블록체인"],
+                    ]}
+                    boldValues={["불일치 항목"]}
                   />
-                ))
-              ) : (
-                <p className="py-1 text-[10px] font-semibold text-slate-400">주요 불일치 항목이 없습니다.</p>
-              )}
-            </PreviewSection>
+                </div>
+              </DocSection>
 
-            <PreviewSection title="4. 검증 계층">
-              <PreviewRow label="전자서명" value={formatSignatureStatus(result)} />
-              <PreviewRow label="블록체인" value={formatBlockchainStatus(result)} />
-            </PreviewSection>
+              <DocSection number={3} title="주요 불일치 항목">
+                {mismatchItems.length > 0 ? (
+                  <table className="w-full table-fixed border-collapse border border-slate-500 text-[10px] leading-5">
+                    <thead>
+                      <tr>
+                        <th className="w-[88px] border border-slate-500 bg-slate-100 px-2 py-1 text-center font-semibold text-slate-800">
+                          항목
+                        </th>
+                        <th className="border border-slate-500 bg-slate-100 px-2 py-1 text-center font-semibold text-slate-800">
+                          기준 증거
+                        </th>
+                        <th className="border border-slate-500 bg-slate-100 px-2 py-1 text-center font-semibold text-slate-800">
+                          비교 대상
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mismatchItems.slice(0, 4).map((item) => (
+                        <tr key={item.itemKey}>
+                          <td className="border border-slate-500 px-2 py-1 text-center font-semibold text-slate-950">
+                            {item.label}
+                          </td>
+                          <td className="border border-slate-500 px-2 py-1 text-center text-slate-950 [word-break:break-all]">
+                            {formatPreviewValue(item.originalValue)}
+                          </td>
+                          <td className="border border-slate-500 px-2 py-1 text-center font-bold text-slate-950 [word-break:break-all]">
+                            {formatPreviewValue(item.candidateValue)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-[11px] leading-5 text-slate-950">불일치 항목이 확인되지 않았습니다.</p>
+                )}
+              </DocSection>
 
-            <footer className="mt-auto border-t border-slate-200 pt-2.5">
-              <div className="flex items-end justify-between">
-                <p className="text-[9px] font-semibold leading-4 text-slate-400">
-                  본 보고서는 기준 증거와 비교 대상의 무결성 차이를 정리한 자료입니다.
-                  <br />
-                  최종 판단은 사건 맥락과 검토자 확인을 함께 반영합니다.
+              <DocSection number={4} title="검증 계층">
+                <DocGrid
+                  rows={[
+                    ["전자서명", formatSignatureStatus(result)],
+                    ["블록체인", formatBlockchainStatus(result)],
+                  ]}
+                />
+              </DocSection>
+
+              <div className="mt-7">
+                <p className="text-center text-[12px] leading-6 text-slate-950">
+                  위와 같이 비교검증 결과를 보고합니다.
                 </p>
-                <span className="text-[9px] font-bold text-slate-400">1 / 1</span>
+                <p className="mt-2 text-center text-[11px] text-slate-950">
+                  {generatedAt.split(" ")[0].replaceAll(".", ". ")}.
+                </p>
+                <table className="mx-auto mt-3 w-full max-w-[360px] border-collapse border border-slate-500 text-[11px]">
+                  <tbody>
+                    <tr>
+                      <th className="w-[60px] border border-slate-500 bg-slate-100 px-2 py-1.5 text-center font-semibold text-slate-800">
+                        작성자
+                      </th>
+                      <td className="border border-slate-500 px-2 py-1.5 text-slate-950">분석관</td>
+                      <td className="w-[88px] border border-slate-500 px-2 py-1.5 text-center text-slate-400">(서명)</td>
+                    </tr>
+                    <tr>
+                      <th className="border border-slate-500 bg-slate-100 px-2 py-1.5 text-center font-semibold text-slate-800">
+                        검토자
+                      </th>
+                      <td className="border border-slate-500 px-2 py-1.5 text-slate-950">책임 검토관</td>
+                      <td className="border border-slate-500 px-2 py-1.5 text-center text-slate-400">(서명)</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <footer className="mt-7">
+              <div className="border-t border-slate-900" />
+              <div className="mt-[2px] flex items-end justify-between border-t-2 border-slate-900 pt-2 text-[9px] leading-4 text-slate-600">
+                <p>
+                  본 보고서의 검증 결과는 기준 증거와 비교 대상의 무결성 대조 자료이며, 최종 판단은 사건 맥락과
+                  검토자 확인을 함께 반영합니다. 무단 복제·배포를 금합니다.
+                </p>
+                <p className="shrink-0">- 1 / 1 -</p>
               </div>
             </footer>
-          </div>
+          </article>
         </div>
       </section>
     </div>
@@ -202,33 +281,54 @@ function InfoBlock({
   )
 }
 
-function PreviewSection({ title, children }: { title: string; children: React.ReactNode }) {
+function DocSection({ number, title, children }: { number: number; title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-4">
-      <h4 className="border-b border-slate-300 pb-1 text-[11px] font-black text-slate-800">{title}</h4>
-      <dl className="mt-1.5 space-y-1">{children}</dl>
+    <section className="mt-5 first:mt-0">
+      <h4 className="text-[13px] font-bold text-slate-950">
+        {number}. {title}
+      </h4>
+      <div className="mt-1.5">{children}</div>
     </section>
   )
 }
 
-function PreviewRow({
-  label,
-  value,
-  mono = false,
-  valueClassName,
-}: {
-  label: string
-  value: string
-  mono?: boolean
-  valueClassName?: string
-}) {
+function DocGrid({ rows, boldValues = [] }: { rows: Array<[string, string]>; boldValues?: string[] }) {
+  const pairs: Array<Array<[string, string]>> = []
+  for (let index = 0; index < rows.length; index += 2) {
+    pairs.push(rows.slice(index, index + 2))
+  }
+
   return (
-    <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2 text-[10px] leading-4">
-      <dt className="font-semibold text-slate-400">{label}</dt>
-      <dd className={cn("min-w-0 break-words font-semibold text-slate-700", mono && "font-mono", valueClassName)}>
+    <table className="w-full table-fixed border-collapse border border-slate-500 text-[11px] leading-5">
+      <tbody>
+        {pairs.map((pair, rowIndex) => (
+          <tr key={rowIndex}>
+            {pair.map(([label, value]) => (
+              <DocGridCells key={label} label={label} value={value} bold={boldValues.includes(label)} />
+            ))}
+            {pair.length === 1 ? <DocGridCells label="" value="" /> : null}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function DocGridCells({ label, value, bold = false }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <>
+      <th className="w-[76px] border border-slate-500 bg-slate-100 px-2 py-1.5 text-left align-top text-[10px] font-semibold text-slate-800">
+        {label}
+      </th>
+      <td
+        className={cn(
+          "border border-slate-500 px-2 py-1.5 align-top text-slate-950 [word-break:break-all]",
+          bold && "font-bold"
+        )}
+      >
         {value}
-      </dd>
-    </div>
+      </td>
+    </>
   )
 }
 
