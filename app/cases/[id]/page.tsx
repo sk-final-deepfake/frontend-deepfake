@@ -1,6 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import {
@@ -139,6 +148,8 @@ import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
 
 type ResultTab = "summary" | "deepfake" | "forgery" | "frames" | "models"
+type WorkflowMessage = { type: "success" | "error" | "info"; text: string }
+type AnalysisProgressOverrides = Record<number, { status: AnalysisStatus; progress: number }>
 
 const RESULT_TABS: Array<{ value: ResultTab; label: string }> = [
   { value: "summary", label: "분석 요약" },
@@ -225,13 +236,6 @@ function getEvidenceBucket(evidence: CaseEvidenceSummary): EvidenceStatusBucket 
   return "pending"
 }
 
-function isAnalysisStatusPollingMessage(message: { type: "success" | "error" | "info"; text: string } | null) {
-  return (
-    message?.type === "error" &&
-    (message.text === ANALYSIS_STATUS_POLL_ERROR_TEXT || message.text === ANALYSIS_STATUS_POLL_TIMEOUT_TEXT)
-  )
-}
-
 const RESULT_RISK_SIGNALS = [
   {
     label: "얼굴 경계 불연속",
@@ -287,7 +291,12 @@ export default function CaseDetailPage() {
   const [showResultDashboard, setShowResultDashboard] = useState(false)
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
+  const [analysisProgressOverrides, setAnalysisProgressOverrides] = useState<AnalysisProgressOverrides>({})
+  const [analysisPollingMessage, setAnalysisPollingMessage] = useState<WorkflowMessage | null>(null)
   const isReviewer = isReviewerSession(session)
+  const refreshCase = useCallback(() => {
+    setCaseRefreshKey((key) => key + 1)
+  }, [])
   const {
     dialogMode,
     loginId: stepUpLoginId,
@@ -321,6 +330,35 @@ export default function CaseDetailPage() {
       setShowIntegrityDashboard(true)
     }
   }, [initialView])
+
+  const trackedAnalysisIdsKey = useMemo(() => {
+    if (!caseData) return ""
+
+    const ids = new Set<number>()
+    const evidenceById = new Map(caseData.evidences.map((evidence) => [evidence.evidenceId, evidence]))
+
+    for (const evidence of caseData.evidences) {
+      if (isEvidenceAnalysisRunning(evidence)) ids.add(evidence.evidenceId)
+    }
+
+    for (const [evidenceId, override] of Object.entries(analysisProgressOverrides)) {
+      const numericEvidenceId = Number(evidenceId)
+      const serverEvidence = evidenceById.get(numericEvidenceId)
+      if (!serverEvidence || (serverEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") continue
+
+      const serverStatus = normalizeStatus(serverEvidence.analysisStatus ?? "PENDING")
+      if (serverStatus === "COMPLETED" || serverStatus === "FAILED") continue
+
+      if (override.status === "PROCESSING" || override.status === "PENDING") {
+        ids.add(numericEvidenceId)
+      }
+    }
+
+    return Array.from(ids)
+      .filter((evidenceId) => Number.isFinite(evidenceId) && evidenceId > 0)
+      .sort((a, b) => a - b)
+      .join(",")
+  }, [analysisProgressOverrides, caseData])
 
   useEffect(() => {
     let cancelled = false
@@ -370,6 +408,174 @@ export default function CaseDetailPage() {
       cancelled = true
     }
   }, [caseId, caseRefreshKey])
+
+  useEffect(() => {
+    if (!caseData) return
+
+    setAnalysisProgressOverrides((current) => {
+      let changed = false
+      const next = { ...current }
+      const activeIds = new Set(caseData.evidences.map((evidence) => evidence.evidenceId))
+
+      for (const evidence of caseData.evidences) {
+        const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+        const progress = clampAnalysisProgress(evidence.analysisProgress)
+
+        if (status === "COMPLETED" || status === "FAILED") {
+          if (next[evidence.evidenceId]) {
+            delete next[evidence.evidenceId]
+            changed = true
+          }
+          continue
+        }
+
+        if (status === "PROCESSING") {
+          const previous = next[evidence.evidenceId]
+          const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+          if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
+            next[evidence.evidenceId] = { status: "PROCESSING", progress: nextProgress }
+            changed = true
+          }
+        }
+      }
+
+      for (const evidenceId of Object.keys(next)) {
+        if (!activeIds.has(Number(evidenceId))) {
+          delete next[Number(evidenceId)]
+          changed = true
+        }
+      }
+
+      return changed ? next : current
+    })
+  }, [caseData])
+
+  useEffect(() => {
+    const hasRunningOverride = Object.values(analysisProgressOverrides).some(
+      (item) => item.status === "PROCESSING" && item.progress < 92
+    )
+    if (!hasRunningOverride) return
+
+    const timer = window.setInterval(() => {
+      setAnalysisProgressOverrides((current) => {
+        let changed = false
+        const next = { ...current }
+
+        for (const [rawId, item] of Object.entries(current)) {
+          if (item.status !== "PROCESSING" || item.progress >= 92) continue
+
+          const increment = item.progress < 18 ? 3 : item.progress < 55 ? 2 : 1
+          const progress = Math.min(92, item.progress + increment)
+          if (progress !== item.progress) {
+            next[Number(rawId)] = { ...item, progress }
+            changed = true
+          }
+        }
+
+        return changed ? next : current
+      })
+    }, 1500)
+
+    return () => window.clearInterval(timer)
+  }, [analysisProgressOverrides])
+
+  useEffect(() => {
+    if (!trackedAnalysisIdsKey) {
+      setAnalysisPollingMessage(null)
+      return
+    }
+
+    const pollIds = trackedAnalysisIdsKey
+      .split(",")
+      .map((evidenceId) => Number(evidenceId))
+      .filter((evidenceId) => Number.isFinite(evidenceId) && evidenceId > 0)
+
+    if (pollIds.length === 0) return
+
+    let cancelled = false
+    let lastRefreshAt = 0
+    let failedPollCount = 0
+    let timeoutNotified = false
+    const pollingStartedAt = Date.now()
+
+    async function pollAnalysisStatuses() {
+      const statuses = await Promise.all(
+        pollIds.map((evidenceId) => fetchAnalysisStatus(evidenceId).catch(() => null))
+      )
+
+      if (cancelled) return
+
+      const validStatuses = statuses.filter((status) => status != null)
+      if (validStatuses.length === 0) {
+        failedPollCount += 1
+        if (failedPollCount >= 2) {
+          setAnalysisPollingMessage({ type: "error", text: ANALYSIS_STATUS_POLL_ERROR_TEXT })
+        }
+        return
+      }
+
+      failedPollCount = 0
+      setAnalysisPollingMessage(null)
+      setAnalysisProgressOverrides((current) => {
+        let changed = false
+        const next = { ...current }
+
+        for (const statusUpdate of validStatuses) {
+          const status = normalizeStatus(statusUpdate.status)
+          const progress = clampAnalysisProgress(statusUpdate.progressPercent)
+
+          if (status === "COMPLETED" || status === "FAILED") {
+            const nextProgress = status === "COMPLETED" ? 100 : progress
+            const previous = next[statusUpdate.evidenceId]
+            if (!previous || previous.status !== status || previous.progress !== nextProgress) {
+              next[statusUpdate.evidenceId] = { status, progress: nextProgress }
+              changed = true
+            }
+            continue
+          }
+
+          if (status === "PROCESSING" || progress > 0) {
+            const previous = next[statusUpdate.evidenceId]
+            const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+            if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
+              next[statusUpdate.evidenceId] = { status: "PROCESSING", progress: nextProgress }
+              changed = true
+            }
+          }
+        }
+
+        return changed ? next : current
+      })
+
+      const hasTerminalStatus = statuses.some(
+        (status) =>
+          normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
+      )
+      const now = Date.now()
+
+      if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
+        lastRefreshAt = now
+        refreshCase()
+      }
+
+      if (!timeoutNotified && now - pollingStartedAt > 60000 && !hasTerminalStatus) {
+        timeoutNotified = true
+        setAnalysisPollingMessage({ type: "error", text: ANALYSIS_STATUS_POLL_TIMEOUT_TEXT })
+      }
+    }
+
+    void pollAnalysisStatuses()
+
+    const interval = window.setInterval(() => {
+      if (document.hidden) return
+      void pollAnalysisStatuses()
+    }, 4000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [refreshCase, trackedAnalysisIdsKey])
 
   useEffect(() => {
     if (!caseData || !Number.isFinite(initialEvidenceId)) return
@@ -436,10 +642,6 @@ export default function CaseDetailPage() {
       router.replace(buildCaseDetailPath(caseId, evidenceId), { scroll: false })
     }
   }
-
-  const refreshCase = useCallback(() => {
-    setCaseRefreshKey((key) => key + 1)
-  }, [])
 
   function viewResult(evidenceId: number) {
     selectEvidence(evidenceId)
@@ -560,6 +762,9 @@ export default function CaseDetailPage() {
                     onStartCompare={startCompareVerification}
                     onUpdateCaseSettings={updateCaseSettings}
                     onRefresh={refreshCase}
+                    analysisProgressOverrides={analysisProgressOverrides}
+                    setAnalysisProgressOverrides={setAnalysisProgressOverrides}
+                    analysisPollingMessage={analysisPollingMessage}
                     currentUserName={getAppUserFromSession(session)?.name ?? null}
                     readOnly={isReviewer}
                   />
@@ -2217,6 +2422,9 @@ function CaseWorkflowPanel({
   onStartCompare,
   onUpdateCaseSettings,
   onRefresh,
+  analysisProgressOverrides,
+  setAnalysisProgressOverrides,
+  analysisPollingMessage,
   currentUserName,
   readOnly = false,
 }: {
@@ -2235,6 +2443,9 @@ function CaseWorkflowPanel({
     representativeEvidenceId: number | null
   ) => Promise<void>
   onRefresh: () => void
+  analysisProgressOverrides: AnalysisProgressOverrides
+  setAnalysisProgressOverrides: Dispatch<SetStateAction<AnalysisProgressOverrides>>
+  analysisPollingMessage: WorkflowMessage | null
   currentUserName?: string | null
   readOnly?: boolean
 }) {
@@ -2255,12 +2466,9 @@ function CaseWorkflowPanel({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [analystCommentsByEvidence, setAnalystCommentsByEvidence] = useState<Record<number, string>>({})
   const [reviewCommentsByEvidence, setReviewCommentsByEvidence] = useState<Record<number, string>>({})
-  const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null)
+  const [message, setMessage] = useState<WorkflowMessage | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
-  const [analysisProgressOverrides, setAnalysisProgressOverrides] = useState<
-    Record<number, { status: AnalysisStatus; progress: number }>
-  >({})
   const [readinessByEvidenceId, setReadinessByEvidenceId] = useState<
     Record<number, EvidenceReadinessResponse>
   >({})
@@ -2315,32 +2523,6 @@ function CaseWorkflowPanel({
       }),
     [analysisProgressOverrides, caseData.evidences]
   )
-  const trackedAnalysisIdsKey = useMemo(() => {
-    const ids = new Set<number>()
-    const evidenceById = new Map(caseData.evidences.map((evidence) => [evidence.evidenceId, evidence]))
-
-    for (const evidence of caseData.evidences) {
-      if (isEvidenceAnalysisRunning(evidence)) ids.add(evidence.evidenceId)
-    }
-
-    for (const [evidenceId, override] of Object.entries(analysisProgressOverrides)) {
-      const numericEvidenceId = Number(evidenceId)
-      const serverEvidence = evidenceById.get(numericEvidenceId)
-      if (!serverEvidence || (serverEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") continue
-
-      const serverStatus = normalizeStatus(serverEvidence.analysisStatus ?? "PENDING")
-      if (serverStatus === "COMPLETED" || serverStatus === "FAILED") continue
-
-      if (override.status === "PROCESSING" || override.status === "PENDING") {
-        ids.add(numericEvidenceId)
-      }
-    }
-
-    return Array.from(ids)
-      .filter((id) => Number.isFinite(id) && id > 0)
-      .sort((a, b) => a - b)
-      .join(",")
-  }, [analysisProgressOverrides, caseData.evidences])
   const activeEvidences = evidences.filter((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE")
   const bucketCounts = evidences.reduce(
     (counts, evidence) => {
@@ -2463,74 +2645,6 @@ function CaseWorkflowPanel({
   }, [message])
 
   useEffect(() => {
-    setAnalysisProgressOverrides((current) => {
-      let changed = false
-      const next = { ...current }
-      const activeIds = new Set(caseData.evidences.map((evidence) => evidence.evidenceId))
-
-      for (const evidence of caseData.evidences) {
-        const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
-        const progress = clampAnalysisProgress(evidence.analysisProgress)
-
-        if (status === "COMPLETED" || status === "FAILED") {
-          if (next[evidence.evidenceId]) {
-            delete next[evidence.evidenceId]
-            changed = true
-          }
-          continue
-        }
-
-        if (status === "PROCESSING") {
-          const previous = next[evidence.evidenceId]
-          const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
-          if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
-            next[evidence.evidenceId] = { status: "PROCESSING", progress: nextProgress }
-            changed = true
-          }
-        }
-      }
-
-      for (const id of Object.keys(next)) {
-        if (!activeIds.has(Number(id))) {
-          delete next[Number(id)]
-          changed = true
-        }
-      }
-
-      return changed ? next : current
-    })
-  }, [caseData.evidences])
-
-  useEffect(() => {
-    const hasRunningOverride = Object.values(analysisProgressOverrides).some(
-      (item) => item.status === "PROCESSING" && item.progress < 92
-    )
-    if (!hasRunningOverride) return
-
-    const timer = window.setInterval(() => {
-      setAnalysisProgressOverrides((current) => {
-        let changed = false
-        const next = { ...current }
-
-        for (const [rawId, item] of Object.entries(current)) {
-          if (item.status !== "PROCESSING" || item.progress >= 92) continue
-
-          const increment = item.progress < 18 ? 3 : item.progress < 55 ? 2 : 1
-          const progress = Math.min(92, item.progress + increment)
-          if (progress !== item.progress) {
-            next[Number(rawId)] = { ...item, progress }
-            changed = true
-          }
-        }
-
-        return changed ? next : current
-      })
-    }, 1500)
-
-    return () => window.clearInterval(timer)
-  }, [analysisProgressOverrides])
-
-  useEffect(() => {
     const selectableIds = new Set(selectableAnalysisEvidences.map((evidence) => evidence.evidenceId))
     setSelectedAnalysisIds((current) => {
       const next = current.filter((id) => selectableIds.has(id))
@@ -2556,105 +2670,6 @@ function CaseWorkflowPanel({
     window.addEventListener("keydown", handleEscape)
     return () => window.removeEventListener("keydown", handleEscape)
   }, [selectedAnalysisCount])
-
-  useEffect(() => {
-    if (!trackedAnalysisIdsKey) return
-
-    const pollIds = trackedAnalysisIdsKey
-      .split(",")
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id) && id > 0)
-
-    if (pollIds.length === 0) return
-
-    let cancelled = false
-    let lastRefreshAt = 0
-    let failedPollCount = 0
-    let timeoutNotified = false
-    const pollingStartedAt = Date.now()
-
-    async function pollAnalysisStatuses() {
-      const statuses = await Promise.all(
-        pollIds.map((evidenceId) => fetchAnalysisStatus(evidenceId).catch(() => null))
-      )
-
-      if (cancelled) return
-
-      const validStatuses = statuses.filter((status) => status != null)
-      if (validStatuses.length === 0) {
-        failedPollCount += 1
-        if (failedPollCount >= 2) {
-          setMessage({
-            type: "error",
-            text: ANALYSIS_STATUS_POLL_ERROR_TEXT,
-          })
-        }
-        return
-      }
-
-      failedPollCount = 0
-      setMessage((current) => (isAnalysisStatusPollingMessage(current) ? null : current))
-      setAnalysisProgressOverrides((current) => {
-        let changed = false
-        const next = { ...current }
-
-        for (const statusUpdate of validStatuses) {
-          const status = normalizeStatus(statusUpdate.status)
-          const progress = clampAnalysisProgress(statusUpdate.progressPercent)
-
-          if (status === "COMPLETED" || status === "FAILED") {
-            const nextProgress = status === "COMPLETED" ? 100 : progress
-            const previous = next[statusUpdate.evidenceId]
-            if (!previous || previous.status !== status || previous.progress !== nextProgress) {
-              next[statusUpdate.evidenceId] = { status, progress: nextProgress }
-              changed = true
-            }
-            continue
-          }
-
-          if (status === "PROCESSING" || progress > 0) {
-            const previous = next[statusUpdate.evidenceId]
-            const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
-            if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
-              next[statusUpdate.evidenceId] = { status: "PROCESSING", progress: nextProgress }
-              changed = true
-            }
-          }
-        }
-
-        return changed ? next : current
-      })
-      const hasTerminalStatus = statuses.some(
-        (status) => normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
-      )
-      const now = Date.now()
-
-      if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
-        lastRefreshAt = now
-        onRefresh()
-      }
-
-      if (!timeoutNotified && now - pollingStartedAt > 60000 && !hasTerminalStatus) {
-        timeoutNotified = true
-        setMessage({
-          type: "error",
-          text: ANALYSIS_STATUS_POLL_TIMEOUT_TEXT,
-        })
-      }
-    }
-
-    void pollAnalysisStatuses()
-
-    const interval = window.setInterval(() => {
-      if (document.hidden) return
-      void pollAnalysisStatuses()
-    }, 4000)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [onRefresh, trackedAnalysisIdsKey])
 
   async function runAction(
     action: () => Promise<void>,
@@ -2954,8 +2969,7 @@ function CaseWorkflowPanel({
     }
   }
 
-  const visibleMessage =
-    !trackedAnalysisIdsKey && isAnalysisStatusPollingMessage(message) ? null : message
+  const visibleMessage = analysisPollingMessage ?? message
 
   return (
     <section className="relative rounded-xl border border-border bg-card p-3 shadow-sm sm:p-5">
