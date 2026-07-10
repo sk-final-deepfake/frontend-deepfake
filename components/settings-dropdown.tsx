@@ -7,7 +7,6 @@ import { Separator } from "@/components/ui/separator"
 import { useUserSettings } from "@/hooks/use-user-settings"
 import type {
   DateFormat,
-  ListPageSize,
   ListSort,
   ThemeMode,
 } from "@/lib/user-settings"
@@ -28,12 +27,6 @@ const dateFormatOptions: { value: DateFormat; label: string }[] = [
 const listSortOptions: { value: ListSort; label: string }[] = [
   { value: "newest", label: "최신순" },
   { value: "status", label: "상태순" },
-]
-
-const listPageSizeOptions: { value: ListPageSize; label: string }[] = [
-  { value: 10, label: "10건" },
-  { value: 20, label: "20건" },
-  { value: 50, label: "50건" },
 ]
 
 function SettingRow({
@@ -201,13 +194,6 @@ export function SettingsDropdown() {
               />
             </SettingRow>
 
-            <SettingRow label="목록 표시 개수" description="내 분석 기록 목록에 적용">
-              <SelectSetting
-                value={settings.listPageSize}
-                options={listPageSizeOptions}
-                onChange={(value) => updateSettings({ listPageSize: value })}
-              />
-            </SettingRow>
           </div>
         </div>
       )}
