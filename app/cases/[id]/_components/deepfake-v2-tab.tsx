@@ -12,6 +12,7 @@ import {
   Volume2,
 } from "lucide-react"
 
+import { EvidenceHlsPlayer } from "@/components/evidence-hls-player"
 import type {
   ClipRisk,
   EvidenceDetailData,
@@ -32,7 +33,7 @@ type DeepfakeV2TabProps = {
   data: EvidenceDetailData
 }
 
-type ViewMode = "original" | "overlay" | "heatmap"
+type ViewMode = "original" | "overlay"
 type TimelineTabKey = ModuleTimelineKind
 
 const DEFAULT_THRESHOLD = 0.6
@@ -93,8 +94,8 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const verdict = getVerdict(modelScore, threshold)
   const summary = analysisInfo.summary?.trim() || "AI 탐지 근거가 아직 제공되지 않았습니다."
   const videoUrl = getPlayableVideoUrl(data)
+  const hlsPlayback = data.hlsPlayback ?? null
   const overlayVideoUrl = analysisInfo.overlayVideoUrl ?? evidenceInfo.overlayVideoUrl ?? null
-  const heatmapImageUrl = analysisInfo.heatmapImageUrl ?? evidenceInfo.heatmapImageUrl ?? null
   const modelScoreCards = buildModelScoreCards(data, threshold)
   const timelineTabs = buildTimelineTabs(data, threshold)
 
@@ -106,9 +107,9 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <VideoPlayerCard
           duration={duration}
+          hlsPlayback={hlsPlayback}
           videoUrl={videoUrl}
           overlayVideoUrl={overlayVideoUrl}
-          heatmapImageUrl={heatmapImageUrl}
         />
         <ModelInfoSidebar data={data} threshold={threshold} />
       </div>
@@ -129,52 +130,50 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
 
 function VideoPlayerCard({
   duration,
+  hlsPlayback,
   videoUrl,
   overlayVideoUrl,
-  heatmapImageUrl,
 }: {
   duration: string
+  hlsPlayback: EvidenceDetailData["hlsPlayback"]
   videoUrl: string | null
   overlayVideoUrl: string | null
-  heatmapImageUrl: string | null
 }) {
   const [view, setView] = useState<ViewMode>("original")
   const canShowOverlay = Boolean(overlayVideoUrl)
-  const canShowHeatmap = Boolean(heatmapImageUrl)
 
   return (
     <section className="rounded-xl border border-border bg-card p-3 shadow-sm">
       <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-        {videoUrl ? (
+        {view === "overlay" && overlayVideoUrl ? (
           <video
-            src={view === "overlay" && overlayVideoUrl ? overlayVideoUrl : videoUrl}
+            src={overlayVideoUrl}
             className="absolute inset-0 size-full object-cover"
             controls
             playsInline
+            controlsList="nodownload"
+            disablePictureInPicture
+          />
+        ) : hlsPlayback || videoUrl ? (
+          <EvidenceHlsPlayer
+            playback={hlsPlayback}
+            objectFit="cover"
+            showControls
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/70 px-6 text-center">
-            <p className="text-sm font-semibold text-foreground">영상 URL이 없습니다.</p>
+            <p className="text-sm font-semibold text-foreground">영상을 재생할 수 없습니다.</p>
             <p className="mt-2 text-xs font-medium leading-5 text-muted-foreground">
-              백엔드에서 재생 가능한 videoUrl 또는 streamUrl이 제공되면 이 영역에 실제 영상이 표시됩니다.
+              HLS 패키징이 완료되면 이 영역에서 암호화 스트림으로 재생됩니다.
             </p>
           </div>
         )}
-
-        {view === "heatmap" && heatmapImageUrl ? (
-          <img
-            src={heatmapImageUrl}
-            alt=""
-            className="absolute inset-0 size-full object-cover opacity-70 mix-blend-screen"
-          />
-        ) : null}
 
         <div className="absolute right-3 top-3 flex rounded-full bg-black/45 p-1 backdrop-blur-sm">
           {(
             [
               ["original", "원본", true],
               ["overlay", "오버레이", canShowOverlay],
-              ["heatmap", "히트맵", canShowHeatmap],
             ] as const
           ).map(([mode, label, enabled]) => (
             <button
@@ -195,7 +194,7 @@ function VideoPlayerCard({
           ))}
         </div>
 
-        {!videoUrl ? (
+        {!hlsPlayback && !videoUrl ? (
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/30">
               <div className="h-full w-[40%] rounded-full bg-emerald-400" />
@@ -211,9 +210,9 @@ function VideoPlayerCard({
           </div>
         ) : null}
       </div>
-      {!canShowOverlay || !canShowHeatmap ? (
+      {!canShowOverlay ? (
         <p className="mt-2 text-xs font-medium text-muted-foreground">
-          오버레이와 히트맵은 AI 산출물이 제공될 때 활성화됩니다.
+          오버레이는 AI 산출물이 제공될 때 활성화됩니다.
         </p>
       ) : null}
     </section>
@@ -607,9 +606,8 @@ function RepresentativeFrames({ frames }: { frames: RepresentativeFrame[] }) {
                       <span className="text-muted-foreground/70"> (프레임 {frame.frameNumber})</span>
                     ) : null}
                   </p>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="mt-2">
                     <FrameImage src={frame.imageUrl} label="대표 프레임 이미지" />
-                    <FrameImage src={frame.heatmapUrl} label="AI 히트맵 이미지" />
                   </div>
                   <p className="mt-2 text-xs font-bold text-foreground">
                     점수 {frame.score == null ? "-" : normalizeProbability(frame.score).toFixed(2)}
@@ -629,7 +627,7 @@ function RepresentativeFrames({ frames }: { frames: RepresentativeFrame[] }) {
       ) : (
         <EmptyState
           title="대표 프레임 결과가 없습니다."
-          description="AI가 대표 프레임 이미지나 히트맵을 제공하면 이 영역에 표시됩니다."
+          description="AI가 대표 프레임 이미지를 제공하면 이 영역에 표시됩니다."
         />
       )}
     </section>
@@ -1054,7 +1052,16 @@ function formatNullable(value: number | null, formatter: (value: number) => stri
 
 function getPlayableVideoUrl(data: EvidenceDetailData) {
   const evidence = data.evidenceInfo
-  return evidence.videoUrl ?? evidence.streamUrl ?? evidence.fileUrl ?? evidence.previewUrl ?? null
+  const analysis = data.analysisInfo
+  return (
+    evidence.videoUrl ??
+    evidence.streamUrl ??
+    evidence.fileUrl ??
+    evidence.previewUrl ??
+    analysis.overlayVideoUrl ??
+    evidence.overlayVideoUrl ??
+    null
+  )
 }
 
 function formatFrameTime(frame?: Pick<FrameScore, "timeSec" | "timestamp"> | Pick<RepresentativeFrame, "timeSec" | "timestamp">) {

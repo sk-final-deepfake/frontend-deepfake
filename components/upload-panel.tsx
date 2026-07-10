@@ -136,6 +136,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const [hydrated, setHydrated] = useState(false)
   const {
     isCheckingReadiness,
+    readinessCheckPhase,
     qualityDialogOpen,
     qualityDialogLoading,
     qualityDialogSummaries,
@@ -231,7 +232,12 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     if (!pollingKey) return
 
     const pollStatuses = async () => {
-      const evidenceIds = pollingKey.split(",").map(Number)
+      const evidenceIds = pollingKey
+        .split(",")
+        .map(Number)
+        .filter((id) => Number.isFinite(id) && id > 0)
+      if (evidenceIds.length === 0) return
+
       const statuses = await Promise.all(
         evidenceIds.map((id) =>
           fetchAnalysisStatus(id).catch(() => null)
@@ -646,7 +652,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         onUpload={handleUpload}
       />
 
-      <ReadinessCheckOverlay open={isCheckingReadiness} />
+      <ReadinessCheckOverlay open={isCheckingReadiness} phase={readinessCheckPhase} />
 
       <QualityWarningDialog
         open={qualityDialogOpen}

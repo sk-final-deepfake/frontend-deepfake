@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
 import { login } from "@/lib/auth-api"
-import { getApiErrorMessage } from "@/lib/api/errors"
+import { getLoginErrorMessage } from "@/lib/api/errors"
 import { applyLoginResponse, getSession, isReviewerRole } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
@@ -71,9 +71,7 @@ export function LoginForm() {
 
       router.replace(getLoginRedirectPath(response.role))
     } catch (error) {
-      setErrorMessage(
-        getApiErrorMessage(error, "로그인 요청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요.")
-      )
+      setErrorMessage(getLoginErrorMessage(error))
     } finally {
       setIsSubmitting(false)
     }
@@ -208,9 +206,7 @@ function getLoginRedirectPath(role: string) {
 }
 
 function canUseMockLogin() {
-  if (features.mockApi) return true
-  if (typeof window === "undefined") return false
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+  return features.mockApi
 }
 
 function getMockLogin(loginId: string, password: string) {
@@ -232,12 +228,12 @@ function getMockLogin(loginId: string, password: string) {
     }
   }
 
-  if (loginId === "9999" && password === "9999") {
+  if ((loginId === "3333" && password === "4444") || (loginId === "9999" && password === "9999")) {
     return {
-      userId: 9999,
-      name: "이관리",
-      role: "ROLE_ORG_ADMIN",
-      token: "mock-org-admin-token",
+      userId: Number(loginId),
+      name: "테스트 관리자",
+      role: "ROLE_ADMIN",
+      token: "mock-admin-token",
     }
   }
 

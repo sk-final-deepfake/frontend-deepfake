@@ -2,16 +2,19 @@ import type { DateFormat } from "@/lib/user-settings"
 
 export function formatCreatedAt(
   isoDate: string,
-  format: DateFormat = "ko-full"
+  format: DateFormat = "kr"
 ): string {
   const date = new Date(isoDate)
   if (Number.isNaN(date.getTime())) return isoDate
 
-  if (format === "ko-date") {
-    return date.toLocaleDateString("ko-KR", {
+  if (format === "us") {
+    return date.toLocaleString("en-US", {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
     })
   }
 

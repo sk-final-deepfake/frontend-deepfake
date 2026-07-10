@@ -1,5 +1,6 @@
 import { ChevronRight, Play } from "lucide-react"
 
+import { EvidenceHlsStatusThumbnail } from "@/components/evidence-hls-status-thumbnail"
 import { Badge } from "@/components/ui/badge"
 import type { CaseEvidenceSummary } from "@/lib/api/evidence-detail"
 import { cn } from "@/lib/utils"
@@ -82,9 +83,7 @@ export function EvidenceSelector({
 }
 
 function EvidenceThumbnail({ evidence, active }: { evidence: CaseEvidenceSummary; active: boolean }) {
-  const mediaUrl = evidence.thumbnailUrl ?? evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl
-
-  if (mediaUrl) {
+  if (evidence.thumbnailUrl) {
     return (
       <span
         className={cn(
@@ -92,27 +91,20 @@ function EvidenceThumbnail({ evidence, active }: { evidence: CaseEvidenceSummary
           active && "ring-2 ring-teal-400 ring-offset-2 ring-offset-background"
         )}
       >
-        {evidence.thumbnailUrl ? (
-          <img
-            src={evidence.thumbnailUrl}
-            alt={`${evidence.fileName} 썸네일`}
-            className="size-full object-cover"
-          />
-        ) : (
-          <video
-            src={mediaUrl}
-            className="size-full object-cover"
-            muted
-            playsInline
-            preload="metadata"
-            aria-label={`${evidence.fileName} 미리보기`}
-          />
-        )}
+        <img
+          src={evidence.thumbnailUrl}
+          alt={`${evidence.fileName} 썸네일`}
+          className="size-full object-cover"
+        />
         <span className="absolute left-1/2 top-1/2 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm">
           <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
         </span>
       </span>
     )
+  }
+
+  if (evidence.mediaType === "VIDEO") {
+    return <EvidenceHlsStatusThumbnail hlsStatus={evidence.hlsStatus} active={active} />
   }
 
   const evidenceId = evidence.evidenceId

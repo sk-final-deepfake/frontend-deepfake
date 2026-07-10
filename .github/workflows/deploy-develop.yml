@@ -38,10 +38,12 @@ jobs:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_USE_MOCK_API: "false"
+          NEXT_PUBLIC_AUTH_REFRESH_ENABLED: "true"
         run: |
           docker build \
             --build-arg NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
             --build-arg NEXT_PUBLIC_USE_MOCK_API=$NEXT_PUBLIC_USE_MOCK_API \
+            --build-arg NEXT_PUBLIC_AUTH_REFRESH_ENABLED=$NEXT_PUBLIC_AUTH_REFRESH_ENABLED \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG

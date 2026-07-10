@@ -246,6 +246,21 @@ function getCaseOrganizationType(caseItem: CaseSummary): OrgType {
     return "ETC";
 }
 
+function isReviewerInCaseScope(reviewer: ReviewerOption, caseItem: CaseSummary) {
+    const caseDepartment = normalizeText(caseItem.department)?.toLowerCase();
+    const reviewerDepartment = normalizeText(reviewer.department)?.toLowerCase();
+    if (!caseDepartment || caseDepartment !== reviewerDepartment) return false;
+
+    const caseOrganizationId = normalizeText(caseItem.organizationId)?.toLowerCase();
+    const reviewerOrganizationId = normalizeText(reviewer.organizationId)?.toLowerCase();
+    if (caseOrganizationId && reviewerOrganizationId) {
+        return caseOrganizationId === reviewerOrganizationId;
+    }
+
+    const reviewerOrganizationType = normalizeText(reviewer.organizationType)?.toUpperCase();
+    return !reviewerOrganizationType || reviewerOrganizationType === getCaseOrganizationType(caseItem);
+}
+
 function getScopeLabel(caseItem: CaseSummary) {
     const organizationName = getOrganizationName(caseItem);
     const rawDepartment = normalizeText(caseItem.department);
@@ -278,6 +293,11 @@ export default function AdminReviewAssignmentPage() {
     const [assignmentCase, setAssignmentCase] = useState<CaseSummary | null>(
         null,
     );
+    const [assignmentReviewerOptions, setAssignmentReviewerOptions] = useState<
+        ReviewerOption[] | null
+    >(null);
+    const [assignmentReviewersLoading, setAssignmentReviewersLoading] =
+        useState(false);
     const [selectedReviewerId, setSelectedReviewerId] = useState("");
     const [loading, setLoading] = useState(true);
     const [signupDepartments, setSignupDepartments] = useState<string[]>([]);
@@ -326,6 +346,34 @@ export default function AdminReviewAssignmentPage() {
             cancelled = true;
         };
     }, []);
+
+    useEffect(() => {
+        if (!assignmentCase) {
+            setAssignmentReviewerOptions(null);
+            setAssignmentReviewersLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setAssignmentReviewersLoading(true);
+        fetchAdminReviewers({
+            uploaderId: assignmentCase.createdBy,
+            department: assignmentCase.department,
+        })
+            .then((items) => {
+                if (!cancelled) setAssignmentReviewerOptions(items);
+            })
+            .catch(() => {
+                if (!cancelled) setAssignmentReviewerOptions([]);
+            })
+            .finally(() => {
+                if (!cancelled) setAssignmentReviewersLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [assignmentCase]);
 
     const reviewCases = useMemo(
         () =>
@@ -489,7 +537,12 @@ export default function AdminReviewAssignmentPage() {
                     delayedCount: assignedCases.filter(isDelayedReview).length,
                 };
             }),
-        [activeCases],
+        [activeCases, reviewers],
+    );
+
+    const reviewerStatsById = useMemo(
+        () => new Map(reviewerStats.map((reviewer) => [reviewer.id, reviewer])),
+        [reviewerStats],
     );
 
     const queueStats = useMemo(
@@ -581,9 +634,18 @@ export default function AdminReviewAssignmentPage() {
     }, [currentCasePage, filteredCases]);
 
     const assignmentReviewers = useMemo(() => {
-        if (!assignmentCase) return [];
+        if (!assignmentCase || assignmentReviewerOptions === null) return [];
 
-        return reviewerStats
+        return assignmentReviewerOptions
+            .filter((reviewer) => isReviewerInCaseScope(reviewer, assignmentCase))
+            .map((reviewer) => {
+                const stats = reviewerStatsById.get(reviewer.id);
+                return {
+                    ...reviewer,
+                    assignedCount: stats?.assignedCount ?? 0,
+                    delayedCount: stats?.delayedCount ?? 0,
+                };
+            })
             .sort((first, second) => {
                 const currentReviewerGap =
                     Number(second.id === assignmentCase.reviewerId) -
@@ -598,7 +660,7 @@ export default function AdminReviewAssignmentPage() {
 
                 return first.name.localeCompare(second.name, "ko");
             });
-    }, [assignmentCase, reviewerStats]);
+    }, [assignmentCase, assignmentReviewerOptions, reviewerStatsById]);
 
     const selectedReviewer = assignmentReviewers.find(
         (reviewer) => reviewer.id === selectedReviewerId,
@@ -614,10 +676,12 @@ export default function AdminReviewAssignmentPage() {
         Boolean(assignmentCase) &&
         Boolean(selectedReviewer) &&
         !selectedIsCurrentReviewer &&
+        !assignmentReviewersLoading &&
         !processing;
 
     const assignmentButtonLabel = (() => {
         if (!assignmentCase) return "담당자 선택";
+        if (assignmentReviewersLoading) return "검토자 목록을 불러오는 중";
         if (!selectedReviewer)
             return isReassignment
                 ? "변경할 담당자를 선택하세요"
@@ -642,6 +706,8 @@ export default function AdminReviewAssignmentPage() {
 
     function openAssignmentModal(caseItem: CaseSummary) {
         setAssignmentCase(caseItem);
+        setAssignmentReviewerOptions(null);
+        setAssignmentReviewersLoading(true);
         setSelectedReviewerId("");
         setShowFilters(false);
     }
@@ -649,6 +715,8 @@ export default function AdminReviewAssignmentPage() {
     function closeAssignmentModal() {
         if (processing) return;
         setAssignmentCase(null);
+        setAssignmentReviewerOptions(null);
+        setAssignmentReviewersLoading(false);
         setSelectedReviewerId("");
     }
 
@@ -909,6 +977,7 @@ export default function AdminReviewAssignmentPage() {
                 <AssignmentModal
                     caseItem={assignmentCase}
                     reviewers={assignmentReviewers}
+                    reviewersLoading={assignmentReviewersLoading}
                     selectedReviewerId={selectedReviewerId}
                     processing={processing}
                     buttonLabel={assignmentButtonLabel}
@@ -1124,6 +1193,7 @@ function FilterButtonGroup({
 function AssignmentModal({
                              caseItem,
                              reviewers,
+                             reviewersLoading,
                              selectedReviewerId,
                              processing,
                              buttonLabel,
@@ -1134,6 +1204,7 @@ function AssignmentModal({
                          }: {
     caseItem: CaseSummary;
     reviewers: ReviewerStat[];
+    reviewersLoading: boolean;
     selectedReviewerId: string;
     processing: boolean;
     buttonLabel: string;
@@ -1207,12 +1278,18 @@ function AssignmentModal({
                                 value={reviewerQuery}
                                 onChange={(event) => setReviewerQuery(event.target.value)}
                                 placeholder="검토자 이름 검색"
+                                disabled={reviewersLoading}
                                 className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none placeholder:text-slate-400 focus:border-slate-400"
                             />
                         </div>
 
                         <div className="mt-3 max-h-[260px] space-y-2 overflow-y-auto pr-1">
-                            {reviewers.length === 0 ? (
+                            {reviewersLoading ? (
+                                <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+                                    <Loader2 className="size-4 animate-spin" />
+                                    동일 기관·부서 검토자를 불러오는 중입니다.
+                                </div>
+                            ) : reviewers.length === 0 ? (
                                 <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
                                     이 사건의 기관/부서에 등록된 검토자가 없습니다.
                                 </div>

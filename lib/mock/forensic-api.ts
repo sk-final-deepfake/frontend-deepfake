@@ -87,6 +87,7 @@ type MockCaseRecord = {
   assigneeId?: string | null
   reviewerId?: string | null
   reviewStatus?: ReviewStatus | null
+  reviewerComment?: string | null
   aiResult?: AiResult | null
   reviewRequestedAt?: string | null
 }
@@ -981,6 +982,17 @@ function latestCompletedAnalysisAt(records: MockEvidenceRecord[]) {
   return new Date(Math.max(...completedTimes)).toISOString()
 }
 
+function reopenAssignedReview(caseRecord: MockCaseRecord): MockCaseRecord {
+  if (!caseRecord.reviewerId) return caseRecord
+
+  return {
+    ...caseRecord,
+    reviewStatus: "REVIEW_ASSIGNED",
+    reviewerComment: null,
+    reviewRequestedAt: new Date().toISOString(),
+  }
+}
+
 function findRecord(evidenceId: number): MockEvidenceRecord {
   const store = saveAfterProgressUpdate()
   const record = store.evidences.find((item) => item.evidenceId === evidenceId)
@@ -1047,11 +1059,15 @@ export async function mockUploadEvidence(file: File, caseName?: string): Promise
     role: "SUPPLEMENT",
   }
 
-  const nextCases = cases.map((item) =>
-    item.caseId === targetCaseId && item.representativeEvidenceId == null
-      ? { ...item, representativeEvidenceId: record.evidenceId }
-      : item
-  )
+  const nextCases = cases.map((item) => {
+    if (item.caseId !== targetCaseId) return item
+
+    const nextCase =
+      item.representativeEvidenceId == null
+        ? { ...item, representativeEvidenceId: record.evidenceId }
+        : item
+    return reopenAssignedReview(nextCase)
+  })
 
   writeStore({
     cases: nextCases,
@@ -1138,12 +1154,15 @@ export async function mockUploadEvidenceToCase(caseId: string, file: File): Prom
     (representativeRecord?.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"
 
   const cases = store.cases.some((item) => item.caseId === caseId)
-    ? store.cases.map((item) =>
-        item.caseId === caseId && shouldSetRepresentative
+    ? store.cases.map((item) => {
+        if (item.caseId !== caseId) return item
+
+        const nextCase = shouldSetRepresentative
           ? { ...item, representativeEvidenceId: record.evidenceId }
           : item
-      )
-    : [{ ...targetCase, representativeEvidenceId: record.evidenceId }, ...store.cases]
+        return reopenAssignedReview(nextCase)
+      })
+    : [reopenAssignedReview({ ...targetCase, representativeEvidenceId: record.evidenceId }), ...store.cases]
 
   writeStore({
     cases,
@@ -1237,8 +1256,10 @@ export async function mockReplaceEvidence(
   }
 
   const cases = store.cases.some((item) => item.caseId === caseId)
-    ? store.cases
-    : [targetCase, ...store.cases]
+    ? store.cases.map((item) =>
+        item.caseId === caseId ? reopenAssignedReview(item) : item
+      )
+    : [reopenAssignedReview(targetCase), ...store.cases]
 
   writeStore({
     cases,
@@ -1459,6 +1480,18 @@ export async function mockAssignReviewerToCase(caseId: string, reviewerId: strin
     throw new Error("검토 배정할 사건을 찾을 수 없습니다.")
   }
 
+  const caseDepartment = targetCase.department?.trim().toLowerCase()
+  const reviewerDepartment = reviewer.department.trim().toLowerCase()
+  const caseOrganizationId = targetCase.organizationId?.trim().toLowerCase()
+  const reviewerOrganizationId = reviewer.organizationId.trim().toLowerCase()
+  if (
+    !caseDepartment ||
+    caseDepartment !== reviewerDepartment ||
+    caseOrganizationId !== reviewerOrganizationId
+  ) {
+    throw new Error("사건 담당 분석관과 같은 기관/부서의 검토자만 배정할 수 있습니다.")
+  }
+
   const cases = store.cases.some((item) => item.caseId === caseId)
     ? store.cases.map((item) =>
         item.caseId === caseId
@@ -1484,6 +1517,35 @@ export async function mockAssignReviewerToCase(caseId: string, reviewerId: strin
     ...store,
     cases,
   })
+}
+
+export async function mockRecordCaseReviewDecision(
+  caseId: string,
+  decision: "APPROVED" | "REVISION",
+  memo?: string
+): Promise<CaseDetailData> {
+  await delay(180)
+
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  const store = materializeReviewQueueSeedCase(materializeSampleCase(readStore(), resolvedCaseId), resolvedCaseId)
+  const targetCase = findCaseRecord(store, resolvedCaseId)
+  if (!targetCase) {
+    throw new Error("검토 결정할 사건을 찾을 수 없습니다.")
+  }
+
+  const reviewStatus: ReviewStatus =
+    decision === "APPROVED" ? "REPORT_APPROVED" : "REVIEW_SUPPLEMENT_REQUESTED"
+  const reviewerComment = memo?.trim() || null
+  const cases = store.cases.some((item) => item.caseId === resolvedCaseId)
+    ? store.cases.map((item) =>
+        item.caseId === resolvedCaseId
+          ? { ...item, reviewStatus, reviewerComment }
+          : item
+      )
+    : [{ ...targetCase, reviewStatus, reviewerComment }, ...store.cases]
+
+  writeStore({ ...store, cases })
+  return mockFetchCaseDetail(resolvedCaseId)
 }
 
 export async function mockFetchMyAnalysisHistory(options?: {
@@ -1847,7 +1909,6 @@ function buildMockRepresentativeFrames(record: MockEvidenceRecord): Representati
     return {
       ...frame,
       imageUrl: `/mock/frames/${key}.jpg`,
-      heatmapUrl: `/mock/frames/${key}-heatmap.jpg`,
     }
   })
 }
@@ -2266,7 +2327,6 @@ function buildEvidenceDetail(
   const representativeFrames = buildMockRepresentativeFrames(record)
   const frameScores = buildMockFrameScores(record)
   const timelineData = buildMockTimelineData(record, frameScores)
-  const firstHeatmapUrl = representativeFrames[0]?.heatmapUrl ?? null
 
   return {
     evidenceInfo: {
@@ -2288,7 +2348,6 @@ function buildEvidenceDetail(
       videoUrl: playableVideoUrl,
       fileUrl: playableVideoUrl,
       streamUrl: playableVideoUrl,
-      heatmapImageUrl: firstHeatmapUrl,
       technicalMetadata: technicalMetadataFor(record),
     },
     integrityInfo: {
@@ -2332,9 +2391,17 @@ function buildEvidenceDetail(
       moduleTimelines: timelineData.moduleTimelines,
       frameScores,
       representativeFrames,
-      heatmapImageUrl: firstHeatmapUrl,
     },
     cocLogs: buildCocLogs(record),
+    hlsPlayback:
+      record.mediaType === "VIDEO"
+        ? {
+            manifestPath: `/api/v1/evidences/${record.evidenceId}/hls/master.m3u8`,
+            hlsStatus: "READY",
+            streamToken: `mock-stream-${record.evidenceId}`,
+            expiresIn: 900,
+          }
+        : null,
   }
 }
 
@@ -2398,6 +2465,8 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
         createdBy: storedCase.createdBy ?? defaultCaseAccessFields().createdBy,
         assigneeId: storedCase.assigneeId ?? defaultCaseAccessFields().assigneeId,
         reviewerId: storedCase.reviewerId ?? null,
+        reviewStatus: storedCase.reviewStatus ?? "NONE",
+        reviewerComment: storedCase.reviewerComment ?? null,
         evidences: [],
       }
     }
@@ -2425,6 +2494,8 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
     createdBy: caseRecord?.createdBy ?? defaultCaseAccessFields().createdBy,
     assigneeId: caseRecord?.assigneeId ?? defaultCaseAccessFields().assigneeId,
     reviewerId: caseRecord?.reviewerId ?? null,
+    reviewStatus: caseRecord?.reviewStatus ?? "NONE",
+    reviewerComment: caseRecord?.reviewerComment ?? null,
     evidences,
   }
 }
@@ -2455,6 +2526,7 @@ function mapRecordToCaseEvidence(record: MockEvidenceRecord, index: number): Cas
     previewUrl: videoUrl,
     videoUrl,
     fileUrl: videoUrl,
+    hlsStatus: record.mediaType === "VIDEO" ? "READY" : null,
   }
 }
 

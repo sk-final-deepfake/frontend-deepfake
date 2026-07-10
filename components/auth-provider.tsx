@@ -1,7 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { bootstrapAuthSession } from "@/lib/auth"
+import {
+  bootstrapAuthSession,
+  expireSession,
+  getSession,
+  getSessionExpiresAt,
+  isMockAuthSession,
+} from "@/lib/auth"
 
 type AuthProviderProps = {
   children: React.ReactNode
@@ -13,6 +19,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     void bootstrapAuthSession().finally(() => setReady(true))
+  }, [])
+
+  useEffect(() => {
+    let timeoutId: number | undefined
+
+    function scheduleSessionExpiry() {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId)
+        timeoutId = undefined
+      }
+
+      const session = getSession()
+      const expiresAt = getSessionExpiresAt()
+      if (!session || isMockAuthSession(session) || !expiresAt) return
+
+      const remainingMs = expiresAt - Date.now()
+      if (remainingMs <= 0) {
+        expireSession()
+        return
+      }
+
+      timeoutId = window.setTimeout(expireSession, remainingMs)
+    }
+
+    scheduleSessionExpiry()
+    window.addEventListener("auth-change", scheduleSessionExpiry)
+
+    return () => {
+      if (timeoutId) window.clearTimeout(timeoutId)
+      window.removeEventListener("auth-change", scheduleSessionExpiry)
+    }
   }, [])
 
   if (!ready) {

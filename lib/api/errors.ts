@@ -28,3 +28,32 @@ export function isStepUpRequiredError(error: unknown): boolean {
 export function isRateLimitError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 429 && error.errorCode === "RATE_LIMIT_EXCEEDED"
 }
+
+export function isLoginTemporarilyBlockedError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 429 &&
+    error.errorCode === "LOGIN_TEMPORARILY_BLOCKED"
+  )
+}
+
+export function isLoginDayBlockedError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 429 &&
+    error.errorCode === "LOGIN_DAY_BLOCKED"
+  )
+}
+
+export function getLoginErrorMessage(
+  error: unknown,
+  fallback = "로그인 요청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요."
+): string {
+  if (isLoginDayBlockedError(error)) {
+    return "횟수 제한으로 인해 24시간 동안 로그인이 제한됩니다."
+  }
+  if (isLoginTemporarilyBlockedError(error)) {
+    return "로그인 시도 횟수를 초과했습니다. 3분 후 다시 시도해 주세요."
+  }
+  return getApiErrorMessage(error, fallback)
+}

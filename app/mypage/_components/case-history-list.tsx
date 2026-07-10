@@ -10,7 +10,7 @@ import { buildCaseDetailPath } from "@/lib/route-params"
 
 export function CaseHistoryList({
   cases,
-  dateFormat = "ko-full",
+  dateFormat = "kr",
 }: {
   cases: CaseSummary[]
   dateFormat?: DateFormat

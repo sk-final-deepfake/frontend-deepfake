@@ -2,6 +2,18 @@ import { apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
 import { mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
 
+export type AnalysisModelSnapshot = {
+  name: string
+  version: string
+  identifier?: string | null
+}
+
+export type AnalysisModuleSnapshot = {
+  module: string
+  name: string
+  version: string
+}
+
 export type BlockchainAnchorRecord = {
   anchorId: number
   anchorType: string
@@ -20,6 +32,8 @@ export type BlockchainAnchorRecord = {
   certVerified?: boolean | null
   offchainLogHash?: string | null
   offchainRefJson?: string | null
+  analysisModelJson?: string | null
+  analysisModulesJson?: string | null
   errorCode?: string | null
   message?: string | null
   transactionExplorerUrl?: string | null
@@ -91,5 +105,40 @@ export function parseOffchainRef(json?: string | null): Record<string, string> {
     return result
   } catch {
     return {}
+  }
+}
+
+export function parseAnalysisModelJson(json?: string | null): AnalysisModelSnapshot | null {
+  if (!json?.trim()) return null
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>
+    const name = typeof parsed.name === "string" ? parsed.name : ""
+    const version = typeof parsed.version === "string" ? parsed.version : ""
+    if (!name && !version) return null
+    return {
+      name: name || version,
+      version: version || name,
+      identifier: typeof parsed.identifier === "string" ? parsed.identifier : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function parseAnalysisModulesJson(json?: string | null): AnalysisModuleSnapshot[] {
+  if (!json?.trim()) return []
+  try {
+    const parsed = JSON.parse(json) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item): item is Record<string, unknown> => item != null && typeof item === "object")
+      .map((item) => ({
+        module: typeof item.module === "string" ? item.module : "",
+        name: typeof item.name === "string" ? item.name : "",
+        version: typeof item.version === "string" ? item.version : "",
+      }))
+      .filter((item) => item.module || item.name || item.version)
+  } catch {
+    return []
   }
 }

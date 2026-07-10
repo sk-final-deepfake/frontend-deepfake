@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowRight, Check, ChevronDown, Search } from "lucide-re
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { SourceCase, SourceEvidence } from "./compare-verification-flow"
+import type { HlsPlayback } from "@/lib/hls-playback"
 import { SourceEvidenceMediaPreview } from "./source-evidence-media-preview"
 
 type SourceEvidenceSelectorProps = {
@@ -22,6 +23,7 @@ type SourceEvidenceSelectorProps = {
   onSelectCase: (id: string) => void
   onSelectEvidence: (id: number) => void
   onUnavailableEvidenceSelect: (evidence: SourceEvidence) => void
+  hlsPlayback?: HlsPlayback | null
   onNext: () => void
 }
 
@@ -39,6 +41,7 @@ export function SourceEvidenceSelector({
   onSelectCase,
   onSelectEvidence,
   onUnavailableEvidenceSelect,
+  hlsPlayback,
   onNext,
 }: SourceEvidenceSelectorProps) {
   const selectedEvidence = selectedCase.evidences.find((evidence) => evidence.id === selectedEvidenceId)
@@ -238,7 +241,11 @@ export function SourceEvidenceSelector({
             <p className="text-xs font-bold text-slate-400">선택된 기준 증거</p>
             {selectedEvidence ? (
               <>
-                <SourceEvidenceMediaPreview evidence={selectedEvidence} className="mt-3 aspect-video w-full" />
+                <SourceEvidenceMediaPreview
+                  evidence={selectedEvidence}
+                  hlsPlayback={hlsPlayback}
+                  className="mt-3 aspect-video w-full"
+                />
                 <p className="mt-3 truncate text-sm font-bold text-slate-950 dark:text-foreground">
                   비교검증 기준 증거
                 </p>

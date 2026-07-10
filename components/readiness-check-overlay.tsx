@@ -2,12 +2,32 @@
 
 import { Loader2 } from "lucide-react"
 
+import type { ReadinessCheckPhase } from "@/lib/readiness"
+
 type ReadinessCheckOverlayProps = {
   open: boolean
+  phase?: ReadinessCheckPhase
 }
 
-export function ReadinessCheckOverlay({ open }: ReadinessCheckOverlayProps) {
+const PHASE_COPY: Record<
+  NonNullable<Exclude<ReadinessCheckPhase, null>>,
+  { title: string; description: string }
+> = {
+  metadata: {
+    title: "영상 정보 확인 중",
+    description: "해상도·길이·코덱 등 메타데이터를 확인하고 있습니다.",
+  },
+  frameSampling: {
+    title: "화질 분석 중",
+    description:
+      "Blur, Blockiness, FFT Peak 분석을 시작합니다. 잠시만 기다려 주세요.",
+  },
+}
+
+export function ReadinessCheckOverlay({ open, phase = "metadata" }: ReadinessCheckOverlayProps) {
   if (!open) return null
+
+  const copy = phase ? PHASE_COPY[phase] : PHASE_COPY.metadata
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 px-4">
@@ -19,11 +39,8 @@ export function ReadinessCheckOverlay({ open }: ReadinessCheckOverlayProps) {
       >
         <Loader2 className="size-8 animate-spin text-primary" aria-hidden="true" />
         <div>
-          <p className="text-base font-semibold text-foreground">화질 검사 중</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            영상 메타데이터와 프레임 샘플(Blur·Blockiness·FFT)을 확인하고 있습니다.
-            잠시만 기다려 주세요.
-          </p>
+          <p className="text-base font-semibold text-foreground">{copy.title}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{copy.description}</p>
         </div>
       </div>
     </div>

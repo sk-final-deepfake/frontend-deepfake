@@ -1,7 +1,7 @@
 import { apiDownload, apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
 import { mockAssignReviewerToCase } from "@/lib/mock/forensic-api"
-import { mockUsers } from "@/lib/permissions"
+import { mockUsers, normalizeUserRole, type UserRole } from "@/lib/permissions"
 import {
   MOCK_ADMIN_LOGS,
   MOCK_ADMIN_PROFILE,
@@ -46,6 +46,11 @@ export type AdminReviewer = {
 
 type AdminReviewerListResponse = {
   reviewers: AdminReviewer[]
+}
+
+type FetchAdminReviewersOptions = {
+  department?: string | null
+  uploaderId?: string | null
 }
 
 export type AdminDashboardStats = {
@@ -242,6 +247,18 @@ function mapAdminProfile(profile: AdminProfile): AdminProfile {
   return {
     ...profile,
     phone: profile.phone ?? "",
+  }
+}
+
+function normalizeAdminUserRole(role?: string | null): UserRole | undefined {
+  const normalized = normalizeUserRole(role)
+  return normalized === "UNKNOWN" ? undefined : normalized
+}
+
+function mapAdminUser(user: AdminUser & { role?: string | null }): AdminUser {
+  return {
+    ...user,
+    role: normalizeAdminUserRole(user.role),
   }
 }
 
@@ -514,7 +531,11 @@ export async function fetchAdminUsers(options?: {
       const data = await apiRequest<BackendPageResponse<AdminUser>>(
         `/api/v1/admin/users?${query}`
       )
-      return mapPage(data)
+      const pageData = mapPage(data)
+      return {
+        ...pageData,
+        items: pageData.items.map(mapAdminUser),
+      }
     },
     () => {
       const filtered = mockAdminUsers.filter((user) => {
@@ -576,13 +597,51 @@ export async function updateAdminUser(
   userId: string,
   payload: UpdateAdminUserPayload
 ): Promise<AdminUser> {
+  const requestPayload = {
+    displayName: payload.displayName,
+    email: payload.email,
+    organizationType: payload.organizationType,
+    department: payload.department,
+    role: payload.role,
+  }
+
   return withMockFallback(
     () =>
       apiRequest<AdminUser>(`/api/v1/admin/users/${userId}`, {
         method: "PATCH",
-        body: payload,
-      }),
+        body: requestPayload,
+      }).then(mapAdminUser),
     () => patchMockAdminUser(userId, payload)
+  )
+}
+
+export async function suspendAdminUser(
+  userId: string
+): Promise<AdminUserStatusResponse> {
+  return withMockFallback(
+    () =>
+      apiRequest<AdminUserStatusResponse>(`/api/v1/admin/users/${userId}/suspend`, {
+        method: "POST",
+      }),
+    () => {
+      const user = patchMockAdminUser(userId, { status: "SUSPENDED" })
+      return { userId: user.id, status: user.status }
+    }
+  )
+}
+
+export async function reactivateAdminUser(
+  userId: string
+): Promise<AdminUserStatusResponse> {
+  return withMockFallback(
+    () =>
+      apiRequest<AdminUserStatusResponse>(`/api/v1/admin/users/${userId}/reactivate`, {
+        method: "POST",
+      }),
+    () => {
+      const user = patchMockAdminUser(userId, { status: "APPROVED" })
+      return { userId: user.id, status: user.status }
+    }
   )
 }
 
@@ -610,10 +669,16 @@ export async function deleteAdminUser(userId: string): Promise<void> {
   )
 }
 
-export async function fetchAdminReviewers(department?: string | null): Promise<AdminReviewer[]> {
+export async function fetchAdminReviewers(
+  options: FetchAdminReviewersOptions = {}
+): Promise<AdminReviewer[]> {
+  const { department, uploaderId } = options
   const params = new URLSearchParams()
   if (department && department !== "ALL") {
     params.set("department", department)
+  }
+  if (uploaderId) {
+    params.set("uploaderId", uploaderId)
   }
   const query = params.toString()
 
@@ -624,10 +689,22 @@ export async function fetchAdminReviewers(department?: string | null): Promise<A
       )
       return data.reviewers ?? []
     },
-    () =>
-      mockUsers
+    () => {
+      const uploader = uploaderId ? mockUsers.find((user) => user.id === uploaderId) : null
+      const departmentFilter = uploader?.department ?? department
+      const organizationIdFilter = uploader?.organizationId ?? null
+
+      return mockUsers
         .filter((user) => user.role === "REVIEWER")
-        .filter((user) => !department || department === "ALL" || user.department === department)
+        .filter(
+          (user) =>
+            !departmentFilter ||
+            departmentFilter === "ALL" ||
+            user.department === departmentFilter
+        )
+        .filter(
+          (user) => !organizationIdFilter || user.organizationId === organizationIdFilter
+        )
         .map((user) => ({
           id: user.id,
           name: user.name,
@@ -635,6 +712,7 @@ export async function fetchAdminReviewers(department?: string | null): Promise<A
           organizationId: user.organizationId,
           organizationName: user.organizationName,
         }))
+    }
   )
 }
 

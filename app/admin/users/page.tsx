@@ -7,7 +7,7 @@ import {
   User,
   MoreVertical,
   Pencil,
-  Trash2,
+  UserX,
 } from "lucide-react"
 import { AdminPageHeader } from "@/app/admin/_components/admin-page-header"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
@@ -18,13 +18,16 @@ import {
 } from "@/app/admin/_components/edit-user-dialog"
 import type { AdminUser, UserStatus } from "@/app/admin/_types/admin"
 import {
-  deleteAdminUser,
+  approveAdminUser,
   fetchAdminUsers,
+  reactivateAdminUser,
+  rejectAdminUser,
   resetAdminUserPassword,
+  suspendAdminUser,
   updateAdminUser,
 } from "@/lib/api/admin"
 import { getApiErrorMessage } from "@/lib/api/errors"
-import { roleLabelMap } from "@/lib/permissions"
+import { getRoleLabel } from "@/lib/permissions"
 import { Button } from "@/components/ui/button"
 
 const PAGE_SIZE = 10
@@ -120,6 +123,22 @@ export default function AdminUsersPage() {
         role: payload.role,
         status: payload.status,
       })
+      if (payload.status && payload.status !== editTarget.status) {
+        if (editTarget.status === "PENDING" && payload.status === "APPROVED") {
+          await approveAdminUser(editTarget.id, payload.role)
+        } else if (editTarget.status === "PENDING" && payload.status === "REJECTED") {
+          await rejectAdminUser(editTarget.id)
+        } else if (editTarget.status === "APPROVED" && payload.status === "SUSPENDED") {
+          await suspendAdminUser(editTarget.id)
+        } else if (
+          (editTarget.status === "SUSPENDED" || editTarget.status === "REJECTED") &&
+          payload.status === "APPROVED"
+        ) {
+          await reactivateAdminUser(editTarget.id)
+        } else {
+          throw new Error("백엔드에서 지원하지 않는 계정 상태 변경입니다.")
+        }
+      }
       if (payload.newPassword) {
         await resetAdminUserPassword(editTarget.id, payload.newPassword)
       }
@@ -141,7 +160,7 @@ export default function AdminUsersPage() {
     if (!deleteTarget) return
     setProcessingId(`${deleteTarget.id}-DELETE`)
     try {
-      await deleteAdminUser(deleteTarget.id)
+      await suspendAdminUser(deleteTarget.id)
       toast({
         title: "계정 비활성 처리 완료",
         description: `${deleteTarget.displayName} 계정의 로그인과 업무 처리가 제한됩니다.`,
@@ -246,7 +265,7 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
                     <td className="px-5 py-4 text-slate-700">
-                      {roleLabelMap[user.role ?? "INVESTIGATOR"]}
+                      {getRoleLabel(user.role)}
                     </td>
                     <td className="px-5 py-4">
                       <StatusPill status={user.status} />
@@ -277,17 +296,19 @@ export default function AdminUsersPage() {
                                 <Pencil className="size-3.5" />
                                 수정
                               </button>
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                                onClick={() => {
-                                  setDeleteTarget(user)
-                                  setMenuOpenId(null)
-                                }}
-                              >
-                                <Trash2 className="size-3.5" />
-                                비활성 처리
-                              </button>
+                              {user.status === "APPROVED" ? (
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                  onClick={() => {
+                                    setDeleteTarget(user)
+                                    setMenuOpenId(null)
+                                  }}
+                                >
+                                  <UserX className="size-3.5" />
+                                  비활성 처리
+                                </button>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>

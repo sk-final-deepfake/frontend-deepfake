@@ -6,14 +6,26 @@ import type { StartAnalysisResponse } from "@/lib/evidence-api"
 import {
   fetchStoredReadinessForAnalysis,
   hasBlockingReadiness,
+  isVideoEvidence,
   needsVideoFrameReadinessRefresh,
   refreshVideoFrameReadiness,
   shouldShowQualityDialog,
   worstReadinessTier,
+  type ReadinessCheckPhase,
   type ReadinessCheckSummary,
   type ReadinessCheckTarget,
   type ReadinessTier,
 } from "@/lib/readiness"
+
+const FRAME_SAMPLING_MIN_MS = 3000
+
+function hasVideoTarget(targets: ReadinessCheckTarget[]): boolean {
+  return targets.some((target) => isVideoEvidence(target))
+}
+
+function summariesIncludeVideo(summaries: ReadinessCheckSummary[]): boolean {
+  return summaries.some((target) => isVideoEvidence(target))
+}
 
 type PendingAnalysis = {
   runAnalyze: (acknowledgeQualityWarning: boolean) => Promise<StartAnalysisResponse>
@@ -29,8 +41,29 @@ export type StartAnalysisWithReadinessOptions = {
   onReadinessChecked?: (summaries: ReadinessCheckSummary[]) => void
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+async function withMinDuration<T>(promise: Promise<T>, ms: number): Promise<T> {
+  if (ms <= 0) return promise
+  const [result] = await Promise.all([promise, delay(ms)])
+  return result
+}
+
+function summariesToTargets(summaries: ReadinessCheckSummary[]): ReadinessCheckTarget[] {
+  return summaries.map(({ evidenceId, fileName, metadata }) => ({
+    evidenceId,
+    fileName,
+    metadata,
+  }))
+}
+
 export function useAnalyzeWithReadiness() {
   const [isCheckingReadiness, setIsCheckingReadiness] = useState(false)
+  const [readinessCheckPhase, setReadinessCheckPhase] = useState<ReadinessCheckPhase>(null)
   const [qualityDialogOpen, setQualityDialogOpen] = useState(false)
   const [qualityDialogLoading, setQualityDialogLoading] = useState(false)
   const [qualityDialogSummaries, setQualityDialogSummaries] = useState<ReadinessCheckSummary[]>([])
@@ -44,20 +77,31 @@ export function useAnalyzeWithReadiness() {
     pendingRef.current = null
   }, [])
 
+  const resetReadinessCheckUi = useCallback(() => {
+    setIsCheckingReadiness(false)
+    setReadinessCheckPhase(null)
+  }, [])
+
   const startAnalysisWithReadiness = useCallback(
     async (options: StartAnalysisWithReadinessOptions) => {
+      const analyzingVideo = hasVideoTarget(options.targets)
       setIsCheckingReadiness(true)
+      setReadinessCheckPhase(analyzingVideo ? "frameSampling" : "metadata")
 
       try {
         let summaries = await fetchStoredReadinessForAnalysis(options.targets)
         options.onReadinessChecked?.(summaries)
 
-        if (shouldShowQualityDialog(summaries)) {
-          if (needsVideoFrameReadinessRefresh(summaries)) {
-            summaries = await refreshVideoFrameReadiness(summaries)
-            options.onReadinessChecked?.(summaries)
-          }
+        if (summariesIncludeVideo(summaries)) {
+          setReadinessCheckPhase("frameSampling")
+          const refreshPromise = needsVideoFrameReadinessRefresh(summaries)
+            ? refreshVideoFrameReadiness(summariesToTargets(summaries))
+            : Promise.resolve(summaries)
+          summaries = await withMinDuration(refreshPromise, FRAME_SAMPLING_MIN_MS)
+          options.onReadinessChecked?.(summaries)
+        }
 
+        if (shouldShowQualityDialog(summaries)) {
           pendingRef.current = {
             runAnalyze: options.runAnalyze,
             onSuccess: options.onSuccess,
@@ -74,10 +118,10 @@ export function useAnalyzeWithReadiness() {
       } catch (error) {
         options.onError(error)
       } finally {
-        setIsCheckingReadiness(false)
+        resetReadinessCheckUi()
       }
     },
-    []
+    [resetReadinessCheckUi]
   )
 
   const confirmQualityDialog = useCallback(async () => {
@@ -86,30 +130,32 @@ export function useAnalyzeWithReadiness() {
 
     if (hasBlockingReadiness(qualityDialogSummaries)) {
       closeQualityDialog()
-      setIsCheckingReadiness(false)
+      resetReadinessCheckUi()
       return
     }
 
+    setIsCheckingReadiness(true)
     setQualityDialogLoading(true)
 
     try {
       let summaries = qualityDialogSummaries
 
       if (needsVideoFrameReadinessRefresh(summaries)) {
-        const targets: ReadinessCheckTarget[] = summaries.map(
-          ({ evidenceId, fileName, metadata }) => ({
-            evidenceId,
-            fileName,
-            metadata,
-          })
+        setReadinessCheckPhase("frameSampling")
+        summaries = await withMinDuration(
+          refreshVideoFrameReadiness(summariesToTargets(summaries)),
+          FRAME_SAMPLING_MIN_MS
         )
-        summaries = await refreshVideoFrameReadiness(targets)
         setQualityDialogSummaries(summaries)
+      } else if (summariesIncludeVideo(summaries)) {
+        setReadinessCheckPhase("frameSampling")
+        await delay(FRAME_SAMPLING_MIN_MS)
       }
 
       if (hasBlockingReadiness(summaries)) {
         setQualityDialogWorstTier(worstReadinessTier(summaries))
         setQualityDialogLoading(false)
+        resetReadinessCheckUi()
         return
       }
 
@@ -121,17 +167,18 @@ export function useAnalyzeWithReadiness() {
       pending.onError(error)
     } finally {
       setQualityDialogLoading(false)
-      setIsCheckingReadiness(false)
+      resetReadinessCheckUi()
     }
-  }, [closeQualityDialog, qualityDialogSummaries])
+  }, [closeQualityDialog, qualityDialogSummaries, resetReadinessCheckUi])
 
   const cancelQualityDialog = useCallback(() => {
     closeQualityDialog()
-    setIsCheckingReadiness(false)
-  }, [closeQualityDialog])
+    resetReadinessCheckUi()
+  }, [closeQualityDialog, resetReadinessCheckUi])
 
   return {
     isCheckingReadiness,
+    readinessCheckPhase,
     qualityDialogOpen,
     qualityDialogLoading,
     qualityDialogSummaries,

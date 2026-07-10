@@ -5,6 +5,12 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Bell, ChevronDown, LogOut, Moon, Sun, UserCog, User } from "lucide-react"
 import { useUserSettings } from "@/hooks/use-user-settings"
+import {
+  fetchNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type ApiNotification,
+} from "@/lib/api/notifications"
 import { fetchMyProfile } from "@/lib/api/user"
 import { logoutApi } from "@/lib/auth-api"
 import { clearStepUpToken } from "@/lib/api/step-up-auth"
@@ -24,10 +30,24 @@ const themeOptions: { value: "light" | "dark"; label: string; icon: typeof Sun }
   { value: "dark", label: "다크", icon: Moon },
 ]
 
+function mapApiNotification(notification: ApiNotification): AppNotification {
+  return {
+    id: String(notification.notificationId),
+    title: notification.title,
+    description: notification.message,
+    createdAt: notification.createdAt,
+    read: notification.read,
+    href:
+      notification.referenceId != null
+        ? `/evidences/${notification.referenceId}`
+        : undefined,
+  }
+}
+
 export function SiteHeaderAuth() {
   const router = useRouter()
   const { settings, updateSettings } = useUserSettings()
-  const [session, setSession] = useState<AuthSession | null>(null)
+  const [session, setSession] = useState<AuthSession | null>(() => getSession())
   const [department, setDepartment] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
@@ -110,17 +130,40 @@ export function SiteHeaderAuth() {
   }, [notificationOpen, open])
 
   useEffect(() => {
-    function syncNotifications() {
-      setNotifications(getAppNotifications())
+    let cancelled = false
+
+    async function syncNotifications() {
+      const currentSession = getSession()
+      if (!currentSession) {
+        if (!cancelled) setNotifications([])
+        return
+      }
+
+      if (isMockAuthSession(currentSession)) {
+        if (!cancelled) setNotifications(getAppNotifications())
+        return
+      }
+
+      try {
+        const response = await fetchNotifications(20)
+        if (!cancelled) {
+          setNotifications(response.notifications.map(mapApiNotification))
+        }
+      } catch {
+        // 기존 목록을 유지하고 다음 알림 열기/상태 변경 때 다시 조회합니다.
+      }
     }
 
-    syncNotifications()
+    void syncNotifications()
 
     window.addEventListener(APP_NOTIFICATION_EVENT, syncNotifications)
+    window.addEventListener("auth-change", syncNotifications)
     window.addEventListener("storage", syncNotifications)
 
     return () => {
+      cancelled = true
       window.removeEventListener(APP_NOTIFICATION_EVENT, syncNotifications)
+      window.removeEventListener("auth-change", syncNotifications)
       window.removeEventListener("storage", syncNotifications)
     }
   }, [])
@@ -139,25 +182,63 @@ export function SiteHeaderAuth() {
     }
   }
 
+  if (!session) {
+    return null
+  }
+
   const currentUser = getAppUserFromSession(session)
+  const roleLabel = currentUser ? roleLabelMap[currentUser.role] : null
   const displayName = currentUser
-    ? `${currentUser.name} · ${roleLabelMap[currentUser.role]}`
-    : session?.name || "홍길동"
+    ? `${currentUser.name} · ${roleLabel}`
+    : session.name
+  const affiliationLabel = currentUser
+    ? `${currentUser.organizationName} · ${currentUser.department}`
+    : department ?? "소속 부서 미등록"
   const unreadCount = notifications.filter((item) => !item.read).length
 
   function handleToggleNotifications() {
-    setNotificationOpen((current) => !current)
+    const nextOpen = !notificationOpen
+    setNotificationOpen(nextOpen)
     setOpen(false)
+
+    if (nextOpen && !isMockAuthSession(session)) {
+      void fetchNotifications(20)
+        .then((response) => {
+          setNotifications(response.notifications.map(mapApiNotification))
+        })
+        .catch(() => undefined)
+    }
   }
 
   function handleReadAllNotifications() {
-    markAllAppNotificationsRead()
-    setNotifications(getAppNotifications())
+    if (isMockAuthSession(session)) {
+      markAllAppNotificationsRead()
+      setNotifications(getAppNotifications())
+      return
+    }
+
+    setNotifications((current) => current.map((item) => ({ ...item, read: true })))
+    void markAllNotificationsRead().catch(() => {
+      void fetchNotifications(20)
+        .then((response) => {
+          setNotifications(response.notifications.map(mapApiNotification))
+        })
+        .catch(() => undefined)
+    })
   }
 
   function handleOpenNotification(notification: AppNotification) {
-    removeAppNotification(notification.id)
-    setNotifications(getAppNotifications())
+    if (isMockAuthSession(session)) {
+      removeAppNotification(notification.id)
+      setNotifications(getAppNotifications())
+    } else if (!notification.read) {
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === notification.id ? { ...item, read: true } : item
+        )
+      )
+      void markNotificationRead(Number(notification.id)).catch(() => undefined)
+    }
     setNotificationOpen(false)
   }
 
@@ -262,7 +343,7 @@ export function SiteHeaderAuth() {
           )}
         >
           <User className="size-4" aria-hidden="true" />
-          <span className="hidden sm:inline">{displayName}</span>
+          <span className="hidden max-w-40 truncate sm:inline">{displayName}</span>
           <ChevronDown
             className={cn("size-3.5 transition-transform", open && "rotate-180")}
             aria-hidden="true"
@@ -273,20 +354,25 @@ export function SiteHeaderAuth() {
           <div
             role="menu"
             aria-label="계정 메뉴"
-            className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-popover p-4 shadow-lg"
+            className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover p-4 shadow-lg"
           >
-            <div className="flex items-center gap-3 border-b border-border pb-3">
+            <div className="flex items-start gap-3 border-b border-border pb-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <User className="size-4" aria-hidden="true" />
               </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-popover-foreground">
-                  {currentUser?.name ?? session?.name ?? "홍길동"}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {currentUser
-                    ? `${currentUser.organizationName} · ${currentUser.department} · ${roleLabelMap[currentUser.role]}`
-                    : department ?? "소속 부서 미등록"}
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="max-w-full truncate text-sm font-bold text-popover-foreground">
+                    {currentUser?.name ?? session.name}
+                  </p>
+                  {roleLabel ? (
+                    <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                      {roleLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {affiliationLabel}
                 </p>
               </div>
             </div>
