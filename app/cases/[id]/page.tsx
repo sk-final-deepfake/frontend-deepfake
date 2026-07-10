@@ -742,6 +742,9 @@ function CaseResultView({
     (mediaMode === "overlay" && Boolean(overlayVideoUrl)) ||
     (mediaMode === "heatmap" && Boolean(heatmapImageUrl) && !hasHlsOriginal && Boolean(overlayVideoUrl))
   const showResultPlayer = useOverlaySrc || hasHlsOriginal || Boolean(hlsPlayback)
+  const playerSurfaceKey = useOverlaySrc
+    ? `direct-${overlayVideoUrl ?? "none"}`
+    : `hls-${hlsPlayback?.streamToken ?? hlsPlayback?.hlsStatus ?? "pending"}`
   const showHeatmapOnly =
     mediaMode === "heatmap" &&
     Boolean(heatmapImageUrl) &&
@@ -910,9 +913,10 @@ function CaseResultView({
                   </div>
                 ) : showResultPlayer ? (
                   <ProtectedEvidencePlayer
-                    key={`result-player-${selectedEvidenceId ?? "none"}`}
+                    key={`result-player-${selectedEvidenceId ?? "none"}-${playerSurfaceKey}`}
                     src={useOverlaySrc ? overlayVideoUrl : null}
                     playback={useOverlaySrc ? null : hlsPlayback}
+                    fallbackOpenUrl={mediaMode === "overlay" ? overlayVideoUrl : null}
                     videoRef={videoRef}
                     objectFit="cover"
                     onSecurityEvent={reportSecurityEvent}

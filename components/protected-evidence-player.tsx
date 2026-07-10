@@ -17,6 +17,8 @@ type ProtectedEvidencePlayerProps = {
   src?: string | null
   /** HLS 암호화 재생 (원본 증거) */
   playback?: HlsPlayback | null
+  /** 직접 재생 실패 시 새 탭 열기 링크 */
+  fallbackOpenUrl?: string | null
   videoRef?: { current: HTMLVideoElement | null }
   objectFit?: "cover" | "contain"
   children?: ReactNode
@@ -26,6 +28,7 @@ type ProtectedEvidencePlayerProps = {
 export function ProtectedEvidencePlayer({
   src,
   playback,
+  fallbackOpenUrl,
   videoRef,
   objectFit = "cover",
   children,
@@ -59,6 +62,12 @@ export function ProtectedEvidencePlayer({
     },
     [onSecurityEvent]
   )
+
+  useEffect(() => {
+    if (!useHls) {
+      bindHlsVideo(null)
+    }
+  }, [useHls, bindHlsVideo])
 
   useEffect(() => {
     setSrcLoadFailed(false)
@@ -110,7 +119,9 @@ export function ProtectedEvidencePlayer({
 
   function setVideoElement(element: HTMLVideoElement | null) {
     internalVideoRef.current = element
-    bindHlsVideo(element)
+    if (useHls) {
+      bindHlsVideo(element)
+    }
     if (videoRef) {
       videoRef.current = element
     }
@@ -169,7 +180,19 @@ export function ProtectedEvidencePlayer({
               </span>
             </>
           ) : (
-            "미리보기 가능한 영상을 불러오지 못했습니다."
+            <>
+              미리보기 가능한 영상을 불러오지 못했습니다.
+              {fallbackOpenUrl ? (
+                <a
+                  href={fallbackOpenUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 text-xs font-bold text-teal-300 underline underline-offset-2 hover:text-teal-200"
+                >
+                  새 탭에서 열기
+                </a>
+              ) : null}
+            </>
           )
         ) : (
           "미리보기 가능한 영상이 없습니다."
