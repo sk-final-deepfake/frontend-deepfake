@@ -3,7 +3,7 @@ import {
   shouldRetryAfterUnauthorized,
 } from "@/lib/api/interceptor"
 import { resolveStepUpHeaderValue, STEP_UP_HEADER } from "@/lib/api/step-up-auth"
-import { getToken } from "@/lib/auth"
+import { getToken, handleUnauthorizedResponse } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api/config"
 
 export type ApiErrorDetail = { field: string; reason: string }
@@ -58,6 +58,14 @@ async function parseApiError(response: Response): Promise<ApiError> {
   return new ApiError(message, response.status, errorCode, details)
 }
 
+function requireAccessToken(): string {
+  const token = getToken()
+  if (token) return token
+
+  handleUnauthorizedResponse()
+  throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
@@ -73,10 +81,7 @@ export async function apiRequest<T>(
   }
 
   if (auth) {
-    const token = getToken()
-    if (!token) {
-      throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
-    }
+    const token = requireAccessToken()
     headers.Authorization = `Bearer ${token}`
   }
 
@@ -127,10 +132,7 @@ export async function apiRequestForm<T>(
   }
 
   if (auth) {
-    const token = getToken()
-    if (!token) {
-      throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
-    }
+    const token = requireAccessToken()
     headers.Authorization = `Bearer ${token}`
   }
 
@@ -164,10 +166,7 @@ export async function apiRequestForm<T>(
 }
 
 export async function apiDownload(path: string, retried = false): Promise<Blob> {
-  const token = getToken()
-  if (!token) {
-    throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
-  }
+  const token = requireAccessToken()
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {

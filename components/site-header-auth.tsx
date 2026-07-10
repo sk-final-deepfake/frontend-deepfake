@@ -27,7 +27,7 @@ const themeOptions: { value: "light" | "dark"; label: string; icon: typeof Sun }
 export function SiteHeaderAuth() {
   const router = useRouter()
   const { settings, updateSettings } = useUserSettings()
-  const [session, setSession] = useState<AuthSession | null>(null)
+  const [session, setSession] = useState<AuthSession | null>(() => getSession())
   const [department, setDepartment] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
@@ -139,11 +139,15 @@ export function SiteHeaderAuth() {
     }
   }
 
+  if (!session) {
+    return null
+  }
+
   const currentUser = getAppUserFromSession(session)
   const roleLabel = currentUser ? roleLabelMap[currentUser.role] : null
   const displayName = currentUser
     ? `${currentUser.name} · ${roleLabel}`
-    : session?.name || "홍길동"
+    : session.name
   const affiliationLabel = currentUser
     ? `${currentUser.organizationName} · ${currentUser.department}`
     : department ?? "소속 부서 미등록"
@@ -286,7 +290,7 @@ export function SiteHeaderAuth() {
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   <p className="max-w-full truncate text-sm font-bold text-popover-foreground">
-                    {currentUser?.name ?? session?.name ?? "홍길동"}
+                    {currentUser?.name ?? session.name}
                   </p>
                   {roleLabel ? (
                     <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
