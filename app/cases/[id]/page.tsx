@@ -1176,8 +1176,8 @@ function CaseResultView({
                     />
                     <FrameMetricCard
                       label="시각 증거"
-                      value={representativeFrames.length > 0 || heatmapImageUrl ? "제공됨" : "대기"}
-                      sub={heatmapImageUrl ? "히트맵 사용 가능" : "대표 프레임/마스크 수신 시 표시"}
+                      value={representativeFrames.length > 0 ? "제공됨" : "대기"}
+                      sub="대표 프레임/마스크 수신 시 표시"
                     />
                   </div>
 
