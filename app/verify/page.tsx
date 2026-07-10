@@ -170,10 +170,7 @@ function VerifyPageBody() {
           }
         />
       ) : result ? (
-        <VerifyResult
-          result={result}
-          lookup={token ? { token } : { code: activeCode }}
-        />
+        <VerifyResult result={result} />
       ) : null}
     </VerifyShell>
   )
@@ -275,7 +272,7 @@ function VerifyShell({ children }: { children: ReactNode }) {
         {children}
 
         <p className="px-1 pt-1 text-center text-[11px] font-medium leading-5 text-slate-400">
-          이 페이지는 발행 기록과 발급 서버의 무결성 근거를 확인합니다. 선택한 PDF는 브라우저에서만 대조합니다.
+          이 페이지는 QR 코드로 연결된 보고서의 공식 발행 기록을 확인하며, 보고서 내용은 제공하지 않습니다.
         </p>
       </main>
     </div>
@@ -353,15 +350,10 @@ const CHECK_BADGE_CLASS: Record<CheckTone, string> = {
 
 function VerifyResult({
   result,
-  lookup,
 }: {
   result: ReportVerification
-  lookup: ReportVerificationLookup
 }) {
   const verdict = VERDICT_DISPLAY[result.status] ?? VERDICT_DISPLAY.WARNING
-  const signature = getSignatureCheck(result)
-  const blockchain = getBlockchainCheck(result)
-  const storedFileIntact = result.storedFileIntact ?? result.hashMatched
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -371,49 +363,8 @@ function VerifyResult({
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-muted-foreground">
           {getRecordSummary(result, verdict.fallbackMessage)}
         </p>
-        <p className="mt-4 border-t border-slate-100 pt-3 text-left text-xs font-semibold leading-5 text-slate-500 dark:border-border dark:text-muted-foreground">
-          QR은 공식 발행 기록을 확인합니다. 지금 보유한 PDF가 발행 원본과 완전히 같은지는 아래
-          <span className="mx-1 font-bold text-slate-700 dark:text-foreground">내 PDF 파일 대조</span>
-          에서 파일을 선택해 확인할 수 있습니다.
-        </p>
         <p className="mt-3 font-mono text-xs font-semibold text-slate-400">{result.reportNo}</p>
       </section>
-
-      <ReportFileVerification lookup={lookup} />
-
-      <CheckCard
-        icon={<FileCheck2 className="size-4" aria-hidden="true" />}
-        title="발행 원본 보관 상태"
-        badge={storedFileIntact ? "정상" : "재확인 필요"}
-        tone={storedFileIntact ? "ok" : "warning"}
-        note={
-          storedFileIntact
-            ? "발급 서버에 보관된 원본이 발행 시 등록된 해시와 일치합니다."
-            : "발급 서버의 보관 원본을 현재 다시 확인하고 있습니다. 사용자 PDF의 변조 판정은 아닙니다."
-        }
-      >
-        <HashLine label="등록된 최종 PDF 해시 (SHA-256)" value={result.reportHash} />
-      </CheckCard>
-
-      <CheckCard
-        icon={<PenLine className="size-4" aria-hidden="true" />}
-        title="증거 원본 전자서명"
-        badge={signature.badge}
-        tone={signature.tone}
-        note={signature.note}
-      />
-
-      <CheckCard
-        icon={<Link2 className="size-4" aria-hidden="true" />}
-        title="블록체인 기록"
-        badge={blockchain.badge}
-        tone={blockchain.tone}
-        note={blockchain.note}
-      >
-        {result.blockchainTxHash ? (
-          <HashLine label="트랜잭션 해시" value={result.blockchainTxHash} />
-        ) : null}
-      </CheckCard>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-border dark:bg-card">
         <h2 className="text-sm font-bold text-slate-950 dark:text-foreground">보고서 정보</h2>
@@ -431,7 +382,7 @@ function VerifyResult({
 
 function getRecordSummary(result: ReportVerification, fallbackMessage: string) {
   if (result.status === "VALID") {
-    return "공식 발행 기록이 확인되었습니다. 현재 보유한 PDF는 아래에서 원본 해시와 별도로 대조할 수 있습니다."
+    return result.message?.trim() || fallbackMessage
   }
   if (result.status === "WARNING") {
     return result.message?.trim() || fallbackMessage
