@@ -123,7 +123,7 @@ import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
 import { addAppNotification } from "@/lib/notifications"
-import { readinessTargetFromCaseEvidence } from "@/lib/readiness"
+import { buildReadinessMetricItems, readinessTargetFromCaseEvidence } from "@/lib/readiness"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 
@@ -710,6 +710,7 @@ function CaseResultView({
   const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
   const [resultTab, setResultTab] = useState<"summary" | "detection" | "frames" | "models">("summary")
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
+  const [resultReadiness, setResultReadiness] = useState<EvidenceReadinessResponse | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const lastSecurityEventRef = useRef<{ key: string; recordedAt: number } | null>(null)
   const selectedEvidence =
@@ -744,6 +745,8 @@ function CaseResultView({
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
   const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
+  const readinessMetrics = buildReadinessMetricItems(resultReadiness)
+  const showExtraAnalysisSection = extraRiskSignals.length > 0 || readinessMetrics.length > 0
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
@@ -787,6 +790,27 @@ function CaseResultView({
     (frame) => normalizeResultValue(frame.score) >= detectionThreshold
   ).length
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
+
+  useEffect(() => {
+    if (!selectedEvidenceId) {
+      setResultReadiness(null)
+      return
+    }
+
+    let cancelled = false
+
+    void fetchEvidenceReadiness(selectedEvidenceId)
+      .then((readiness) => {
+        if (!cancelled) setResultReadiness(readiness)
+      })
+      .catch(() => {
+        if (!cancelled) setResultReadiness(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedEvidenceId])
 
   function seekResultVideo(seconds: number, mode: ResultMediaMode = mediaMode) {
     setMediaMode(mode)
@@ -1109,7 +1133,7 @@ function CaseResultView({
                     </p>
                   )}
 
-                  {extraRiskSignals.length > 0 ? (
+                  {showExtraAnalysisSection ? (
                   <details className="mt-4 rounded-xl border border-slate-100 bg-white p-4 dark:border-border dark:bg-card">
                     <summary className="cursor-pointer text-sm font-bold text-slate-700">
                       기타 분석 항목 보기
@@ -1131,6 +1155,33 @@ function CaseResultView({
                           <span className="font-mono text-sm font-bold text-slate-700">{formatScoreOutOf100(item.score)}</span>
                         </div>
                       ))}
+                      {readinessMetrics.length > 0 ? (
+                        <div className={extraRiskSignals.length > 0 ? "border-t border-slate-100 pt-3 dark:border-border" : ""}>
+                          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+                            화질 사전 검사
+                          </p>
+                          <div className="space-y-3">
+                            {readinessMetrics.map((metric) => (
+                              <div
+                                key={metric.key}
+                                className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                                    {metric.label}
+                                  </p>
+                                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                                    {metric.description}
+                                  </p>
+                                </div>
+                                <span className="shrink-0 font-mono text-sm font-bold text-slate-700 dark:text-foreground">
+                                  {metric.value}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </details>
                   ) : null}
@@ -2169,6 +2220,7 @@ function CaseWorkflowPanel({
   >({})
   const {
     isCheckingReadiness,
+    readinessCheckPhase,
     qualityDialogOpen,
     qualityDialogLoading,
     qualityDialogSummaries,
@@ -3488,7 +3540,7 @@ function CaseWorkflowPanel({
         </div>
       ) : null}
 
-      <ReadinessCheckOverlay open={isCheckingReadiness} />
+      <ReadinessCheckOverlay open={isCheckingReadiness} phase={readinessCheckPhase} />
       <QualityWarningDialog
         open={qualityDialogOpen}
         summaries={qualityDialogSummaries}
