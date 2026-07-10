@@ -62,7 +62,7 @@ export function ReportExportDialog({
 
     async function loadBackendPdfPreview() {
       try {
-        const blob = await downloadEvidenceReport(evidenceInfo.evidenceId, { preview: !reviewApproved })
+        const blob = await downloadEvidenceReport(evidenceInfo.evidenceId, { preview: true })
         if (cancelled) return
 
         objectUrl = URL.createObjectURL(blob)

@@ -184,7 +184,7 @@ export function MetadataReportTab({
     setPdfActionError(null)
 
     try {
-      const blob = await downloadEvidenceReport(evidenceInfo.evidenceId)
+      const blob = await downloadEvidenceReport(evidenceInfo.evidenceId, { preview: true })
       const objectUrl = URL.createObjectURL(blob)
       if (previewWindow) {
         previewWindow.location.href = objectUrl
