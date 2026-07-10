@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
+import { EvidenceHlsStatusThumbnail } from "@/components/evidence-hls-status-thumbnail"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { CaseEvidenceSummary, EvidenceDetailData } from "@/lib/api/evidence-detail"
@@ -261,7 +262,25 @@ function formatEvidenceStatus(status: string) {
 }
 
 function EvidenceMiniPreview({ evidence, active }: { evidence: CaseEvidenceSummary; active: boolean }) {
-  const mediaUrl = evidence.thumbnailUrl ?? evidence.previewUrl ?? evidence.videoUrl ?? evidence.fileUrl
+  if (evidence.thumbnailUrl) {
+    return (
+      <span
+        className={cn(
+          "relative flex aspect-video w-24 shrink-0 overflow-hidden rounded-md border border-border bg-slate-900",
+          active && "ring-2 ring-teal-400 ring-offset-2 ring-offset-background"
+        )}
+      >
+        <img src={evidence.thumbnailUrl} alt="" className="size-full object-cover" />
+        <span className="absolute left-1/2 top-1/2 flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-950 shadow-sm">
+          <Play className="ml-0.5 size-3.5 fill-current" aria-hidden="true" />
+        </span>
+      </span>
+    )
+  }
+
+  if (evidence.mediaType === "VIDEO") {
+    return <EvidenceHlsStatusThumbnail hlsStatus={evidence.hlsStatus} active={active} />
+  }
 
   return (
     <span
@@ -270,25 +289,7 @@ function EvidenceMiniPreview({ evidence, active }: { evidence: CaseEvidenceSumma
         active && "ring-2 ring-teal-400 ring-offset-2 ring-offset-background"
       )}
     >
-      {mediaUrl ? (
-        evidence.thumbnailUrl ? (
-          <img
-            src={evidence.thumbnailUrl}
-            alt=""
-            className="size-full object-cover"
-          />
-        ) : (
-          <video
-            src={mediaUrl}
-            className="size-full object-cover"
-            muted
-            playsInline
-            preload="metadata"
-          />
-        )
-      ) : (
-        <span className="size-full bg-gradient-to-br from-slate-950 via-slate-800 to-teal-900" />
-      )}
+      <span className="size-full bg-gradient-to-br from-slate-950 via-slate-800 to-teal-900" />
       <span className="absolute left-1/2 top-1/2 flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-950 shadow-sm">
         <Play className="ml-0.5 size-3.5 fill-current" aria-hidden="true" />
       </span>

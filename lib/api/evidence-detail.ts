@@ -1,7 +1,10 @@
 import { apiDownload, apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
+import type { HlsPlayback } from "@/lib/hls-playback"
 import { mockFetchCaseDetail, mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
 import { decodeRouteParam } from "@/lib/route-params"
+
+export type { HlsPlayback, HlsStatus } from "@/lib/hls-playback"
 
 export type EvidenceLifecycleStatus = "ACTIVE" | "EXCLUDED" | "REPLACED"
 export type EvidenceRole = "PRIMARY" | "SUPPLEMENT"
@@ -42,8 +45,11 @@ export type EvidenceInfo = {
   role?: EvidenceRole
   replacementEvidenceId?: number | null
   excludedReason?: string | null
+  /** @deprecated Phase 3 이후 hlsPlayback 사용. mock 호환용 */
   previewUrl?: string | null
+  /** @deprecated Phase 3 이후 hlsPlayback 사용. mock 호환용 */
   videoUrl?: string | null
+  /** @deprecated mock 호환용 */
   fileUrl?: string | null
   streamUrl?: string | null
   overlayVideoUrl?: string | null
@@ -230,6 +236,7 @@ export type EvidenceDetailData = {
   blockchainInfo?: BlockchainInfo | null
   analysisInfo: AnalysisInfo
   cocLogs: CocLog[]
+  hlsPlayback?: HlsPlayback | null
 }
 
 export type CaseEvidenceSummary = {
@@ -247,10 +254,15 @@ export type CaseEvidenceSummary = {
   role?: EvidenceRole
   replacementEvidenceId?: number | null
   excludedReason?: string | null
+  /** @deprecated mock 호환용 */
   thumbnailUrl?: string | null
+  /** @deprecated mock 호환용 */
   previewUrl?: string | null
+  /** @deprecated mock 호환용 */
   videoUrl?: string | null
+  /** @deprecated mock 호환용 */
   fileUrl?: string | null
+  hlsStatus?: string | null
 }
 
 export type CaseDetailData = {

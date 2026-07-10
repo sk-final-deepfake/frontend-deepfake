@@ -54,6 +54,7 @@ function purgeLegacySessionStorage() {
 }
 
 function readStoredMockSession(): AuthSession | null {
+  if (!features.mockApi) return null
   if (typeof window === "undefined") return null
 
   try {
@@ -225,7 +226,9 @@ export async function bootstrapAuthSession(): Promise<void> {
 
   bootstrapPromise = (async () => {
     purgeLegacySessionStorage()
-    if (!memorySession) {
+    if (!features.mockApi) {
+      clearStoredMockSession()
+    } else if (!memorySession) {
       memorySession = readStoredMockSession()
     }
     if (!memorySession) {
