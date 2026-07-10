@@ -982,6 +982,17 @@ function latestCompletedAnalysisAt(records: MockEvidenceRecord[]) {
   return new Date(Math.max(...completedTimes)).toISOString()
 }
 
+function reopenAssignedReview(caseRecord: MockCaseRecord): MockCaseRecord {
+  if (!caseRecord.reviewerId) return caseRecord
+
+  return {
+    ...caseRecord,
+    reviewStatus: "REVIEW_ASSIGNED",
+    reviewerComment: null,
+    reviewRequestedAt: new Date().toISOString(),
+  }
+}
+
 function findRecord(evidenceId: number): MockEvidenceRecord {
   const store = saveAfterProgressUpdate()
   const record = store.evidences.find((item) => item.evidenceId === evidenceId)
@@ -1048,11 +1059,15 @@ export async function mockUploadEvidence(file: File, caseName?: string): Promise
     role: "SUPPLEMENT",
   }
 
-  const nextCases = cases.map((item) =>
-    item.caseId === targetCaseId && item.representativeEvidenceId == null
-      ? { ...item, representativeEvidenceId: record.evidenceId }
-      : item
-  )
+  const nextCases = cases.map((item) => {
+    if (item.caseId !== targetCaseId) return item
+
+    const nextCase =
+      item.representativeEvidenceId == null
+        ? { ...item, representativeEvidenceId: record.evidenceId }
+        : item
+    return reopenAssignedReview(nextCase)
+  })
 
   writeStore({
     cases: nextCases,
@@ -1139,12 +1154,15 @@ export async function mockUploadEvidenceToCase(caseId: string, file: File): Prom
     (representativeRecord?.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"
 
   const cases = store.cases.some((item) => item.caseId === caseId)
-    ? store.cases.map((item) =>
-        item.caseId === caseId && shouldSetRepresentative
+    ? store.cases.map((item) => {
+        if (item.caseId !== caseId) return item
+
+        const nextCase = shouldSetRepresentative
           ? { ...item, representativeEvidenceId: record.evidenceId }
           : item
-      )
-    : [{ ...targetCase, representativeEvidenceId: record.evidenceId }, ...store.cases]
+        return reopenAssignedReview(nextCase)
+      })
+    : [reopenAssignedReview({ ...targetCase, representativeEvidenceId: record.evidenceId }), ...store.cases]
 
   writeStore({
     cases,
@@ -1238,8 +1256,10 @@ export async function mockReplaceEvidence(
   }
 
   const cases = store.cases.some((item) => item.caseId === caseId)
-    ? store.cases
-    : [targetCase, ...store.cases]
+    ? store.cases.map((item) =>
+        item.caseId === caseId ? reopenAssignedReview(item) : item
+      )
+    : [reopenAssignedReview(targetCase), ...store.cases]
 
   writeStore({
     cases,
