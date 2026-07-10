@@ -89,7 +89,7 @@ export function ReportExportDialog({
         setPdfPreviewUrl(objectUrl)
       } catch (error) {
         if (!cancelled) {
-          setPdfPreviewError(getApiErrorMessage(error, "백엔드 PDF 미리보기를 불러오지 못했습니다."))
+          setPdfPreviewError(getApiErrorMessage(error, "PDF 미리보기를 불러오지 못했습니다."))
         }
       } finally {
         if (!cancelled) {
@@ -247,11 +247,6 @@ export function ReportExportDialog({
               </span>
             </div>
 
-            <div className="rounded-xl border border-teal-100 bg-teal-50/70 p-3 text-xs font-semibold leading-5 text-teal-800">
-              {reviewApproved
-                ? "승인된 보고서는 백엔드에서 생성한 PDF를 바로 미리보고 다운로드합니다."
-                : "승인 전에도 백엔드 PDF를 미리 볼 수 있지만 다운로드는 잠겨 있습니다."}
-            </div>
           </div>
 
           <div className="mt-auto pt-6">
@@ -289,7 +284,7 @@ export function ReportExportDialog({
           <p className="mb-4 pr-12 text-center text-sm font-bold text-slate-600">
             {fileName}
             <span className="ml-2 text-xs font-semibold text-slate-400">
-              백엔드 PDF 미리보기
+              PDF 미리보기
             </span>
           </p>
 
@@ -323,7 +318,7 @@ function BackendPdfPreview({
     return (
       <div className="flex min-h-[68vh] flex-col items-center justify-center rounded-sm bg-white shadow-xl">
         <Loader2 className="size-8 animate-spin text-teal-600" aria-hidden="true" />
-        <p className="mt-4 text-sm font-bold text-slate-700">백엔드 PDF를 생성하고 있습니다.</p>
+        <p className="mt-4 text-sm font-bold text-slate-700">PDF를 생성하고 있습니다.</p>
         <p className="mt-1 text-xs font-semibold text-slate-400">잠시만 기다려 주세요.</p>
       </div>
     )

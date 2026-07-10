@@ -140,9 +140,13 @@ export function SiteHeaderAuth() {
   }
 
   const currentUser = getAppUserFromSession(session)
+  const roleLabel = currentUser ? roleLabelMap[currentUser.role] : null
   const displayName = currentUser
-    ? `${currentUser.name} · ${roleLabelMap[currentUser.role]}`
+    ? `${currentUser.name} · ${roleLabel}`
     : session?.name || "홍길동"
+  const affiliationLabel = currentUser
+    ? `${currentUser.organizationName} · ${currentUser.department}`
+    : department ?? "소속 부서 미등록"
   const unreadCount = notifications.filter((item) => !item.read).length
 
   function handleToggleNotifications() {
@@ -262,7 +266,7 @@ export function SiteHeaderAuth() {
           )}
         >
           <User className="size-4" aria-hidden="true" />
-          <span className="hidden sm:inline">{displayName}</span>
+          <span className="hidden max-w-40 truncate sm:inline">{displayName}</span>
           <ChevronDown
             className={cn("size-3.5 transition-transform", open && "rotate-180")}
             aria-hidden="true"
@@ -273,20 +277,25 @@ export function SiteHeaderAuth() {
           <div
             role="menu"
             aria-label="계정 메뉴"
-            className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-popover p-4 shadow-lg"
+            className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover p-4 shadow-lg"
           >
-            <div className="flex items-center gap-3 border-b border-border pb-3">
+            <div className="flex items-start gap-3 border-b border-border pb-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <User className="size-4" aria-hidden="true" />
               </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-popover-foreground">
-                  {currentUser?.name ?? session?.name ?? "홍길동"}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {currentUser
-                    ? `${currentUser.organizationName} · ${currentUser.department} · ${roleLabelMap[currentUser.role]}`
-                    : department ?? "소속 부서 미등록"}
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="max-w-full truncate text-sm font-bold text-popover-foreground">
+                    {currentUser?.name ?? session?.name ?? "홍길동"}
+                  </p>
+                  {roleLabel ? (
+                    <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                      {roleLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {affiliationLabel}
                 </p>
               </div>
             </div>

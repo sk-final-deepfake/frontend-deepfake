@@ -232,12 +232,12 @@ function getMockLogin(loginId: string, password: string) {
     }
   }
 
-  if (loginId === "9999" && password === "9999") {
+  if ((loginId === "3333" && password === "4444") || (loginId === "9999" && password === "9999")) {
     return {
-      userId: 9999,
-      name: "이관리",
-      role: "ROLE_ORG_ADMIN",
-      token: "mock-org-admin-token",
+      userId: Number(loginId),
+      name: "테스트 관리자",
+      role: "ROLE_ADMIN",
+      token: "mock-admin-token",
     }
   }
 

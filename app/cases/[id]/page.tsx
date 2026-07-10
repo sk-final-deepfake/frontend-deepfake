@@ -1984,7 +1984,7 @@ function CaseIntegrityView({
                               className="relative z-10 mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200 dark:bg-card dark:ring-border"
                               aria-hidden="true"
                             >
-                              <span className={cn("size-2.5 rounded-full", getCocEventDotClass(log.eventType))} />
+                              <span className={cn("size-2.5 rounded-full", getCocEventDotClass(log))} />
                             </span>
                             <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 transition-colors hover:border-slate-200 dark:border-border dark:bg-background">
                               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4989,29 +4989,57 @@ function getCocEventLabel(eventType: string) {
     UPLOAD: "증거 등록",
     EVIDENCE_UPLOADED: "증거 파일 업로드",
     EVIDENCE_REGISTERED: "증거 등록",
+    EVIDENCE_DELETED: "증거 삭제",
+    EVIDENCE_VIEWED: "증거 열람",
     HASH_CREATED: "해시 생성",
     HASH_GENERATED: "해시 생성",
     FILE_HASH_CREATED: "파일 해시 생성",
     METADATA_EXTRACTED: "메타데이터 추출",
     INTEGRITY_VERIFIED: "무결성 검증",
+    QUALITY_WARNING_ACKNOWLEDGED: "화질 안내 확인",
     ANALYSIS_REQUESTED: "분석 요청",
+    ANALYSIS_STARTED: "분석 시작",
     FRAME_ANALYSIS_STARTED: "프레임 분석 시작",
     ANALYSIS_COMPLETED: "분석 완료",
     ANALYSIS_FAILED: "분석 실패",
+    ANALYSIS_CANCELLED: "분석 중단",
+    ANALYSIS_COPY_CREATED: "분석용 사본 생성",
+    ANALYSIS_COPY_VERIFIED: "분석용 사본 검증",
+    ANALYSIS_COPY_DELETED: "분석용 사본 삭제",
     COMPARE_VERIFICATION_STARTED: "비교검증 시작",
     COMPARE_VERIFICATION_COMPLETED: "비교검증 완료",
     REPORT_GENERATED: "보고서 생성",
+    REPORT_CREATED: "보고서 생성",
+    REPORT_DOWNLOADED: "보고서 다운로드",
+    EVIDENCE_HLS_PACKAGED: "HLS 패키징",
+    ERROR_OCCURRED: "오류 발생",
   }
 
-  return labels[eventType] ?? eventType
+  return labels[normalizeCocEventType(eventType)] ?? eventType
 }
 
-// 점 색상 = 이벤트 성격. 실패=빨강, 완료·검증 계열=초록, 그 외 진행 단계=파랑
-function getCocEventDotClass(eventType: string) {
-  if (eventType === "ANALYSIS_FAILED") return "bg-red-700"
-  if (eventType === "ANALYSIS_COMPLETED" || eventType === "INTEGRITY_VERIFIED" || eventType === "REPORT_GENERATED")
+// 점 색상 = 현재 상태. 실패=빨강, 완료·검증=초록, 진행 중=파랑
+function getCocEventDotClass(log: EvidenceDetailData["cocLogs"][number]) {
+  const text = normalizeCocEventText(`${log.eventType} ${log.description ?? ""}`)
+  if (/(FAILED|FAILURE|ERROR|BROKEN|INVALID|MISMATCH|실패|오류|에러|불일치)/.test(text)) {
+    return "bg-red-700"
+  }
+  if (
+    /(COMPLETED|CREATED|GENERATED|EXTRACTED|VERIFIED|UPLOADED|REGISTERED|ACKNOWLEDGED|PACKAGED|DOWNLOADED|VIEWED|DELETED|APPROVED|COPIED|STORED|SAVED|ANCHORED|VALID|MATCH|SUCCESS|완료|생성|검증|등록|업로드|추출|확인|일치|저장|패키징|다운로드|열람|삭제)/.test(
+      text
+    )
+  ) {
     return "bg-emerald-500"
+  }
   return "bg-blue-500"
+}
+
+function normalizeCocEventType(eventType: string) {
+  return (eventType ?? "").trim().toUpperCase()
+}
+
+function normalizeCocEventText(value: string) {
+  return value.trim().toUpperCase()
 }
 
 type CocActorDisplay = {

@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   LogOut,
   ClipboardCheck,
+  History,
 } from "lucide-react"
 import { logoutApi } from "@/lib/auth-api"
 import { clearSession, getSession, isMockAuthSession } from "@/lib/auth"
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/admin/reviews", label: "검토 배정", icon: ClipboardCheck },
   { href: "/admin/statistics", label: "통계 분석", icon: BarChart3 },
   { href: "/admin/logs", label: "로그 관리", icon: ScrollText },
+  { href: "/admin/coc", label: "CoC 감사", icon: History },
   { href: "/admin/invite-codes", label: "생성코드", icon: Ticket },
 ]
 
