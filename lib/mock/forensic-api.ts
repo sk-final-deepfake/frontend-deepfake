@@ -2335,6 +2335,15 @@ function buildEvidenceDetail(
       heatmapImageUrl: firstHeatmapUrl,
     },
     cocLogs: buildCocLogs(record),
+    hlsPlayback:
+      record.mediaType === "VIDEO"
+        ? {
+            manifestPath: `/api/v1/evidences/${record.evidenceId}/hls/master.m3u8`,
+            hlsStatus: "READY",
+            streamToken: `mock-stream-${record.evidenceId}`,
+            expiresIn: 900,
+          }
+        : null,
   }
 }
 
@@ -2455,6 +2464,7 @@ function mapRecordToCaseEvidence(record: MockEvidenceRecord, index: number): Cas
     previewUrl: videoUrl,
     videoUrl,
     fileUrl: videoUrl,
+    hlsStatus: record.mediaType === "VIDEO" ? "READY" : null,
   }
 }
 

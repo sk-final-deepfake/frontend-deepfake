@@ -48,6 +48,10 @@ import {
 } from "lucide-react"
 
 import { QualityWarningDialog } from "@/components/quality-warning-dialog"
+import {
+  ProtectedEvidencePlayer,
+  type ProtectedSecurityEvent,
+} from "@/components/protected-evidence-player"
 import { StepUpGateDialogs } from "@/components/step-up-gate"
 import { ReadinessCheckOverlay } from "@/components/readiness-check-overlay"
 import { ReadinessBadge } from "@/components/readiness-badge"
@@ -685,232 +689,6 @@ function requestProtectedFullscreen(element: HTMLElement | null) {
   void requestFullscreen?.call(fullscreenTarget)
 }
 
-type ProtectedSecurityEvent = {
-  eventType: "PRINT_SCREEN" | "SCREEN_CAPTURE_SHORTCUT"
-  detail: string
-}
-
-function ProtectedVideoPlayer({
-  src,
-  videoRef,
-  objectFit = "cover",
-  children,
-  onSecurityEvent,
-}: {
-  src: string
-  videoRef?: { current: HTMLVideoElement | null }
-  objectFit?: "cover" | "contain"
-  children?: ReactNode
-  onSecurityEvent?: (event: ProtectedSecurityEvent) => void
-}) {
-  const playerRef = useRef<HTMLDivElement | null>(null)
-  const internalVideoRef = useRef<HTMLVideoElement | null>(null)
-  const captureAlertTimerRef = useRef<number | undefined>(undefined)
-  const [playing, setPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [muted, setMuted] = useState(false)
-  const [captureAlert, setCaptureAlert] = useState(false)
-  const [loadFailed, setLoadFailed] = useState(false)
-  const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0
-
-  const showCaptureAlert = useCallback((event: ProtectedSecurityEvent) => {
-    setCaptureAlert(true)
-    window.clearTimeout(captureAlertTimerRef.current)
-    captureAlertTimerRef.current = window.setTimeout(() => setCaptureAlert(false), 4000)
-    onSecurityEvent?.(event)
-  }, [onSecurityEvent])
-
-  useEffect(() => {
-    setLoadFailed(false)
-    setPlaying(false)
-    setCurrentTime(0)
-    setDuration(0)
-  }, [src])
-
-  // 캡처 자체는 브라우저에서 완전히 차단할 수 없어 감지 가능한 키 이벤트를 추적·기록한다.
-  useEffect(() => {
-    function handleKeyUp(event: KeyboardEvent) {
-      if (event.key !== "PrintScreen") return
-      showCaptureAlert({
-        eventType: "PRINT_SCREEN",
-        detail: "PrintScreen 키 입력 감지",
-      })
-      void navigator.clipboard
-        ?.writeText("ForenShield AI: 증거 화면 캡처가 감지되어 열람 기록이 남습니다.")
-        .catch(() => undefined)
-      console.warn("[ForenShield] 증거 화면 캡처 시도 감지 — 열람 기록 저장 대상")
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      const key = event.key.toLowerCase()
-      const isMacScreenshotShortcut =
-        event.metaKey && event.shiftKey && (key === "3" || key === "4" || key === "5")
-      const isBrowserScreenshotShortcut = event.ctrlKey && event.shiftKey && key === "s"
-
-      if (!isMacScreenshotShortcut && !isBrowserScreenshotShortcut) return
-
-      showCaptureAlert({
-        eventType: "SCREEN_CAPTURE_SHORTCUT",
-        detail: isMacScreenshotShortcut ? "macOS 화면 캡처 단축키 감지" : "브라우저 화면 캡처 단축키 감지",
-      })
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-    window.addEventListener("keyup", handleKeyUp)
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown)
-      window.removeEventListener("keyup", handleKeyUp)
-      window.clearTimeout(captureAlertTimerRef.current)
-    }
-  }, [showCaptureAlert])
-
-  function setVideoElement(element: HTMLVideoElement | null) {
-    internalVideoRef.current = element
-    if (videoRef) {
-      videoRef.current = element
-    }
-  }
-
-  function togglePlay() {
-    const video = internalVideoRef.current
-    if (!video) return
-
-    if (video.paused) {
-      void video.play()
-    } else {
-      video.pause()
-    }
-  }
-
-  function seekTo(value: string) {
-    const video = internalVideoRef.current
-    if (!video) return
-
-    const nextTime = Number(value)
-    video.currentTime = nextTime
-    setCurrentTime(nextTime)
-  }
-
-  function toggleMuted() {
-    const video = internalVideoRef.current
-    if (!video) return
-
-    video.muted = !video.muted
-    setMuted(video.muted)
-  }
-
-  const controlButtonClassName =
-    "flex size-6 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 active:bg-white/20 sm:size-7"
-
-  return (
-    <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
-      {loadFailed ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
-          <FileVideo className="mb-3 size-8" aria-hidden="true" />
-          미리보기 가능한 영상이 없습니다.
-        </div>
-      ) : (
-        <>
-          <video
-            ref={setVideoElement}
-            src={src}
-            playsInline
-            preload="metadata"
-            className={cn("absolute inset-0 size-full", objectFit === "cover" ? "object-cover" : "object-contain")}
-            onClick={togglePlay}
-            onDoubleClick={() => requestProtectedFullscreen(playerRef.current)}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onError={() => {
-              setPlaying(false)
-              setLoadFailed(true)
-              setVideoElement(null)
-            }}
-            onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-            onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
-          />
-          {children}
-        </>
-      )}
-      {!loadFailed && captureAlert ? (
-        <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-red-600/90 px-4 py-2 text-xs font-bold text-white shadow-lg">
-          <AlertCircle className="size-4" aria-hidden="true" />
-          화면 캡처가 감지되었습니다 · 열람 기록이 남습니다
-        </div>
-      ) : null}
-      {!loadFailed ? (
-        <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-1.5 pt-8 text-white sm:px-2.5 sm:pb-2 sm:pt-10">
-        <div className="relative mb-1 h-3 sm:h-3.5">
-          <input
-            type="range"
-            min={0}
-            max={duration || 0}
-            step="0.05"
-            value={Math.min(currentTime, duration || 0)}
-            onChange={(event) => seekTo(event.currentTarget.value)}
-            className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 cursor-pointer appearance-none rounded-full bg-transparent accent-red-700 [&::-moz-range-thumb]:size-2.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-thumb]:size-2.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
-            style={{
-              background: `linear-gradient(to right, #dc2626 0%, #dc2626 ${progress}%, rgba(255,255,255,0.32) ${progress}%, rgba(255,255,255,0.32) 100%)`,
-            }}
-            aria-label="재생 위치"
-          />
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-0.5 rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md">
-            <button
-              type="button"
-              className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-slate-950 shadow-sm transition-transform hover:scale-105 active:scale-95 sm:size-8"
-              aria-label={playing ? "일시정지" : "재생"}
-              onClick={togglePlay}
-            >
-              {playing ? (
-                <Pause className="size-3 fill-current sm:size-3.5" aria-hidden="true" />
-              ) : (
-                <Play className="ml-0.5 size-3 fill-current sm:size-3.5" aria-hidden="true" />
-              )}
-            </button>
-            <button
-              type="button"
-              className={controlButtonClassName}
-              aria-label={muted ? "음소거 해제" : "음소거"}
-              onClick={toggleMuted}
-            >
-              {muted ? (
-                <VolumeX className="size-3 sm:size-3.5" aria-hidden="true" />
-              ) : (
-                <Volume2 className="size-3 sm:size-3.5" aria-hidden="true" />
-              )}
-            </button>
-            <span className="whitespace-nowrap rounded-full bg-white/10 px-1.5 py-0.5 font-mono text-[9px] font-bold tabular-nums text-white shadow-inner sm:text-[10px]">
-              {formatVideoClock(currentTime)} / {formatVideoClock(duration)}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md">
-          <button
-            type="button"
-            className={controlButtonClassName}
-            aria-label="워터마크 포함 확대"
-            onClick={() => requestProtectedFullscreen(playerRef.current)}
-          >
-            <Maximize2 className="size-3 sm:size-3.5" aria-hidden="true" />
-          </button>
-          </div>
-        </div>
-      </div>
-      ) : null}
-    </div>
-  )
-}
-
-function formatVideoClock(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "0:00"
-
-  const minutes = Math.floor(value / 60)
-  const seconds = Math.floor(value % 60)
-  return `${minutes}:${String(seconds).padStart(2, "0")}`
-}
 
 function CaseResultView({
   caseData,
@@ -946,15 +724,11 @@ function CaseResultView({
   const confidenceScoreLabel = confidenceScore ? `${confidenceScore}%` : "-"
   const resultEvidenceIdLabel = selectedEvidence ? `EVD-${selectedEvidence.evidenceId}` : caseData.caseId
   const analyzedAt = evidenceDetail?.analysisInfo.completedAt ?? evidenceDetail?.analysisInfo.requestedAt ?? caseData.createdAt
-  const resultMediaUrl =
-    evidenceDetail?.evidenceInfo.videoUrl ??
-    evidenceDetail?.evidenceInfo.streamUrl ??
-    evidenceDetail?.evidenceInfo.fileUrl ??
-    evidenceDetail?.evidenceInfo.previewUrl ??
-    selectedEvidence?.videoUrl ??
-    selectedEvidence?.fileUrl ??
-    selectedEvidence?.previewUrl ??
-    null
+  const hlsPlayback = evidenceDetail?.hlsPlayback ?? null
+  const hasHlsOriginal =
+    hlsPlayback?.hlsStatus === "READY" &&
+    Boolean(hlsPlayback.streamToken) &&
+    Boolean(hlsPlayback.manifestPath)
   const overlayVideoUrl =
     evidenceDetail?.analysisInfo.overlayVideoUrl ??
     evidenceDetail?.evidenceInfo.overlayVideoUrl ??
@@ -964,7 +738,8 @@ function CaseResultView({
     evidenceDetail?.evidenceInfo.heatmapImageUrl ??
     evidenceDetail?.analysisInfo.representativeFrames?.find((frame) => Boolean(frame.heatmapUrl))?.heatmapUrl ??
     null
-  const visibleVideoUrl = mediaMode === "overlay" && overlayVideoUrl ? overlayVideoUrl : resultMediaUrl
+  const useOverlaySrc = mediaMode === "overlay" && Boolean(overlayVideoUrl)
+  const showResultPlayer = useOverlaySrc || hasHlsOriginal || Boolean(hlsPlayback)
   const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
@@ -1110,9 +885,10 @@ function CaseResultView({
                 </div>
               </div>
               <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-                {visibleVideoUrl ? (
-                  <ProtectedVideoPlayer
-                    src={visibleVideoUrl}
+                {showResultPlayer ? (
+                  <ProtectedEvidencePlayer
+                    src={useOverlaySrc ? overlayVideoUrl : null}
+                    playback={useOverlaySrc ? null : hlsPlayback}
                     videoRef={videoRef}
                     objectFit="cover"
                     onSecurityEvent={reportSecurityEvent}
@@ -1132,7 +908,7 @@ function CaseResultView({
                         {mediaMode === "overlay" ? "탐지 오버레이" : "히트맵"}
                       </div>
                     ) : null}
-                  </ProtectedVideoPlayer>
+                  </ProtectedEvidencePlayer>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
                     <FileVideo className="mb-3 size-8" aria-hidden="true" />
@@ -2491,15 +2267,7 @@ function CaseWorkflowPanel({
     selectableAnalysisEvidences.every((evidence) => selectedAnalysisIdSet.has(evidence.evidenceId))
   const showEvidenceActionFooter = !readOnly || selectedEvidenceCompleted
   const showSelectedEvidenceResultAction = selectedAnalysisCount === 0 && selectedEvidenceCompleted
-  const selectedMediaUrl =
-    evidenceDetail?.evidenceInfo.videoUrl ??
-    evidenceDetail?.evidenceInfo.streamUrl ??
-    evidenceDetail?.evidenceInfo.fileUrl ??
-    evidenceDetail?.evidenceInfo.previewUrl ??
-    selectedEvidence?.videoUrl ??
-    selectedEvidence?.fileUrl ??
-    selectedEvidence?.previewUrl ??
-    null
+  const selectedHlsPlayback = evidenceDetail?.hlsPlayback ?? null
   const selectedMetadata = evidenceDetail?.evidenceInfo.technicalMetadata ?? null
   const selectedAnalystComment = selectedEvidence
     ? analystCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
@@ -3243,20 +3011,20 @@ function CaseWorkflowPanel({
 
                 <div className="mt-3 grid min-h-[430px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,58%)_minmax(0,1fr)] xl:items-start">
                   <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-slate-950">
-                {detailLoading && !selectedMediaUrl ? (
+                {detailLoading && !selectedHlsPlayback ? (
                   <div className="flex size-full items-center justify-center text-[15px] font-bold text-white/70">
                     <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
                     영상 정보를 불러오는 중
                   </div>
-                ) : selectedMediaUrl ? (
-                  <ProtectedVideoPlayer src={selectedMediaUrl} objectFit="contain">
+                ) : selectedHlsPlayback || evidenceDetail ? (
+                  <ProtectedEvidencePlayer playback={selectedHlsPlayback} objectFit="contain">
                     <EvidenceWatermarkOverlay
                       caseId={caseData.caseId}
                       evidenceId={selectedEvidence.evidenceId}
                       viewerName={currentUserName}
                       compact
                     />
-                  </ProtectedVideoPlayer>
+                  </ProtectedEvidencePlayer>
                 ) : (
                   <div className="flex size-full flex-col items-center justify-center text-[15px] font-bold text-white/60">
                     <FileVideo className="mb-3 size-8" aria-hidden="true" />

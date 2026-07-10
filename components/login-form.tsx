@@ -208,9 +208,7 @@ function getLoginRedirectPath(role: string) {
 }
 
 function canUseMockLogin() {
-  if (features.mockApi) return true
-  if (typeof window === "undefined") return false
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+  return features.mockApi
 }
 
 function getMockLogin(loginId: string, password: string) {

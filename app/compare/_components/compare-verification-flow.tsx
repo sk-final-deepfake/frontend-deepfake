@@ -8,6 +8,7 @@ import { CompareFileUploader } from "./compare-file-uploader"
 import { CompareProcessingPanel } from "./compare-processing-panel"
 import { CompareResultPanel } from "./compare-result-panel"
 import { SourceEvidenceSelector } from "./source-evidence-selector"
+import { StepUpGateDialogs } from "@/components/step-up-gate"
 import {
   cancelCompareVerification,
   downloadCompareReport,
@@ -19,6 +20,8 @@ import { saveCompareResultSummary } from "@/lib/compare-history"
 import { fetchCaseDetail, type CaseDetailData } from "@/lib/api/evidence-detail"
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
 import { getSession, isReviewerSession } from "@/lib/auth"
+import { useStepUpGate } from "@/hooks/use-step-up-gate"
+import type { HlsPlayback } from "@/lib/hls-playback"
 import { formatFileSize as formatSharedFileSize } from "@/lib/formatters"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { cn } from "@/lib/utils"
@@ -38,9 +41,7 @@ export type SourceEvidence = {
   durationLabel: string
   hashLabel: string
   thumbnailUrl?: string | null
-  previewUrl?: string | null
-  videoUrl?: string | null
-  fileUrl?: string | null
+  hlsStatus?: string | null
 }
 
 export type SourceCase = {
@@ -108,6 +109,17 @@ export function CompareVerificationFlow() {
   const activeCompareRequestTokenRef = useRef<string | null>(null)
   const comparePreviewUrlRef = useRef<string | null>(null)
   const isReviewer = isReviewerSession(getSession())
+  const [selectedHlsPlayback, setSelectedHlsPlayback] = useState<HlsPlayback | null>(null)
+  const {
+    dialogMode,
+    loginId: stepUpLoginId,
+    passwordLoading,
+    passwordError,
+    submitPassword,
+    cancelPassword,
+    closeSuccessDialog,
+    fetchEvidenceDetailWithStepUp,
+  } = useStepUpGate()
 
   useEffect(() => {
     let cancelled = false
@@ -182,6 +194,26 @@ export function CompareVerificationFlow() {
       cancelled = true
     }
   }, [hasPreselectedEvidence, preselectedCaseId, preselectedEvidenceId])
+
+  useEffect(() => {
+    if (!selectedEvidenceId) {
+      setSelectedHlsPlayback(null)
+      return
+    }
+
+    let cancelled = false
+    void fetchEvidenceDetailWithStepUp(selectedEvidenceId)
+      .then((detail) => {
+        if (!cancelled) setSelectedHlsPlayback(detail.hlsPlayback ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedHlsPlayback(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedEvidenceId, fetchEvidenceDetailWithStepUp])
 
   useEffect(() => {
     if (step !== "processing") return
@@ -358,6 +390,15 @@ export function CompareVerificationFlow() {
 
   return (
     <section className="w-full space-y-4">
+      <StepUpGateDialogs
+        mode={dialogMode}
+        loginId={stepUpLoginId}
+        loading={passwordLoading}
+        error={passwordError}
+        onSubmit={(password) => void submitPassword(password)}
+        onCancel={cancelPassword}
+        onSuccessClose={closeSuccessDialog}
+      />
       <StepIndicator currentStep={step} />
 
       {step === "source" ? (
@@ -375,6 +416,7 @@ export function CompareVerificationFlow() {
           onSelectCase={selectCase}
           onSelectEvidence={setSelectedEvidenceId}
           onUnavailableEvidenceSelect={showAnalysisRequiredAlert}
+          hlsPlayback={selectedHlsPlayback}
           onNext={() => {
             if (!selectedEvidence.isCompareReady) {
               setSourceError("딥페이크 분석이 완료된 증거만 비교검증 기준으로 사용할 수 있습니다.")
@@ -510,9 +552,7 @@ function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
       durationLabel: "-",
       hashLabel: "-",
       thumbnailUrl: evidence.thumbnailUrl,
-      previewUrl: evidence.previewUrl,
-      videoUrl: evidence.videoUrl,
-      fileUrl: evidence.fileUrl,
+      hlsStatus: evidence.hlsStatus,
     })),
   }
 }

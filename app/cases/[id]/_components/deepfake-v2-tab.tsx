@@ -12,6 +12,7 @@ import {
   Volume2,
 } from "lucide-react"
 
+import { EvidenceHlsPlayer } from "@/components/evidence-hls-player"
 import type {
   ClipRisk,
   EvidenceDetailData,
@@ -93,6 +94,7 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const verdict = getVerdict(modelScore, threshold)
   const summary = analysisInfo.summary?.trim() || "AI 탐지 근거가 아직 제공되지 않았습니다."
   const videoUrl = getPlayableVideoUrl(data)
+  const hlsPlayback = data.hlsPlayback ?? null
   const overlayVideoUrl = analysisInfo.overlayVideoUrl ?? evidenceInfo.overlayVideoUrl ?? null
   const heatmapImageUrl = analysisInfo.heatmapImageUrl ?? evidenceInfo.heatmapImageUrl ?? null
   const modelScoreCards = buildModelScoreCards(data, threshold)
@@ -106,6 +108,7 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <VideoPlayerCard
           duration={duration}
+          hlsPlayback={hlsPlayback}
           videoUrl={videoUrl}
           overlayVideoUrl={overlayVideoUrl}
           heatmapImageUrl={heatmapImageUrl}
@@ -129,11 +132,13 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
 
 function VideoPlayerCard({
   duration,
+  hlsPlayback,
   videoUrl,
   overlayVideoUrl,
   heatmapImageUrl,
 }: {
   duration: string
+  hlsPlayback: EvidenceDetailData["hlsPlayback"]
   videoUrl: string | null
   overlayVideoUrl: string | null
   heatmapImageUrl: string | null
@@ -145,18 +150,26 @@ function VideoPlayerCard({
   return (
     <section className="rounded-xl border border-border bg-card p-3 shadow-sm">
       <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-        {videoUrl ? (
+        {view === "overlay" && overlayVideoUrl ? (
           <video
-            src={view === "overlay" && overlayVideoUrl ? overlayVideoUrl : videoUrl}
+            src={overlayVideoUrl}
             className="absolute inset-0 size-full object-cover"
             controls
             playsInline
+            controlsList="nodownload"
+            disablePictureInPicture
+          />
+        ) : hlsPlayback || videoUrl ? (
+          <EvidenceHlsPlayer
+            playback={hlsPlayback}
+            objectFit="cover"
+            showControls
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/70 px-6 text-center">
-            <p className="text-sm font-semibold text-foreground">영상 URL이 없습니다.</p>
+            <p className="text-sm font-semibold text-foreground">영상을 재생할 수 없습니다.</p>
             <p className="mt-2 text-xs font-medium leading-5 text-muted-foreground">
-              백엔드에서 재생 가능한 videoUrl 또는 streamUrl이 제공되면 이 영역에 실제 영상이 표시됩니다.
+              HLS 패키징이 완료되면 이 영역에서 암호화 스트림으로 재생됩니다.
             </p>
           </div>
         )}
@@ -195,7 +208,7 @@ function VideoPlayerCard({
           ))}
         </div>
 
-        {!videoUrl ? (
+        {!hlsPlayback && !videoUrl ? (
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/30">
               <div className="h-full w-[40%] rounded-full bg-emerald-400" />
