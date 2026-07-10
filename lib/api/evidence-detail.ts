@@ -3,6 +3,7 @@ import { features } from "@/lib/features"
 import type { HlsPlayback } from "@/lib/hls-playback"
 import { mockFetchCaseDetail, mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
 import { decodeRouteParam } from "@/lib/route-params"
+import type { ReviewStatus } from "@/lib/permissions"
 
 export type { HlsPlayback, HlsStatus } from "@/lib/hls-playback"
 
@@ -274,6 +275,7 @@ export type CaseDetailData = {
   createdBy?: string | null
   assigneeId?: string | null
   reviewerId?: string | null
+  reviewStatus?: ReviewStatus | null
   evidences: CaseEvidenceSummary[]
 }
 

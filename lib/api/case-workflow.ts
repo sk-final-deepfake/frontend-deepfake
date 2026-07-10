@@ -117,3 +117,28 @@ export async function cancelCaseAnalysis(evidenceId: number): Promise<void> {
 
   return cancelAnalysis(evidenceId)
 }
+
+export async function recordCaseReviewDecision(
+  caseId: string,
+  decision: "APPROVED" | "REVISION",
+  memo?: string
+): Promise<CaseDetailData> {
+  if (features.mockApi) {
+    const current = await import("@/lib/mock/forensic-api").then(({ mockFetchCaseDetail }) =>
+      mockFetchCaseDetail(caseId)
+    )
+    return {
+      ...current,
+      reviewStatus: decision === "APPROVED" ? "REPORT_APPROVED" : "REVIEW_SUPPLEMENT_REQUESTED",
+    }
+  }
+
+  const params = new URLSearchParams({ caseKey: caseId })
+  return apiRequest<CaseDetailData>(`/api/v1/cases/review-decision?${params}`, {
+    method: "POST",
+    body: {
+      decision,
+      memo: memo?.trim() || undefined,
+    },
+  })
+}

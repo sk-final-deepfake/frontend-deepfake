@@ -4,13 +4,26 @@
 // .env.local 예시:
 //   NEXT_PUBLIC_USE_MOCK_API=false      // true면 mock 데이터 사용
 //   NEXT_PUBLIC_UPLOAD_ONLY_MODE=true   // S3/AI 미연동 구간: 업로드만 확인하는 모드
-//   NEXT_PUBLIC_AUTH_REFRESH_ENABLED=false // false면 새로고침·직접 접속 시 자동 로그인 차단
+//   NEXT_PUBLIC_AUTH_REFRESH_ENABLED=false // false면 새로고침·직접 접속 시 세션 복구 차단
+//   NEXT_PUBLIC_AUTH_SESSION_TIMEOUT_MINUTES=15 // 로그인 후 고정 세션 유지 시간
+
+const configuredSessionTimeoutMinutes = Number(
+  process.env.NEXT_PUBLIC_AUTH_SESSION_TIMEOUT_MINUTES
+)
+
+const authSessionTimeoutMinutes =
+  Number.isFinite(configuredSessionTimeoutMinutes) && configuredSessionTimeoutMinutes > 0
+    ? configuredSessionTimeoutMinutes
+    : 15
 
 export const features = {
   // mock API 모드. true일 때만 mock/sample 데이터를 사용한다.
   mockApi: process.env.NEXT_PUBLIC_USE_MOCK_API === "true",
   // 업로드 전용 모드. S3/AI 미연동 시 분석 시작/상세 결과를 제한한다.
   uploadOnlyMode: process.env.NEXT_PUBLIC_UPLOAD_ONLY_MODE === "true",
-  // 백엔드 AUTH_REFRESH_ENABLED와 함께 켤 때만 refresh 쿠키로 세션을 복구한다.
-  authRefresh: process.env.NEXT_PUBLIC_AUTH_REFRESH_ENABLED === "true",
+  // 기본적으로 새로고침·직접 접속 시 HttpOnly refresh 쿠키로 세션을 복구한다.
+  // 운영에서 명시적으로 false를 설정한 경우에만 비활성화한다.
+  authRefresh: process.env.NEXT_PUBLIC_AUTH_REFRESH_ENABLED !== "false",
+  // 새로고침으로는 연장되지 않는 프론트 세션의 최대 유지 시간(분).
+  authSessionTimeoutMinutes,
 } as const

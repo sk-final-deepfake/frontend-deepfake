@@ -22,13 +22,14 @@ export function ReportExportDialog({
   open,
   onClose,
   data,
+  reviewApproved,
 }: {
   open: boolean
   onClose: () => void
   data: EvidenceDetailData
+  reviewApproved: boolean
 }) {
   const [reportType, setReportType] = useState<ReportTypeId>("full")
-  const [reviewApproved, setReviewApproved] = useState(false)
   const [typeMenuOpen, setTypeMenuOpen] = useState(false)
   const [pdfActionLoading, setPdfActionLoading] = useState(false)
   const [pdfActionError, setPdfActionError] = useState<string | null>(null)
@@ -41,27 +42,6 @@ export function ReportExportDialog({
   const fileName = `ForenShield_Report_EVD-${evidenceInfo.evidenceId}_${new Date().toISOString().slice(0, 10)}.pdf`
   const currentType = REPORT_TYPES.find((type) => type.id === reportType) ?? REPORT_TYPES[0]
   const preview = useMemo(() => buildReportPreview(data, fileName, reviewApproved), [data, fileName, reviewApproved])
-
-  // 검토자 승인 여부 — 검토 화면의 승인 버튼이 localStorage에 기록하고 이벤트로 알린다
-  useEffect(() => {
-    const approvalKey = `fs-report-approval:${evidenceInfo.evidenceId}`
-
-    function syncApproval() {
-      try {
-        setReviewApproved(window.localStorage.getItem(approvalKey) === "1")
-      } catch {
-        setReviewApproved(false)
-      }
-    }
-
-    syncApproval()
-    window.addEventListener("storage", syncApproval)
-    window.addEventListener("fs-report-approval-change", syncApproval)
-    return () => {
-      window.removeEventListener("storage", syncApproval)
-      window.removeEventListener("fs-report-approval-change", syncApproval)
-    }
-  }, [evidenceInfo.evidenceId])
 
   useEffect(() => {
     let cancelled = false

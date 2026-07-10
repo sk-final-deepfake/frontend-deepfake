@@ -110,6 +110,7 @@ import {
 import {
   cancelCaseAnalysis,
   markEvidenceExcluded,
+  recordCaseReviewDecision,
   startCaseAnalysis,
   uploadEvidenceToCase,
 } from "@/lib/api/case-workflow"
@@ -194,12 +195,23 @@ const PRIORITY_REVIEW_START_SEC = 15.8
 const PRIORITY_REVIEW_END_SEC = 23.8
 const PRIORITY_REVIEW_RANGE_LABEL = "00:15.800 ~ 00:23.800"
 const PEAK_FRAME_TIME_LABEL = "00:19.800"
+const ANALYSIS_STATUS_POLL_ERROR_TEXT =
+  "분석 상태를 갱신하지 못했습니다. 잠시 후 새로고침하거나 다시 시도해 주세요."
+const ANALYSIS_STATUS_POLL_TIMEOUT_TEXT =
+  "분석 상태 확인 시간이 길어지고 있습니다. 현재 화면을 새로고침해 최신 상태를 확인해 주세요."
 
 function getEvidenceBucket(evidence: CaseEvidenceSummary): EvidenceStatusBucket {
   if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return "inactive"
   if (isEvidenceAnalysisRunning(evidence)) return "running"
   if (normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED") return "completed"
   return "pending"
+}
+
+function isAnalysisStatusPollingMessage(message: { type: "success" | "error" | "info"; text: string } | null) {
+  return (
+    message?.type === "error" &&
+    (message.text === ANALYSIS_STATUS_POLL_ERROR_TEXT || message.text === ANALYSIS_STATUS_POLL_TIMEOUT_TEXT)
+  )
 }
 
 const RESULT_RISK_SIGNALS = [
@@ -842,6 +854,7 @@ function CaseResultView({
           open={reportDialogOpen}
           onClose={() => setReportDialogOpen(false)}
           data={evidenceDetail}
+          reviewApproved={caseData.reviewStatus === "REPORT_APPROVED"}
         />
       ) : null}
 
@@ -2182,6 +2195,24 @@ function CaseWorkflowPanel({
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [statusFilter, setStatusFilter] = useState<EvidenceStatusBucket | "all">("all")
 
+  useEffect(() => {
+    if (caseData.reviewStatus === "REPORT_APPROVED") {
+      setReviewDecision("APPROVED")
+      return
+    }
+    if (
+      caseData.reviewStatus === "REVIEW_SUPPLEMENT_REQUESTED" ||
+      caseData.reviewStatus === "SUPPLEMENT_REQUESTED" ||
+      caseData.reviewStatus === "REVIEW_REVISION_REQUESTED" ||
+      caseData.reviewStatus === "REVISION_REQUESTED" ||
+      caseData.reviewStatus === "REVIEW_NEEDS_CHANGES"
+    ) {
+      setReviewDecision("REVISION")
+      return
+    }
+    setReviewDecision("PENDING")
+  }, [caseData.reviewStatus])
+
   const evidences = useMemo(
     () =>
       caseData.evidences.map((evidence) => {
@@ -2202,14 +2233,22 @@ function CaseWorkflowPanel({
   )
   const trackedAnalysisIdsKey = useMemo(() => {
     const ids = new Set<number>()
+    const evidenceById = new Map(caseData.evidences.map((evidence) => [evidence.evidenceId, evidence]))
 
     for (const evidence of caseData.evidences) {
       if (isEvidenceAnalysisRunning(evidence)) ids.add(evidence.evidenceId)
     }
 
     for (const [evidenceId, override] of Object.entries(analysisProgressOverrides)) {
+      const numericEvidenceId = Number(evidenceId)
+      const serverEvidence = evidenceById.get(numericEvidenceId)
+      if (!serverEvidence || (serverEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") continue
+
+      const serverStatus = normalizeStatus(serverEvidence.analysisStatus ?? "PENDING")
+      if (serverStatus === "COMPLETED" || serverStatus === "FAILED") continue
+
       if (override.status === "PROCESSING" || override.status === "PENDING") {
-        ids.add(Number(evidenceId))
+        ids.add(numericEvidenceId)
       }
     }
 
@@ -2458,13 +2497,14 @@ function CaseWorkflowPanel({
         if (failedPollCount >= 2) {
           setMessage({
             type: "error",
-            text: "분석 상태를 갱신하지 못했습니다. 잠시 후 새로고침하거나 다시 시도해 주세요.",
+            text: ANALYSIS_STATUS_POLL_ERROR_TEXT,
           })
         }
         return
       }
 
       failedPollCount = 0
+      setMessage((current) => (isAnalysisStatusPollingMessage(current) ? null : current))
       setAnalysisProgressOverrides((current) => {
         let changed = false
         const next = { ...current }
@@ -2509,7 +2549,7 @@ function CaseWorkflowPanel({
         timeoutNotified = true
         setMessage({
           type: "error",
-          text: "분석 상태 확인 시간이 길어지고 있습니다. 현재 화면을 새로고침해 최신 상태를 확인해 주세요.",
+          text: ANALYSIS_STATUS_POLL_TIMEOUT_TEXT,
         })
       }
     }
@@ -2773,22 +2813,37 @@ function CaseWorkflowPanel({
     setDeleteConfirmOpen(false)
   }
 
-  function handleReviewDecision(nextDecision: "APPROVED" | "REVISION") {
-    setReviewDecision(nextDecision)
-    if (selectedEvidence) {
-      try {
-        if (nextDecision === "APPROVED") {
-          window.localStorage.setItem(`fs-report-approval:${selectedEvidence.evidenceId}`, "1")
-        } else {
-          window.localStorage.removeItem(`fs-report-approval:${selectedEvidence.evidenceId}`)
-        }
-        window.dispatchEvent(new Event("fs-report-approval-change"))
-      } catch {
-        // localStorage 접근 불가 환경에서는 보고서 다운로드 승인 연동을 건너뛴다
+  async function handleReviewDecision(nextDecision: "APPROVED" | "REVISION") {
+    if (isWorking) return
+
+    setIsWorking(true)
+    setMessage(null)
+    try {
+      const updated = await recordCaseReviewDecision(
+        caseData.caseId,
+        nextDecision,
+        selectedEvidence ? reviewCommentsByEvidence[selectedEvidence.evidenceId] : undefined
+      )
+      setReviewDecision(nextDecision)
+      setMessage({
+        type: "success",
+        text: nextDecision === "APPROVED" ? "검토 승인과 최종 보고서 발행이 완료되었습니다." : "재검토가 요청되었습니다.",
+      })
+      if (updated.reviewStatus !== caseData.reviewStatus) {
+        onRefresh()
       }
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: getApiErrorMessage(error, "검토 결과를 저장하지 못했습니다."),
+      })
+    } finally {
+      setIsWorking(false)
     }
-    window.alert(nextDecision === "APPROVED" ? "승인되었습니다." : "재검토로 표시되었습니다.")
   }
+
+  const visibleMessage =
+    !trackedAnalysisIdsKey && isAnalysisStatusPollingMessage(message) ? null : message
 
   return (
     <section className="relative rounded-xl border border-border bg-card p-3 shadow-sm sm:p-5">
@@ -2802,23 +2857,23 @@ function CaseWorkflowPanel({
           onChange={(event) => void handleUploadFiles(event.target.files)}
         />
       ) : null}
-      {message ? (
+      {visibleMessage ? (
         <div
           className={cn(
             "mt-4 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold",
-            message.type === "success"
+            visibleMessage.type === "success"
               ? "border-slate-200 bg-slate-50 text-slate-700"
-              : message.type === "info"
+              : visibleMessage.type === "info"
                 ? "border-slate-200 bg-slate-50 text-slate-700"
                 : "border-red-700/25 bg-red-50 text-red-700"
           )}
         >
-          {message.type === "success" ? (
+          {visibleMessage.type === "success" ? (
             <CheckCircle2 className="size-4" aria-hidden="true" />
           ) : (
             <AlertCircle className="size-4" aria-hidden="true" />
           )}
-          {message.text}
+          {visibleMessage.text}
         </div>
       ) : null}
 
@@ -3192,6 +3247,7 @@ function CaseWorkflowPanel({
                 {isReviewerMode ? (
                   <ReviewerDecisionActions
                     decision={reviewDecision}
+                    disabled={isWorking}
                     onApprove={() => handleReviewDecision("APPROVED")}
                     onRevision={() => handleReviewDecision("REVISION")}
                   />
@@ -3710,10 +3766,12 @@ function CaseMetadataRow({
 
 function ReviewerDecisionActions({
   decision,
+  disabled,
   onApprove,
   onRevision,
 }: {
   decision: "PENDING" | "APPROVED" | "REVISION"
+  disabled: boolean
   onApprove: () => void
   onRevision: () => void
 }) {
@@ -3740,6 +3798,7 @@ function ReviewerDecisionActions({
           type="button"
           variant="outline"
           className="h-10 font-bold"
+          disabled={disabled}
           onClick={onRevision}
         >
           재검토
@@ -3747,8 +3806,10 @@ function ReviewerDecisionActions({
         <Button
           type="button"
           className="h-10 bg-teal-600 font-bold text-white hover:bg-teal-700"
+          disabled={disabled}
           onClick={onApprove}
         >
+          {disabled ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
           승인
         </Button>
       </div>
