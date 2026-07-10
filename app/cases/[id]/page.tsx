@@ -297,6 +297,7 @@ export default function CaseDetailPage() {
   const [copied, setCopied] = useState(false)
   const [caseRefreshKey, setCaseRefreshKey] = useState(0)
   const isInitialCaseLoad = useRef(true)
+  const selectedEvidenceIdRef = useRef<number | null>(null)
   const [showResultDashboard, setShowResultDashboard] = useState(false)
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
@@ -316,6 +317,42 @@ export default function CaseDetailPage() {
     closeSuccessDialog,
     fetchEvidenceDetailWithStepUp,
   } = useStepUpGate()
+
+  const refreshEvidenceDetail = useCallback(
+    async (evidenceId: number, options?: { silent?: boolean }) => {
+      if (!Number.isFinite(evidenceId) || evidenceId <= 0) return
+
+      const silent = options?.silent ?? false
+      if (!silent) {
+        setDetailLoading(true)
+        setDetailError(null)
+        setEvidenceDetail(null)
+      }
+
+      try {
+        const result = await fetchEvidenceDetailWithStepUp(evidenceId)
+        setEvidenceDetail(normalizeEvidenceDetailForUi(result))
+      } catch (error) {
+        if (!silent) {
+          setEvidenceDetail(null)
+          if (isStepUpCancelledError(error)) {
+            setDetailError("민감 정보 조회를 위해 비밀번호 재인증이 필요합니다.")
+          } else {
+            setDetailError(getErrorMessage(error, "증거 상세 정보를 불러오지 못했습니다."))
+          }
+        }
+      } finally {
+        if (!silent) {
+          setDetailLoading(false)
+        }
+      }
+    },
+    [fetchEvidenceDetailWithStepUp]
+  )
+
+  useEffect(() => {
+    selectedEvidenceIdRef.current = selectedEvidenceId
+  }, [selectedEvidenceId])
 
   useEffect(() => {
     function syncSession() {
@@ -561,6 +598,26 @@ export default function CaseDetailPage() {
           normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
       )
       const now = Date.now()
+      const selectedId = selectedEvidenceIdRef.current
+
+      if (hasTerminalStatus) {
+        for (const statusUpdate of validStatuses) {
+          const status = normalizeStatus(statusUpdate.status)
+          if (
+            (status === "COMPLETED" || status === "FAILED") &&
+            statusUpdate.evidenceId === selectedId
+          ) {
+            void refreshEvidenceDetail(statusUpdate.evidenceId, { silent: true })
+            if (status === "COMPLETED") {
+              window.setTimeout(() => {
+                if (selectedEvidenceIdRef.current !== statusUpdate.evidenceId) return
+                void refreshEvidenceDetail(statusUpdate.evidenceId, { silent: true })
+              }, 3000)
+            }
+            break
+          }
+        }
+      }
 
       if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
         lastRefreshAt = now
@@ -584,7 +641,22 @@ export default function CaseDetailPage() {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [refreshCase, trackedAnalysisIdsKey])
+  }, [refreshCase, refreshEvidenceDetail, trackedAnalysisIdsKey])
+
+  useEffect(() => {
+    if (!caseData || !selectedEvidenceId) return
+
+    const evidence = caseData.evidences.find((item) => item.evidenceId === selectedEvidenceId)
+    if (!evidence) return
+
+    const serverStatus = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+    if (serverStatus !== "COMPLETED" && serverStatus !== "FAILED") return
+
+    const detailStatus = normalizeStatus(evidenceDetail?.analysisInfo.status ?? "PENDING")
+    if (detailStatus === serverStatus) return
+
+    void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
+  }, [caseData, evidenceDetail?.analysisInfo.status, refreshEvidenceDetail, selectedEvidenceId])
 
   useEffect(() => {
     if (!caseData || !Number.isFinite(initialEvidenceId)) return
@@ -595,45 +667,13 @@ export default function CaseDetailPage() {
   }, [caseData, initialEvidenceId])
 
   useEffect(() => {
-    let cancelled = false
-
-    async function loadEvidenceDetail() {
-      if (!selectedEvidenceId) {
-        setEvidenceDetail(null)
-        return
-      }
-
-      setDetailLoading(true)
-      setDetailError(null)
+    if (!selectedEvidenceId) {
       setEvidenceDetail(null)
-
-      try {
-        const result = await fetchEvidenceDetailWithStepUp(selectedEvidenceId)
-        if (!cancelled) {
-          setEvidenceDetail(normalizeEvidenceDetailForUi(result))
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setEvidenceDetail(null)
-          if (isStepUpCancelledError(error)) {
-            setDetailError("민감 정보 조회를 위해 비밀번호 재인증이 필요합니다.")
-          } else {
-            setDetailError(getErrorMessage(error, "증거 상세 정보를 불러오지 못했습니다."))
-          }
-        }
-      } finally {
-        if (!cancelled) {
-          setDetailLoading(false)
-        }
-      }
+      return
     }
 
-    loadEvidenceDetail()
-
-    return () => {
-      cancelled = true
-    }
-  }, [selectedEvidenceId, fetchEvidenceDetailWithStepUp])
+    void refreshEvidenceDetail(selectedEvidenceId)
+  }, [refreshEvidenceDetail, selectedEvidenceId])
 
   async function copyHash(hash: string) {
     try {
