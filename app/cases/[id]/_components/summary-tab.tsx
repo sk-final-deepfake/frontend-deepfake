@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react"
 import { CheckCircle2, Download, ExternalLink, FileText, Fingerprint, ShieldCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ReadinessMetricSection } from "@/components/readiness-metric-section"
 import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
 import { formatDateTime } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
@@ -83,6 +84,11 @@ export function SummaryTab({
           </Button>
         </CompactPanel>
       </div>
+
+      <ReadinessMetricSection
+        evidenceId={evidenceInfo.evidenceId}
+        analysisCompleted={analysisInfo.status === "COMPLETED"}
+      />
 
       <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
         <h3 className="text-base font-semibold text-foreground">분석 진행 요약</h3>
