@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, Download, Link2, Loader2, Search, ShieldCheck } from "lucide-react"
+import { AlertTriangle, Download, Eye, EyeOff, Link2, Loader2, Search, ShieldCheck } from "lucide-react"
 
 import { AdminPageHeader } from "@/app/admin/_components/admin-page-header"
 import { useAdminToast } from "@/app/admin/_components/admin-toast-provider"
@@ -207,6 +207,11 @@ function StatCard({ label, value, danger = false }: { label: string; value: stri
 
 function ChainTimeline({ chain }: { chain: CocChainDetail }) {
   const broken = chain.status === "BROKEN"
+  const [showStreamEvents, setShowStreamEvents] = useState(false)
+  const streamEventCount = chain.events.filter((event) => event.eventType === "EVIDENCE_STREAM_ACCESS").length
+  const visibleEvents = showStreamEvents
+    ? chain.events
+    : chain.events.filter((event) => event.eventType !== "EVIDENCE_STREAM_ACCESS")
 
   return (
     <div>
@@ -230,15 +235,28 @@ function ChainTimeline({ chain }: { chain: CocChainDetail }) {
             {chain.caseName} · <span className="font-mono">{chain.caseId}</span>
           </p>
         </div>
-        <p className="text-xs text-slate-400">
-          각 이벤트의 해시가 직전 이벤트 해시와 연결되어 있으면 체인이 유지된 것입니다.
-        </p>
+        {streamEventCount > 0 ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowStreamEvents((current) => !current)}
+          >
+            {showStreamEvents ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+            {showStreamEvents ? "스트리밍 로그 접기" : `스트리밍 ${streamEventCount}건 표시`}
+          </Button>
+        ) : null}
       </div>
 
+      {streamEventCount > 0 && !showStreamEvents ? (
+        <p className="mt-3 border-y border-slate-100 py-2 text-xs text-slate-500">
+          HLS 세그먼트·키 요청 {streamEventCount}건은 접어두었습니다. 체인 검증과 CSV에는 포함됩니다.
+        </p>
+      ) : null}
+
       <ol className="mt-5">
-        {chain.events.map((event, index) => {
+        {visibleEvents.map((event, index) => {
           const isFirst = index === 0
-          const isLast = index === chain.events.length - 1
+          const isLast = index === visibleEvents.length - 1
           const linkBroken = !event.chainValid
 
           return (
@@ -265,7 +283,7 @@ function ChainTimeline({ chain }: { chain: CocChainDetail }) {
                     aria-hidden="true"
                     className={cn(
                       "w-0 flex-1",
-                      chain.events[index + 1] && !chain.events[index + 1].chainValid
+                      visibleEvents[index + 1] && !visibleEvents[index + 1].chainValid
                         ? "border-l-2 border-dashed border-red-500"
                         : "border-l-2 border-teal-600"
                     )}
