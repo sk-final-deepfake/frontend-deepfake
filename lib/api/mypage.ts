@@ -1,6 +1,6 @@
 import { apiRequest } from "@/lib/api/client"
 import type { CaseSummary } from "@/app/mypage/_types/case"
-import type { ListSort, ListPageSize } from "@/lib/user-settings"
+import type { ListSort } from "@/lib/user-settings"
 import { features } from "@/lib/features"
 import { mockFetchMyAnalysisHistory } from "@/lib/mock/forensic-api"
 import { getSession, isMockAuthSession } from "@/lib/auth"
@@ -16,7 +16,7 @@ type AnalysisHistoryResponse = {
 export async function fetchMyAnalysisHistory(options?: {
   sort?: ListSort
   page?: number
-  size?: ListPageSize | number
+  size?: number
 }): Promise<AnalysisHistoryResponse> {
   if (features.mockApi || isMockAuthSession(getSession())) {
     return mockFetchMyAnalysisHistory(options)

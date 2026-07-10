@@ -27,6 +27,8 @@ const statusFilters: Array<{ label: string; value: "ALL" | CaseStatus }> = [
   { label: "오류", value: "FAILED" },
 ]
 
+const CASE_LIST_PAGE_SIZE = 10
+
 export function MyPageContent() {
   const [cases, setCases] = useState<CaseSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -39,12 +41,11 @@ export function MyPageContent() {
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
   const [createOpen, setCreateOpen] = useState(false)
   const { settings } = useUserSettings()
-  const pageSize = settings.listPageSize
+  const pageSize = CASE_LIST_PAGE_SIZE
   const sort = settings.listSort
   const normalizedQuery = query.trim()
-  const isClientFilterActive = normalizedQuery.length > 0 || statusFilter !== "ALL"
-  const requestPage = isClientFilterActive ? 0 : currentPage - 1
-  const requestSize = isClientFilterActive ? Math.max(totalCount, pageSize) : pageSize
+  const requestPage = currentPage - 1
+  const requestSize = pageSize
 
   useEffect(() => {
     function syncSession() {
@@ -74,7 +75,7 @@ export function MyPageContent() {
         setCases(response.content)
         setTotalCount(response.totalElements)
         setServerTotalPages(nextServerTotalPages)
-        if (!isClientFilterActive && requestPage + 1 > nextServerTotalPages) {
+        if (requestPage + 1 > nextServerTotalPages) {
           setCurrentPage(nextServerTotalPages)
         }
       } catch (error) {
@@ -98,7 +99,7 @@ export function MyPageContent() {
     return () => {
       cancelled = true
     }
-  }, [isClientFilterActive, requestPage, requestSize, sort])
+  }, [requestPage, requestSize, sort])
 
   const currentUser = getAppUserFromSession(session)
   const canCreateCase = canRegisterCase(session)
@@ -126,16 +127,12 @@ export function MyPageContent() {
     })
   }, [accessibleCases, normalizedQuery, statusFilter])
 
-  const visibleTotalCount = isClientFilterActive ? filteredCases.length : totalCount
-  const visiblePageCount = isClientFilterActive ? filteredCases.length : cases.length
-  const totalPages = isClientFilterActive
-    ? Math.max(1, Math.ceil(filteredCases.length / pageSize))
-    : serverTotalPages
+  const visibleTotalCount = totalCount
+  const visiblePageCount = filteredCases.length
+  const totalPages = serverTotalPages
   const currentVisiblePage = Math.min(currentPage, totalPages)
   const pageStart = visibleTotalCount === 0 ? 0 : (currentVisiblePage - 1) * pageSize + 1
-  const pageEnd = isClientFilterActive
-    ? Math.min(currentVisiblePage * pageSize, visibleTotalCount)
-    : Math.min((currentVisiblePage - 1) * pageSize + visiblePageCount, visibleTotalCount)
+  const pageEnd = Math.min((currentVisiblePage - 1) * pageSize + cases.length, visibleTotalCount)
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -176,7 +173,7 @@ export function MyPageContent() {
                 사건 목록
               </h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                총 {totalCount}건 · {isClientFilterActive ? filteredCases.length : visiblePageCount}건 표시
+                총 {totalCount}건 · {visiblePageCount}건 표시
               </p>
             </div>
             <label className="relative block w-full lg:w-80">
@@ -237,7 +234,7 @@ export function MyPageContent() {
           <>
             <CaseHistorySection
               cases={filteredCases}
-              page={isClientFilterActive ? currentVisiblePage : 1}
+              page={1}
               pageSize={pageSize}
             />
             {visibleTotalCount > 0 ? (

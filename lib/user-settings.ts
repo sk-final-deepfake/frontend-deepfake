@@ -4,14 +4,12 @@ export const SETTINGS_CHANGE_EVENT = "settings-change"
 export type ThemeMode = "light" | "dark" | "system"
 export type DateFormat = "ko-full" | "ko-date" | "iso"
 export type ListSort = "newest" | "status"
-export type ListPageSize = 10 | 20 | 50
 
 export type UserSettings = {
   theme: ThemeMode
   dateFormat: DateFormat
   analysisCompleteNotification: boolean
   listSort: ListSort
-  listPageSize: ListPageSize
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -19,7 +17,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   dateFormat: "ko-full",
   analysisCompleteNotification: true,
   listSort: "newest",
-  listPageSize: 10,
 }
 
 export function getUserSettings(): UserSettings {
