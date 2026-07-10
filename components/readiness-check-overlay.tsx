@@ -18,9 +18,9 @@ const PHASE_COPY: Record<
     description: "해상도·길이·코덱 등 메타데이터를 확인하고 있습니다.",
   },
   frameSampling: {
-    title: "프레임 화질 분석 중",
+    title: "화질 분석 중",
     description:
-      "Blur·Blockiness·FFT peak 지표를 측정하고 있습니다. 잠시만 기다려 주세요.",
+      "Blur, Blockiness, FFT Peak 분석을 시작합니다. 잠시만 기다려 주세요.",
   },
 }
 

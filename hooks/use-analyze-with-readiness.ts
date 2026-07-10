@@ -6,6 +6,7 @@ import type { StartAnalysisResponse } from "@/lib/evidence-api"
 import {
   fetchStoredReadinessForAnalysis,
   hasBlockingReadiness,
+  isVideoEvidence,
   needsVideoFrameReadinessRefresh,
   refreshVideoFrameReadiness,
   shouldShowQualityDialog,
@@ -16,7 +17,15 @@ import {
   type ReadinessTier,
 } from "@/lib/readiness"
 
-const FRAME_SAMPLING_MIN_MS = 1200
+const FRAME_SAMPLING_MIN_MS = 3000
+
+function hasVideoTarget(targets: ReadinessCheckTarget[]): boolean {
+  return targets.some((target) => isVideoEvidence(target))
+}
+
+function summariesIncludeVideo(summaries: ReadinessCheckSummary[]): boolean {
+  return summaries.some((target) => isVideoEvidence(target))
+}
 
 type PendingAnalysis = {
   runAnalyze: (acknowledgeQualityWarning: boolean) => Promise<StartAnalysisResponse>
@@ -39,6 +48,7 @@ function delay(ms: number) {
 }
 
 async function withMinDuration<T>(promise: Promise<T>, ms: number): Promise<T> {
+  if (ms <= 0) return promise
   const [result] = await Promise.all([promise, delay(ms)])
   return result
 }
@@ -74,19 +84,20 @@ export function useAnalyzeWithReadiness() {
 
   const startAnalysisWithReadiness = useCallback(
     async (options: StartAnalysisWithReadinessOptions) => {
+      const analyzingVideo = hasVideoTarget(options.targets)
       setIsCheckingReadiness(true)
-      setReadinessCheckPhase("metadata")
+      setReadinessCheckPhase(analyzingVideo ? "frameSampling" : "metadata")
 
       try {
         let summaries = await fetchStoredReadinessForAnalysis(options.targets)
         options.onReadinessChecked?.(summaries)
 
-        if (needsVideoFrameReadinessRefresh(summaries)) {
+        if (summariesIncludeVideo(summaries)) {
           setReadinessCheckPhase("frameSampling")
-          summaries = await withMinDuration(
-            refreshVideoFrameReadiness(summariesToTargets(summaries)),
-            FRAME_SAMPLING_MIN_MS
-          )
+          const refreshPromise = needsVideoFrameReadinessRefresh(summaries)
+            ? refreshVideoFrameReadiness(summariesToTargets(summaries))
+            : Promise.resolve(summaries)
+          summaries = await withMinDuration(refreshPromise, FRAME_SAMPLING_MIN_MS)
           options.onReadinessChecked?.(summaries)
         }
 
@@ -136,6 +147,9 @@ export function useAnalyzeWithReadiness() {
           FRAME_SAMPLING_MIN_MS
         )
         setQualityDialogSummaries(summaries)
+      } else if (summariesIncludeVideo(summaries)) {
+        setReadinessCheckPhase("frameSampling")
+        await delay(FRAME_SAMPLING_MIN_MS)
       }
 
       if (hasBlockingReadiness(summaries)) {

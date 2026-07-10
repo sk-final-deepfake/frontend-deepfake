@@ -63,6 +63,7 @@ import {
 } from "@/components/protected-evidence-player"
 import { StepUpGateDialogs } from "@/components/step-up-gate"
 import { ReadinessCheckOverlay } from "@/components/readiness-check-overlay"
+import { ReadinessMetricPanel } from "@/components/readiness-metric-panel"
 import { ReadinessBadge } from "@/components/readiness-badge"
 import { useAnalyzeWithReadiness } from "@/hooks/use-analyze-with-readiness"
 import { isStepUpCancelledError, useStepUpGate } from "@/hooks/use-step-up-gate"
@@ -1286,6 +1287,8 @@ function CaseResultView({
                     />
                   </div>
 
+                  <ReadinessMetricPanel metrics={readinessMetrics} />
+
                   <section className="rounded-xl border border-slate-100 bg-slate-50/70 p-6 dark:border-border dark:bg-background">
                     <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">확인 순서</h3>
                     <p className="mt-2 text-sm font-semibold text-slate-500">
@@ -1450,34 +1453,6 @@ function CaseResultView({
                         ))}
                       </div>
                     </section>
-                  ) : null}
-
-                  {readinessMetrics.length > 0 ? (
-                    <details className="mt-4 rounded-xl border border-slate-100 bg-white p-4 dark:border-border dark:bg-card">
-                      <summary className="cursor-pointer text-sm font-bold text-slate-700">
-                        화질 사전 검사 보기
-                      </summary>
-                      <div className="mt-4 space-y-3">
-                        {readinessMetrics.map((metric) => (
-                          <div
-                            key={metric.key}
-                            className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-bold text-slate-950 dark:text-foreground">
-                                {metric.label}
-                              </p>
-                              <p className="mt-1 text-xs font-semibold text-slate-500">
-                                {metric.description}
-                              </p>
-                            </div>
-                            <span className="shrink-0 font-mono text-sm font-bold text-slate-700 dark:text-foreground">
-                              {metric.value}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
                   ) : null}
                 </section>
               ) : resultTab === "frames" ? (
