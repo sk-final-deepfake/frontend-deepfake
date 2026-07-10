@@ -16,6 +16,7 @@ export type ReportVerification = {
   createdAt: string
   reportHash: string
   hashMatched: boolean
+  storedFileIntact?: boolean
   signatureValid: boolean | null
   signatureStatus: string
   signatureAlgorithm?: string | null
@@ -205,6 +206,7 @@ function buildMockVerification(token: string): ReportVerification {
     createdAt: "2026-07-03T13:28:00+09:00",
     reportHash: "a3f81c09d2e47b16f8c05a913e2d84c7715f0b6a8d94e21c3b7f6a0d5e8c92d4",
     hashMatched: true,
+    storedFileIntact: true,
     signatureValid: true,
     signatureStatus: "SIGNED",
     signatureAlgorithm: "SHA256withRSA",

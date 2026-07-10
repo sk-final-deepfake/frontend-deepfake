@@ -363,6 +363,7 @@ function VerifyResult({
 
   const signature = getSignatureCheck(result)
   const blockchain = getBlockchainCheck(result)
+  const storedFileIntact = result.storedFileIntact ?? result.hashMatched
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -380,10 +381,10 @@ function VerifyResult({
       <CheckCard
         icon={<FileCheck2 className="size-4" aria-hidden="true" />}
         title="발행 원본 보관 상태"
-        badge={result.hashMatched ? "정상" : "확인 필요"}
-        tone={result.hashMatched ? "ok" : "danger"}
+        badge={storedFileIntact ? "정상" : "확인 필요"}
+        tone={storedFileIntact ? "ok" : "danger"}
         note={
-          result.hashMatched
+          storedFileIntact
             ? "서버 보관 원본이 발급 시 등록된 해시와 일치합니다."
             : "서버 보관 원본 상태를 확인할 수 없습니다. 발급 기관에 문의해 주세요."
         }
