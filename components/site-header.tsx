@@ -3,18 +3,26 @@
 import { useEffect, useState, type MouseEvent } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ShieldCheck, Lock } from "lucide-react"
+import { Clock, ShieldCheck, Lock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { SiteHeaderAuth } from "@/components/site-header-auth"
 import {
+  canExtendStepUpSession,
   clearStepUpToken,
+  extendStepUpSession,
   getStepUpRemainingSeconds,
   isStepUpValid,
   STEP_UP_CHANGE_EVENT,
+  STEP_UP_EXTEND_THRESHOLD_SECONDS,
 } from "@/lib/api/step-up-auth"
+import { ApiError } from "@/lib/api/client"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
 import { features } from "@/lib/features"
 import { cn } from "@/lib/utils"
+
+/** Step-up 1회 연장 시 추가되는 시간(분) — BE jwt.step-up-expiration-minutes 와 동일 */
+const STEP_UP_EXTENSION_MINUTES = 15
 
 const defaultNavItems = [
   { key: "dashboard", label: "대시보드", href: "/main" },
@@ -45,6 +53,9 @@ export function SiteHeader({
   const [hash, setHash] = useState("")
   const [session, setSessionState] = useState<AuthSession | null>(() => getSession())
   const [stepUpRemainingSeconds, setStepUpRemainingSeconds] = useState(0)
+  const [extendNoticeOpen, setExtendNoticeOpen] = useState(false)
+  const [extendLoading, setExtendLoading] = useState(false)
+  const [extendError, setExtendError] = useState<string | null>(null)
   const showNav = variant !== "minimal"
   const showAuth = variant !== "minimal"
   const activeKey = getActiveNavKey(pathname, hash)
@@ -136,6 +147,34 @@ export function SiteHeader({
     window.setTimeout(dispatchMainViewChange, 0)
   }
 
+  async function handleExtendStepUp() {
+    if (!isStepUpValid()) return
+
+    if (!canExtendStepUpSession()) {
+      setExtendError(null)
+      setExtendNoticeOpen(true)
+      return
+    }
+
+    setExtendLoading(true)
+    setExtendError(null)
+    try {
+      await extendStepUpSession()
+      setExtendNoticeOpen(false)
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error && error.message.trim()
+            ? error.message
+            : "세션 연장에 실패했습니다. 잠시 후 다시 시도해 주세요."
+      setExtendError(message)
+      setExtendNoticeOpen(true)
+    } finally {
+      setExtendLoading(false)
+    }
+  }
+
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-[#f8fbfd]/95 backdrop-blur-sm dark:border-border dark:bg-background/90">
       <div className="mx-auto grid h-20 max-w-[1280px] grid-cols-[1fr_auto] items-center gap-4 px-4 sm:h-24 sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
@@ -208,18 +247,68 @@ export function SiteHeader({
             {variant === "admin" ? "관리자 전용" : "내부망 전용"}
           </Badge>
           {showAuth && stepUpRemainingSeconds > 0 ? (
-            <Badge
-              variant="outline"
-              className="hidden h-8 gap-1.5 rounded-full border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 sm:inline-flex dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-              title="Step-up 재인증 남은 시간"
-            >
-              <ShieldCheck className="size-3.5" aria-hidden="true" />
-              {formatStepUpRemaining(stepUpRemainingSeconds)}
-            </Badge>
+            <div className="hidden items-center gap-1.5 sm:flex">
+              <Badge
+                variant="outline"
+                className="h-8 gap-1.5 rounded-full border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+                title="Step-up 재인증 남은 시간"
+              >
+                <ShieldCheck className="size-3.5" aria-hidden="true" />
+                {formatStepUpRemaining(stepUpRemainingSeconds)}
+              </Badge>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={extendLoading}
+                onClick={() => void handleExtendStepUp()}
+                className="h-8 rounded-full border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+              >
+                {extendLoading ? "연장 중..." : "연장"}
+              </Button>
+            </div>
           ) : null}
           {showAuth && <SiteHeaderAuth />}
         </div>
       </div>
+
+      {extendNoticeOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="step-up-extend-notice-title"
+            className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-lg"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300">
+                <Clock className="size-5" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h2 id="step-up-extend-notice-title" className="text-base font-bold text-foreground">
+                  {extendError ? "연장 실패" : "아직 연장할 수 없습니다"}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {extendError ??
+                    `민감 정보 조회 세션은 남은 시간이 ${Math.floor(
+                      STEP_UP_EXTEND_THRESHOLD_SECONDS / 60
+                    )}분 이하일 때만 ${STEP_UP_EXTENSION_MINUTES}분 연장할 수 있습니다.`}
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              className="mt-5 w-full"
+              onClick={() => {
+                setExtendNoticeOpen(false)
+                setExtendError(null)
+              }}
+            >
+              확인
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </header>
   )
 }
