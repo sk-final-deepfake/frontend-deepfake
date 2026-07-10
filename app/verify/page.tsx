@@ -371,6 +371,11 @@ function VerifyResult({
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-muted-foreground">
           {getRecordSummary(result, verdict.fallbackMessage)}
         </p>
+        <p className="mt-4 border-t border-slate-100 pt-3 text-left text-xs font-semibold leading-5 text-slate-500 dark:border-border dark:text-muted-foreground">
+          QR은 공식 발행 기록을 확인합니다. 지금 보유한 PDF가 발행 원본과 완전히 같은지는 아래
+          <span className="mx-1 font-bold text-slate-700 dark:text-foreground">내 PDF 파일 대조</span>
+          에서 파일을 선택해 확인할 수 있습니다.
+        </p>
         <p className="mt-3 font-mono text-xs font-semibold text-slate-400">{result.reportNo}</p>
       </section>
 
@@ -392,7 +397,7 @@ function VerifyResult({
 
       <CheckCard
         icon={<PenLine className="size-4" aria-hidden="true" />}
-        title="전자서명"
+        title="증거 원본 전자서명"
         badge={signature.badge}
         tone={signature.tone}
         note={signature.note}
@@ -588,7 +593,7 @@ function getSignatureCheck(result: ReportVerification): { badge: string; tone: C
   const status = result.signatureStatus?.trim().toUpperCase() ?? ""
 
   if (status === "UNSIGNED" || status === "NONE") {
-    return { badge: "서명 없음", tone: "muted", note: "전자서명이 확인되지 않았습니다." }
+    return { badge: "서명 없음", tone: "muted", note: "증거 원본의 전자서명이 확인되지 않았습니다." }
   }
   if (result.signatureValid == null) {
     return {
@@ -604,13 +609,13 @@ function getSignatureCheck(result: ReportVerification): { badge: string; tone: C
     return {
       badge: "유효",
       tone: "ok",
-      note: parts || "서명이 보고서 내용과 일치합니다.",
+      note: parts || "증거 원본의 서명과 매니페스트가 일치합니다.",
     }
   }
   return {
     badge: "유효하지 않음",
     tone: "danger",
-    note: "서명 이후 보고서가 변경된 것으로 확인됩니다.",
+    note: "증거 원본의 전자서명이 유효하지 않습니다.",
   }
 }
 
