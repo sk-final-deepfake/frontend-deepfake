@@ -2,11 +2,10 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
-import { Copy, Download, ExternalLink, FileText, Loader2, RefreshCw, Share2 } from "lucide-react"
+import { Download, ExternalLink, FileText, Loader2, RefreshCw } from "lucide-react"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { getApiErrorMessage } from "@/lib/api/errors"
-import { issuePublicReportAccess, type PublicReportAccessIssue } from "@/lib/api/public-report"
 import { downloadReportPdf, fetchReports, type ReportListPage, type ReportSummary } from "@/lib/api/reports"
 import { formatDateTime } from "@/lib/formatters"
 
@@ -18,8 +17,6 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
-  const [sharingId, setSharingId] = useState<number | null>(null)
-  const [shareResult, setShareResult] = useState<PublicReportAccessIssue | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
 
   useEffect(() => {
@@ -76,26 +73,6 @@ export default function ReportsPage() {
     }
   }
 
-  async function handleShare(report: ReportSummary) {
-    setSharingId(report.reportId)
-    setShareResult(null)
-    setActionMessage(null)
-    try {
-      const issued = await issuePublicReportAccess(report.reportId)
-      setShareResult(issued)
-      if (issued.publicViewUrl) {
-        await navigator.clipboard?.writeText(issued.publicViewUrl)
-        setActionMessage("외부 열람 링크를 복사했습니다.")
-      } else {
-        setActionMessage("외부 열람코드를 발급했습니다.")
-      }
-    } catch (shareError) {
-      setActionMessage(getApiErrorMessage(shareError, "외부 열람코드 발급에 실패했습니다."))
-    } finally {
-      setSharingId(null)
-    }
-  }
-
   return (
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
       <SiteHeader />
@@ -126,8 +103,6 @@ export default function ReportsPage() {
           </div>
         ) : null}
 
-        {shareResult ? <ShareResultPanel result={shareResult} /> : null}
-
         <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
           <div className="border-b border-border px-5 py-4">
             <div className="flex items-center justify-between gap-3">
@@ -157,9 +132,7 @@ export default function ReportsPage() {
                   key={report.reportId}
                   report={report}
                   downloading={downloadingId === report.reportId}
-                  sharing={sharingId === report.reportId}
                   onDownload={() => void handleDownload(report)}
-                  onShare={() => void handleShare(report)}
                 />
               ))}
             </div>
@@ -196,15 +169,11 @@ export default function ReportsPage() {
 function ReportRow({
   report,
   downloading,
-  sharing,
   onDownload,
-  onShare,
 }: {
   report: ReportSummary
   downloading: boolean
-  sharing: boolean
   onDownload: () => void
-  onShare: () => void
 }) {
   const detailHref = useMemo(() => {
     if (report.reportType === "COMPARE" && report.compareId) return `/compare/${report.compareId}`
@@ -249,15 +218,6 @@ function ReportRow({
         ) : null}
         <button
           type="button"
-          onClick={onShare}
-          disabled={sharing}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-bold text-card-foreground transition hover:bg-muted disabled:cursor-wait disabled:opacity-60"
-        >
-          {sharing ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Share2 className="size-4" aria-hidden="true" />}
-          공유
-        </button>
-        <button
-          type="button"
           onClick={onDownload}
           disabled={downloading}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70 dark:bg-primary dark:text-primary-foreground"
@@ -267,30 +227,6 @@ function ReportRow({
         </button>
       </div>
     </article>
-  )
-}
-
-function ShareResultPanel({ result }: { result: PublicReportAccessIssue }) {
-  return (
-    <section className="mb-4 rounded-lg border border-border bg-card px-5 py-4 shadow-sm">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-sm font-black text-card-foreground">외부 열람코드 발급 완료</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {result.accessCode} · 만료 {formatDateTime(result.expiresAt)}
-          </p>
-          <p className="mt-2 break-all font-mono text-xs text-slate-400">{result.publicViewUrl}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void navigator.clipboard?.writeText(result.publicViewUrl)}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-bold text-card-foreground transition hover:bg-muted"
-        >
-          <Copy className="size-4" aria-hidden="true" />
-          링크 복사
-        </button>
-      </div>
-    </section>
   )
 }
 
