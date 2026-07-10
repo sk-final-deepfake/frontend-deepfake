@@ -10,6 +10,8 @@ import {
 
 export type { EvidenceReadinessResponse, ReadinessTier }
 
+export type ReadinessCheckPhase = "metadata" | "frameSampling" | null
+
 export type ReadinessCheckTarget = {
   evidenceId: number
   fileName: string
@@ -123,6 +125,63 @@ export function formatReadinessMetric(
 ): string {
   if (value == null || Number.isNaN(value)) return "-"
   return value.toFixed(digits)
+}
+
+export type UiReadinessMetricItem = {
+  key: "blur" | "blockiness" | "fftPeak"
+  label: string
+  value: string
+  description: string
+}
+
+const READINESS_METRIC_DEFINITIONS: Record<
+  UiReadinessMetricItem["key"],
+  { label: string; description: string; digits: number }
+> = {
+  blur: {
+    label: "Blur (선명도)",
+    description: "화질의 흐림(선명도) 정도를 나타냅니다. 값이 높을수록 선명합니다.",
+    digits: 1,
+  },
+  blockiness: {
+    label: "Blockiness (압축 손실)",
+    description:
+      "영상 압축 시 생기는 블록 경계 손실 정도입니다. 값이 높을수록 압축 손실이 큽니다.",
+    digits: 1,
+  },
+  fftPeak: {
+    label: "FFT peak (격자 노이즈)",
+    description:
+      "고주파 격자 노이즈(압축 아티팩트) 정도입니다. 값이 높을수록 격자형 노이즈가 강합니다.",
+    digits: 4,
+  },
+}
+
+export function buildReadinessMetricItems(
+  readiness: EvidenceReadinessResponse | null | undefined
+): UiReadinessMetricItem[] {
+  if (!readiness || readiness.frameCheckStatus !== "COMPLETED") return []
+
+  const metrics = readiness.frameMetrics
+  if (!metrics) return []
+
+  const keys: UiReadinessMetricItem["key"][] = ["blur", "blockiness", "fftPeak"]
+
+  return keys.flatMap((key) => {
+    const definition = READINESS_METRIC_DEFINITIONS[key]
+    const aggregate = metrics[key]
+    const mean = aggregate?.mean
+    if (mean == null || Number.isNaN(mean)) return []
+
+    return [
+      {
+        key,
+        label: definition.label,
+        value: formatReadinessMetric(mean, definition.digits),
+        description: definition.description,
+      },
+    ]
+  })
 }
 
 export function readinessTierLabel(tier: ReadinessTier): string {
