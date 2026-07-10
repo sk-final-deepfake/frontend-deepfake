@@ -17,7 +17,6 @@ type UploadStepProps = {
   evidences: SelectedEvidence[]
   activeEvidenceIndex: number
   caseName: string
-  caseNumber: string
   uploadMessage: { type: "success" | "error"; text: string } | null
   totalSizeLabel: string
   metadataPreview: ReactNode
@@ -25,7 +24,6 @@ type UploadStepProps = {
   onDrop: (event: DragEvent<HTMLDivElement>) => void
   onFileChange: (files: FileList | null) => void
   onCaseNameChange: (value: string) => void
-  onCaseNumberChange: (value: string) => void
   onRemoveFile: (index: number) => void
   onSelectEvidence: (index: number) => void
   onStart: () => void
@@ -35,7 +33,6 @@ export function UploadStep({
   evidences,
   activeEvidenceIndex,
   caseName,
-  caseNumber,
   uploadMessage,
   totalSizeLabel,
   metadataPreview,
@@ -43,7 +40,6 @@ export function UploadStep({
   onDrop,
   onFileChange,
   onCaseNameChange,
-  onCaseNumberChange,
   onRemoveFile,
   onSelectEvidence,
   onStart,
@@ -92,22 +88,11 @@ export function UploadStep({
             id="caseName"
             value={caseName}
             onChange={(event) => onCaseNameChange(event.target.value)}
-            placeholder="예: 딥페이크 유포 사건"
-            className="mt-2 h-11 w-full max-w-md rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100 dark:border-border dark:bg-card dark:text-foreground dark:placeholder:text-muted-foreground"
-          />
-
-          <label htmlFor="caseNumber" className="mt-4 block text-sm font-bold text-slate-600 dark:text-muted-foreground">
-            사건번호
-          </label>
-          <input
-            id="caseNumber"
-            value={caseNumber}
-            onChange={(event) => onCaseNumberChange(event.target.value)}
-            placeholder="예: 2026-서울-0123"
+            placeholder="예: 2026-서울-0123 딥페이크 유포 사건"
             className="mt-2 h-11 w-full max-w-md rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100 dark:border-border dark:bg-card dark:text-foreground dark:placeholder:text-muted-foreground"
           />
           <p className="mt-2 text-xs font-medium text-slate-500 dark:text-muted-foreground">
-            사건번호를 입력하면 S3 저장 파일명이 사건명-사건번호 형식으로 생성됩니다.
+            업로드와 분석 시작에 사건명이 필요하며, 내 분석 기록에 등록됩니다.
           </p>
 
           <div

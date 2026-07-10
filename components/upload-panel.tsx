@@ -126,7 +126,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const [isDragging, setIsDragging] = useState(false)
   const [fileStates, setFileStates] = useState<FileUploadState[]>([])
   const [caseName, setCaseName] = useState("")
-  const [caseNumber, setCaseNumber] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [status, setStatus] = useState<UploadStatus>("idle")
@@ -150,7 +149,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     const session = loadMainUploadPanelSession()
     if (session) {
       setCaseName(session.caseName)
-      setCaseNumber(session.caseNumber ?? "")
       setHasUploadedOnce(session.hasUploadedOnce)
       if (session.entries.length > 0) {
         setFileStates(
@@ -224,11 +222,10 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
 
     saveMainUploadPanelSession({
       caseName,
-      caseNumber,
       entries,
       hasUploadedOnce,
     })
-  }, [fileStates, caseName, caseNumber, hasUploadedOnce, hydrated])
+  }, [fileStates, caseName, hasUploadedOnce, hydrated])
 
   useEffect(() => {
     if (!pollingKey) return
@@ -273,7 +270,6 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
   const isBusy = status === "uploading" || isCheckingReadiness || isCancelling
   const hasPendingFiles = fileStates.some((item) => item.status === "pending")
   const trimmedCaseName = caseName.trim()
-  const trimmedCaseNumber = caseNumber.trim()
   const canUpload =
     hasPendingFiles &&
     trimmedCaseName.length > 0 &&
@@ -397,7 +393,7 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     for (let i = 0; i < pendingIndices.length; i++) {
       const { item, index } = pendingIndices[i]
       try {
-        const result = await uploadEvidence(item.file, trimmedCaseName, trimmedCaseNumber)
+        const result = await uploadEvidence(item.file, trimmedCaseName)
         completed.push(result)
 
         setFileStates((prev) =>
@@ -565,42 +561,27 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
         </Tabs>
       </div>
 
-      <div className="mb-4 space-y-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="caseName" className="text-xs text-muted-foreground">
-            사건명 <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            id="caseName"
-            value={caseName}
-            onChange={(e) => {
-              setCaseName(e.target.value)
-              if (globalError.includes("사건명")) {
-                setGlobalError("")
-              }
-            }}
-            placeholder="예: 딥페이크 유포 사건"
-            disabled={isBusy}
-            required
-            aria-required="true"
-            className="h-9 max-w-md"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="caseNumber" className="text-xs text-muted-foreground">
-            사건번호
-          </Label>
-          <Input
-            id="caseNumber"
-            value={caseNumber}
-            onChange={(e) => setCaseNumber(e.target.value)}
-            placeholder="예: 2026-서울-0123"
-            disabled={isBusy}
-            className="h-9 max-w-md"
-          />
-        </div>
+      <div className="mb-4 space-y-1.5">
+        <Label htmlFor="caseName" className="text-xs text-muted-foreground">
+          사건명 <span className="text-destructive">*</span>
+        </Label>
+        <Input
+          id="caseName"
+          value={caseName}
+          onChange={(e) => {
+            setCaseName(e.target.value)
+            if (globalError.includes("사건명")) {
+              setGlobalError("")
+            }
+          }}
+          placeholder="예: 2026-서울-0123 딥페이크 유포 사건"
+          disabled={isBusy}
+          required
+          aria-required="true"
+          className="h-9 max-w-md"
+        />
         <p className="text-[11px] text-muted-foreground">
-          사건번호를 입력하면 S3 저장 파일명이 사건명-사건번호 형식으로 생성됩니다.
+          업로드와 분석 시작에 사건명이 필수이며, 내 분석 기록에 등록됩니다.
         </p>
       </div>
 

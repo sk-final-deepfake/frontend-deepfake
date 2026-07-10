@@ -47,15 +47,13 @@ export async function createCase(caseName: string): Promise<CaseDetailData> {
 export async function uploadEvidenceToCase(
   caseId: string,
   caseName: string,
-  file: File,
-  caseNumber?: string
+  file: File
 ): Promise<UploadResult> {
   if (features.mockApi) {
     return mockUploadEvidenceToCase(caseId, file)
   }
 
-  const trimmedCaseNumber = caseNumber?.trim()
-  return uploadEvidence(file, caseName, trimmedCaseNumber || undefined)
+  return uploadEvidence(file, caseName)
 }
 
 export async function markEvidenceExcluded(evidenceId: number, reason: string): Promise<void> {
