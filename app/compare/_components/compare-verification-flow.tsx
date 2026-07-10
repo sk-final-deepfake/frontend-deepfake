@@ -12,7 +12,10 @@ import { StepUpGateDialogs } from "@/components/step-up-gate"
 import {
   cancelCompareVerification,
   downloadCompareReport,
+  fetchCompareOriginal,
+  fetchCompareOriginals,
   verifyCompare,
+  type CompareOriginal,
   type CompareResult,
 } from "@/lib/api/compare"
 import { getApiErrorMessage } from "@/lib/api/errors"
@@ -20,6 +23,7 @@ import { saveCompareResultSummary } from "@/lib/compare-history"
 import { fetchCaseDetail, type CaseDetailData } from "@/lib/api/evidence-detail"
 import { fetchMyAnalysisHistory } from "@/lib/api/mypage"
 import { getSession, isReviewerSession } from "@/lib/auth"
+import { features } from "@/lib/features"
 import { useStepUpGate } from "@/hooks/use-step-up-gate"
 import type { HlsPlayback } from "@/lib/hls-playback"
 import { formatFileSize as formatSharedFileSize } from "@/lib/formatters"
@@ -129,6 +133,53 @@ export function CompareVerificationFlow() {
       setSourceError(null)
 
       try {
+        if (!features.mockApi) {
+          const response = await fetchCompareOriginals({ page: 0, size: 100 })
+          if (cancelled) return
+
+          let originals = response.content
+          if (
+            hasPreselectedEvidence &&
+            preselectedEvidenceId != null &&
+            !originals.some((original) => original.evidenceId === preselectedEvidenceId)
+          ) {
+            try {
+              const preselectedOriginal = await fetchCompareOriginal(preselectedEvidenceId)
+              originals = [preselectedOriginal, ...originals]
+            } catch {
+              // 목록에 없거나 접근할 수 없는 증거는 아래 선택 검증에서 안내합니다.
+            }
+          }
+
+          const cases = mapCompareOriginalsToSourceCases(originals)
+          const evidenceCase = cases.find((sourceCase) =>
+            sourceCase.evidences.some(
+              (evidence) => evidence.id === preselectedEvidenceId
+            )
+          )
+          const firstCaseId =
+            cases.some((sourceCase) => sourceCase.id === preselectedCaseId)
+              ? preselectedCaseId
+              : evidenceCase?.id ?? cases[0]?.id ?? ""
+          const firstCase =
+            cases.find((sourceCase) => sourceCase.id === firstCaseId) ?? EMPTY_CASE
+          const preferredEvidenceId = getPreferredEvidenceId(
+            firstCase.evidences,
+            hasPreselectedEvidence ? preselectedEvidenceId : null
+          )
+
+          setSourceCases(cases)
+          setSelectedCaseId(firstCaseId)
+          setSelectedEvidenceId(preferredEvidenceId)
+
+          if (hasPreselectedEvidence && preferredEvidenceId === preselectedEvidenceId) {
+            setStep("upload")
+          } else if (hasPreselectedEvidence) {
+            setSourceError("비교검증 기준으로 사용할 수 있는 증거를 찾지 못했습니다.")
+          }
+          return
+        }
+
         const response = await fetchMyAnalysisHistory({ sort: "newest", page: 0, size: 50 })
         if (cancelled) return
 
@@ -555,6 +606,46 @@ function mapCaseDetailToSourceCase(caseDetail: CaseDetailData): SourceCase {
       hlsStatus: evidence.hlsStatus,
     })),
   }
+}
+
+function mapCompareOriginalsToSourceCases(originals: CompareOriginal[]): SourceCase[] {
+  const cases = new Map<string, SourceCase>()
+
+  for (const original of originals) {
+    const caseId =
+      original.caseName?.trim() ||
+      original.caseNumber?.trim() ||
+      `evidence-${original.evidenceId}`
+    const current = cases.get(caseId)
+    const evidence: SourceEvidence = {
+      id: original.evidenceId,
+      caseId,
+      displayLabel: original.fileName,
+      name: original.fileName,
+      analysisStatus: "COMPLETED",
+      isCompareReady: true,
+      dateLabel: formatDateTimeLabel(original.uploadedAt),
+      sizeLabel: formatFileSize(original.fileSize),
+      codecLabel: original.fileType || original.mimeType || "-",
+      durationLabel: "-",
+      hashLabel: original.sha256 || "-",
+    }
+
+    if (current) {
+      current.evidences.push(evidence)
+      continue
+    }
+
+    cases.set(caseId, {
+      id: caseId,
+      title: original.caseName?.trim() || original.caseNumber?.trim() || original.fileName,
+      department: original.caseNumber?.trim() || "등록 원본",
+      updatedAtLabel: formatDateTimeLabel(original.uploadedAt),
+      evidences: [evidence],
+    })
+  }
+
+  return Array.from(cases.values())
 }
 
 function getPreferredEvidenceId(evidences: SourceEvidence[], preferredEvidenceId?: number | null) {

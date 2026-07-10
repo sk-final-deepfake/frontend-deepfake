@@ -243,11 +243,11 @@ function normalizeModuleTimelines(timelines: ModuleTimeline[] | null | undefined
   if (!Array.isArray(timelines)) return []
   return timelines
     .map((timeline): ModuleTimeline | null => {
-      const module = normalizeModuleKind(timeline.module)
-      if (!module) return null
+      const moduleKind = normalizeModuleKind(timeline.module)
+      if (!moduleKind) return null
       return {
-        module,
-        modelName: normalizeText(timeline.modelName, module),
+        module: moduleKind,
+        modelName: normalizeText(timeline.modelName, moduleKind),
         modelVersion: normalizeText(timeline.modelVersion, null),
         videoScore: scoreOrZero(timeline.videoScore) / 100,
         threshold:
@@ -298,7 +298,6 @@ function normalizeRepresentativeFrames(frames: RepresentativeFrame[]): Represent
         : index + 1,
     score: frame.score == null ? null : normalizeScore(frame.score),
     imageUrl: normalizeText(frame.imageUrl, null),
-    heatmapUrl: normalizeText(frame.heatmapUrl, null),
   }))
 }
 

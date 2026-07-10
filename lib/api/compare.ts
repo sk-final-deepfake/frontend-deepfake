@@ -53,6 +53,56 @@ export type CompareResult = {
   createdAt: string
 }
 
+export type CompareOriginal = {
+  evidenceId: number
+  compareId?: number | null
+  fileName: string
+  fileSize: number
+  sha256: string
+  caseName?: string | null
+  caseNumber?: string | null
+  fileType?: string | null
+  mimeType?: string | null
+  uploadedAt: string
+}
+
+export type CompareOriginalPage = {
+  content: CompareOriginal[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+}
+
+export function fetchCompareOriginals(options?: {
+  search?: string
+  page?: number
+  size?: number
+}): Promise<CompareOriginalPage> {
+  const params = new URLSearchParams({
+    page: String(options?.page ?? 0),
+    size: String(options?.size ?? 100),
+  })
+  const search = options?.search?.trim()
+  if (search) params.set("search", search)
+
+  return apiRequest<CompareOriginalPage>(`/api/v1/compare/originals?${params}`)
+}
+
+export function fetchCompareOriginal(evidenceId: number): Promise<CompareOriginal> {
+  return apiRequest<CompareOriginal>(`/api/v1/compare/originals/${evidenceId}`)
+}
+
+export function verifyRegisteredCompare(
+  originalEvidenceId: number,
+  candidateEvidenceId: number
+): Promise<CompareResult> {
+  return apiRequest<CompareResult>("/api/v1/compare/verify-registered", {
+    method: "POST",
+    body: { originalEvidenceId, candidateEvidenceId },
+  })
+}
+
 export async function verifyCompare(evidenceId: number, file: File, requestId?: string): Promise<CompareResult> {
   if (features.mockApi) {
     await delay(1400)

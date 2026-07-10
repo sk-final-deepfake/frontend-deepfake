@@ -12,6 +12,14 @@ export type StepUpVerifyResponse = {
   expiresIn: number
 }
 
+export type StepUpExtendResponse = {
+  success: boolean
+  expiresIn: number
+}
+
+/** Step-up 연장 가능 임계값(초) — 남은 시간이 이 값 이하일 때만 연장 */
+export const STEP_UP_EXTEND_THRESHOLD_SECONDS = 5 * 60
+
 function notifyStepUpChange() {
   if (typeof window === "undefined") return
   window.dispatchEvent(new Event(STEP_UP_CHANGE_EVENT))
@@ -57,6 +65,19 @@ export function getStepUpRemainingSeconds(): number {  // 남은 초 (헤더 카
   return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
 }
 
+export function canExtendStepUpSession(): boolean {
+  const remaining = getStepUpRemainingSeconds()
+  return remaining > 0 && remaining <= STEP_UP_EXTEND_THRESHOLD_SECONDS
+}
+
+export function extendStepUpExpiry(expiresInMs: number): void {
+  const token = getStepUpToken()
+  if (!token || expiresInMs <= 0) return
+  if (typeof window === "undefined") return
+  sessionStorage.setItem(STEP_UP_EXPIRES_AT_KEY, String(Date.now() + expiresInMs))
+  notifyStepUpChange()
+}
+
 /** apiRequest stepUp 옵션용 — 유효할 때만 헤더 값 반환 */
 export function resolveStepUpHeaderValue(): string | null {  // client.ts용. 유효할 때만 토큰 문자열 반환, 아니면 null
   if (!isStepUpValid()) return null
@@ -70,5 +91,19 @@ export async function verifyStepUpPassword(password: string): Promise<StepUpVeri
     body: { password },
   })
   setStepUpToken(response.stepUpToken, response.expiresIn)
+  return response
+}
+
+export async function extendStepUpSession(): Promise<StepUpExtendResponse> {
+  const token = getStepUpToken()
+  if (!token) {
+    throw new Error("Step-up token is missing")
+  }
+
+  const response = await apiRequest<StepUpExtendResponse>("/api/v1/auth/step-up/extend", {
+    method: "POST",
+    stepUp: true,
+  })
+  extendStepUpExpiry(response.expiresIn)
   return response
 }

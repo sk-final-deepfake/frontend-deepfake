@@ -11,6 +11,19 @@ import { roleLabelMap, type UserRole } from "@/lib/permissions"
 const inputClassName =
   "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 
+const statusLabels: Record<UserStatus, string> = {
+  APPROVED: "활성",
+  SUSPENDED: "비활성",
+  PENDING: "승인 대기",
+  REJECTED: "거부",
+}
+
+function getAvailableStatuses(status: UserStatus): UserStatus[] {
+  if (status === "PENDING") return ["PENDING", "APPROVED", "REJECTED"]
+  if (status === "APPROVED") return ["APPROVED", "SUSPENDED"]
+  return [status, "APPROVED"]
+}
+
 export type UserEditPayload = {
   displayName: string
   email: string
@@ -203,10 +216,11 @@ export function EditUserDialog({
                 onChange={(e) => setStatus(e.target.value as UserStatus)}
                 className={inputClassName}
               >
-                <option value="APPROVED">활성</option>
-                <option value="SUSPENDED">비활성</option>
-                <option value="PENDING">승인 대기</option>
-                <option value="REJECTED">거부</option>
+                {getAvailableStatuses(user.status).map((availableStatus) => (
+                  <option key={availableStatus} value={availableStatus}>
+                    {statusLabels[availableStatus]}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

@@ -306,7 +306,7 @@ export function getAppUserFromSession(session: AuthSession | null): AppUser | nu
       ? getMockUserByRole("INVESTIGATOR")
       : shouldUseDemoUser && session.loginId === "5555"
         ? getMockUserByRole("REVIEWER")
-        : shouldUseDemoUser && session.loginId === "9999"
+        : shouldUseDemoUser && (session.loginId === "3333" || session.loginId === "9999")
           ? getMockUserByRole("ORG_ADMIN")
           : null
   const base = mappedMockUser ?? getMockUserByRole(role)

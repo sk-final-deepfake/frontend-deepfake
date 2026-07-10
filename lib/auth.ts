@@ -26,6 +26,8 @@ export type AuthSession = {
 const LEGACY_STORAGE_KEY = "veriforensics-auth"
 const LEGACY_API_ORIGIN_KEY = "veriforensics-api-origin"
 const MOCK_SESSION_STORAGE_KEY = "forenshield-mock-auth"
+const SESSION_EXPIRES_AT_STORAGE_KEY = "forenshield-auth-session-expires-at"
+const SESSION_EXPIRED_STORAGE_KEY = "forenshield-auth-session-expired"
 
 let memorySession: AuthSession | null = null
 let redirectingToLogin = false
@@ -96,6 +98,61 @@ function clearStoredMockSession() {
   sessionStorage.removeItem(MOCK_SESSION_STORAGE_KEY)
 }
 
+function readSessionExpiresAt(): number | null {
+  if (typeof window === "undefined") return null
+
+  const raw = sessionStorage.getItem(SESSION_EXPIRES_AT_STORAGE_KEY)
+  const expiresAt = Number(raw)
+  return Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : null
+}
+
+function writeSessionExpiresAt(expiresAt: number) {
+  if (typeof window === "undefined") return
+  sessionStorage.setItem(SESSION_EXPIRES_AT_STORAGE_KEY, String(expiresAt))
+  sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY)
+}
+
+function clearSessionExpiry() {
+  if (typeof window === "undefined") return
+  sessionStorage.removeItem(SESSION_EXPIRES_AT_STORAGE_KEY)
+  sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY)
+}
+
+function markSessionExpired() {
+  if (typeof window === "undefined") return
+  sessionStorage.setItem(SESSION_EXPIRED_STORAGE_KEY, "true")
+}
+
+function isSessionExpired() {
+  if (typeof window === "undefined") return false
+  if (sessionStorage.getItem(SESSION_EXPIRED_STORAGE_KEY) === "true") return true
+
+  const expiresAt = readSessionExpiresAt()
+  return expiresAt !== null && expiresAt <= Date.now()
+}
+
+function setSessionExpiry(accessTokenExpiresIn?: number, preserveExistingExpiry = false) {
+  if (typeof window === "undefined") return
+
+  const existingExpiresAt = readSessionExpiresAt()
+  if (preserveExistingExpiry && existingExpiresAt && existingExpiresAt > Date.now()) {
+    sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY)
+    return
+  }
+
+  const configuredTimeoutMs = features.authSessionTimeoutMinutes * 60 * 1000
+  const backendTimeoutMs =
+    typeof accessTokenExpiresIn === "number" &&
+    Number.isFinite(accessTokenExpiresIn) &&
+    accessTokenExpiresIn > 0
+      ? accessTokenExpiresIn
+      : configuredTimeoutMs
+
+  // 서버 access JWT보다 프론트 세션이 길어지지 않게 하면서,
+  // 새로고침으로 세션 시간이 연장되지 않도록 최초 로그인 시간을 기준으로 둔다.
+  writeSessionExpiresAt(Date.now() + Math.min(backendTimeoutMs, configuredTimeoutMs))
+}
+
 function notifyAuthChange() {
   if (typeof window === "undefined") return
   window.dispatchEvent(new Event("auth-change"))
@@ -141,13 +198,19 @@ export function applyLoginResponse(response: {
   role: string
   token: string
   accessToken?: string
-}) {
+  accessTokenExpiresIn?: number
+}, options: { preserveSessionExpiry?: boolean } = {}) {
+  const accessToken = response.accessToken ?? response.token
+  if (!accessToken.startsWith("mock-")) {
+    setSessionExpiry(response.accessTokenExpiresIn, options.preserveSessionExpiry)
+  }
+
   setSession({
     role: mapBackendRole(response.role),
     userId: String(response.userId),
     loginId: response.loginId,
     name: response.name,
-    token: response.accessToken ?? response.token,
+    token: accessToken,
   })
 }
 
@@ -170,7 +233,11 @@ let refreshPromise: Promise<boolean> | null = null
 // 이전에는 refresh 응답에서 accessToken만 반환했으나 이제는 accessToken과 refreshToken 모두 반환
 // 전체 세션 복구 코드
 export async function tryRefreshSession(): Promise<boolean> {
-  if (typeof window === "undefined") return false
+  if (typeof window === "undefined" || !features.authRefresh) return false
+  if (isSessionExpired()) {
+    expireSession()
+    return false
+  }
 
   if (!refreshPromise) {
     refreshPromise = (async () => {
@@ -188,6 +255,7 @@ export async function tryRefreshSession(): Promise<boolean> {
           loginId?: string
           name?: string
           role?: string
+          accessTokenExpiresIn?: number
         }
 
         const accessToken = data.accessToken ?? data.token
@@ -202,7 +270,8 @@ export async function tryRefreshSession(): Promise<boolean> {
           role: data.role,
           token: accessToken,
           accessToken,
-        })
+          accessTokenExpiresIn: data.accessTokenExpiresIn,
+        }, { preserveSessionExpiry: true })
         return true
       } catch {
         return false
@@ -215,7 +284,7 @@ export async function tryRefreshSession(): Promise<boolean> {
   return refreshPromise
 }
 
-// 새로고침 후 HttpOnly refresh 쿠키로 세션 복구 시도
+// 정책이 허용된 경우에만 새로고침 후 HttpOnly refresh 쿠키로 세션 복구 시도
 export async function bootstrapAuthSession(): Promise<void> {
   if (typeof window === "undefined") return
   if (authBootstrapped) return
@@ -246,9 +315,20 @@ export function isAuthBootstrapped(): boolean {
   return authBootstrapped
 }
 
+export function getSessionExpiresAt(): number | null {
+  return readSessionExpiresAt()
+}
+
 export function setSession(session: AuthSession) {
   memorySession = session
   redirectingToLogin = false
+  if (typeof window !== "undefined") {
+    if (isMockAuthSession(session)) {
+      clearSessionExpiry()
+    } else {
+      sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY)
+    }
+  }
   if (isMockAuthSession(session)) {
     persistMockSession(session)
   } else {
@@ -262,14 +342,26 @@ export function clearSession() {
   redirectingToLogin = false
   purgeLegacySessionStorage()
   clearStoredMockSession()
+  clearSessionExpiry()
   notifyAuthChange()
+}
+
+/** 로그인 이후 정해진 세션 시간이 끝났을 때 refresh 재발급 없이 로그인 화면으로 이동한다. */
+export function expireSession() {
+  if (typeof window === "undefined" || redirectingToLogin) return
+
+  redirectingToLogin = true
+  memorySession = null
+  purgeLegacySessionStorage()
+  clearStoredMockSession()
+  markSessionExpired()
+  notifyAuthChange()
+  if (window.location.pathname !== "/login") {
+    window.location.replace("/login")
+  }
 }
 
 /** 401 응답 시 세션 정리 후 로그인 화면으로 이동 (중복 리다이렉트 방지) */
 export function handleUnauthorizedResponse() {
-  if (typeof window === "undefined" || redirectingToLogin) return
-
-  redirectingToLogin = true
-  clearSession()
-  window.location.replace("/login")
+  expireSession()
 }

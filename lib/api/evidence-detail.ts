@@ -3,6 +3,7 @@ import { features } from "@/lib/features"
 import type { HlsPlayback } from "@/lib/hls-playback"
 import { mockFetchCaseDetail, mockFetchEvidenceDetail } from "@/lib/mock/forensic-api"
 import { decodeRouteParam } from "@/lib/route-params"
+import type { ReviewStatus } from "@/lib/permissions"
 
 export type { HlsPlayback, HlsStatus } from "@/lib/hls-playback"
 
@@ -53,7 +54,6 @@ export type EvidenceInfo = {
   fileUrl?: string | null
   streamUrl?: string | null
   overlayVideoUrl?: string | null
-  heatmapImageUrl?: string | null
   technicalMetadata: TechnicalMetadata
 }
 
@@ -110,7 +110,7 @@ export type PairRisk = {
   frameIndexA: number
   frameIndexB: number
   timestampSec: number
-  /** 0.0 ~ 1.0 (영상 내 상대값, 히트맵용) */
+  /** 0.0 ~ 1.0 (영상 내 상대값) */
   riskScore: number
   /** GMFlow raw flow magnitude mean */
   motionMagnitude?: number | null
@@ -158,7 +158,6 @@ export type RepresentativeFrame = {
   frameNumber?: number | null
   score?: number | null
   imageUrl?: string | null
-  heatmapUrl?: string | null
 }
 
 export type AnalysisInfo = {
@@ -195,7 +194,6 @@ export type AnalysisInfo = {
   frameScores?: FrameScore[] | null
   representativeFrames?: RepresentativeFrame[] | null
   overlayVideoUrl?: string | null
-  heatmapImageUrl?: string | null
 }
 
 export type CocLog = {
@@ -274,6 +272,7 @@ export type CaseDetailData = {
   createdBy?: string | null
   assigneeId?: string | null
   reviewerId?: string | null
+  reviewStatus?: ReviewStatus | null
   evidences: CaseEvidenceSummary[]
 }
 
@@ -322,7 +321,11 @@ export async function recordEvidenceSecurityEvent(
 
   await apiRequest<void>(`/api/v1/evidences/${evidenceId}/access-events`, {
     method: "POST",
-    body: payload,
+    body: {
+      eventType: "CAPTURE_ATTEMPT",
+      source: payload.eventType,
+      caseKey: payload.pagePath,
+    },
   })
 }
 

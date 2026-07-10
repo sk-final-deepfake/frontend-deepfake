@@ -17,6 +17,8 @@ type ProtectedEvidencePlayerProps = {
   src?: string | null
   /** HLS 암호화 재생 (원본 증거) */
   playback?: HlsPlayback | null
+  /** 직접 재생 실패 시 새 탭 열기 링크 */
+  fallbackOpenUrl?: string | null
   videoRef?: { current: HTMLVideoElement | null }
   objectFit?: "cover" | "contain"
   children?: ReactNode
@@ -26,6 +28,7 @@ type ProtectedEvidencePlayerProps = {
 export function ProtectedEvidencePlayer({
   src,
   playback,
+  fallbackOpenUrl,
   videoRef,
   objectFit = "cover",
   children,
@@ -61,11 +64,23 @@ export function ProtectedEvidencePlayer({
   )
 
   useEffect(() => {
+    if (!useHls) {
+      bindHlsVideo(null)
+    }
+  }, [useHls, bindHlsVideo])
+
+  useEffect(() => {
     setSrcLoadFailed(false)
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
-  }, [src, playback?.streamToken, playback?.hlsStatus])
+    if (!useHls) {
+      const video = internalVideoRef.current
+      if (video) {
+        video.load()
+      }
+    }
+  }, [src, playback?.streamToken, playback?.hlsStatus, useHls])
 
   useEffect(() => {
     function handleKeyUp(event: KeyboardEvent) {
@@ -104,7 +119,9 @@ export function ProtectedEvidencePlayer({
 
   function setVideoElement(element: HTMLVideoElement | null) {
     internalVideoRef.current = element
-    bindHlsVideo(element)
+    if (useHls) {
+      bindHlsVideo(element)
+    }
     if (videoRef) {
       videoRef.current = element
     }
@@ -154,9 +171,32 @@ export function ProtectedEvidencePlayer({
     return (
       <div className="relative flex size-full flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-bold text-white/60">
         <FileVideo className="mb-3 size-8" aria-hidden="true" />
-        {loadFailed
-          ? "재생할 수 없습니다. step-up 인증이 만료되었거나 stream token이 유효하지 않습니다."
-          : "미리보기 가능한 영상이 없습니다."}
+        {loadFailed ? (
+          useHls ? (
+            <>
+              재생할 수 없습니다. step-up 인증이 만료되었거나 stream token이 유효하지 않습니다.
+              <span className="mt-2 text-xs font-semibold text-white/45">
+                비밀번호 재인증 후 페이지를 새로고침해 주세요.
+              </span>
+            </>
+          ) : (
+            <>
+              미리보기 가능한 영상을 불러오지 못했습니다.
+              {fallbackOpenUrl ? (
+                <a
+                  href={fallbackOpenUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 text-xs font-bold text-teal-300 underline underline-offset-2 hover:text-teal-200"
+                >
+                  새 탭에서 열기
+                </a>
+              ) : null}
+            </>
+          )
+        ) : (
+          "미리보기 가능한 영상이 없습니다."
+        )}
       </div>
     )
   }
@@ -164,10 +204,11 @@ export function ProtectedEvidencePlayer({
   return (
     <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
       <video
+        key={useHls ? playback?.streamToken ?? "hls" : src ?? "direct"}
         ref={setVideoElement}
         src={useHls ? undefined : (src ?? undefined)}
         playsInline
-        preload="metadata"
+        preload={useHls ? "metadata" : "auto"}
         controlsList="nodownload"
         disablePictureInPicture
         className={cn("absolute inset-0 size-full", objectFit === "cover" ? "object-cover" : "object-contain")}

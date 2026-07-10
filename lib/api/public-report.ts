@@ -16,6 +16,7 @@ export type ReportVerification = {
   createdAt: string
   reportHash: string
   hashMatched: boolean
+  storedFileIntact?: boolean
   signatureValid: boolean | null
   signatureStatus: string
   signatureAlgorithm?: string | null
@@ -62,6 +63,20 @@ export type ReportVerificationLookup = {
   code?: string
 }
 
+export type ReportFileHashVerification = {
+  status: "MATCH" | "MISMATCH" | "WARNING"
+  matched: boolean
+  storedFileIntact: boolean
+  message: string
+  reportNo: string
+  submittedHash: string
+  registeredHash: string
+}
+
+export type ReportFileHashVerificationRequest = ReportVerificationLookup & {
+  fileHash: string
+}
+
 export async function fetchReportVerification(lookup: ReportVerificationLookup): Promise<ReportVerification> {
   const token = lookup.token?.trim() ?? ""
   const code = lookup.code?.trim() ?? ""
@@ -77,6 +92,35 @@ export async function fetchReportVerification(lookup: ReportVerificationLookup):
 
   return apiRequest<ReportVerification>(`/api/v1/public/reports/verify?${query.toString()}`, {
     auth: false,
+  })
+}
+
+export async function verifyReportFileHash(
+  request: ReportFileHashVerificationRequest
+): Promise<ReportFileHashVerification> {
+  if (features.mockApi) {
+    await delay(500)
+    const lookupValue = `${request.token ?? ""}${request.code ?? ""}`.toLowerCase()
+    const matched = !lookupValue.includes("mismatch") && !lookupValue.includes("invalidfile")
+    return {
+      status: matched ? "MATCH" : "MISMATCH",
+      matched,
+      storedFileIntact: true,
+      message: matched
+        ? "선택한 PDF가 발급 시 등록된 최종 파일과 일치합니다."
+        : "선택한 PDF가 발급 시 등록된 최종 파일과 일치하지 않습니다.",
+      reportNo: "RPT-2026-0703-0012",
+      submittedHash: request.fileHash,
+      registeredHash: matched
+        ? request.fileHash
+        : "a3f81c09d2e47b16f8c05a913e2d84c7715f0b6a8d94e21c3b7f6a0d5e8c92d4",
+    }
+  }
+
+  return apiRequest<ReportFileHashVerification>("/api/v1/public/reports/verify-file-hash", {
+    method: "POST",
+    auth: false,
+    body: request,
   })
 }
 
@@ -162,6 +206,7 @@ function buildMockVerification(token: string): ReportVerification {
     createdAt: "2026-07-03T13:28:00+09:00",
     reportHash: "a3f81c09d2e47b16f8c05a913e2d84c7715f0b6a8d94e21c3b7f6a0d5e8c92d4",
     hashMatched: true,
+    storedFileIntact: true,
     signatureValid: true,
     signatureStatus: "SIGNED",
     signatureAlgorithm: "SHA256withRSA",

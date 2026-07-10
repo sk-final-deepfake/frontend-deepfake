@@ -17,8 +17,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { getSession, type AuthSession } from "@/lib/auth"
 import { getAppUserFromSession, isReviewer } from "@/lib/permissions"
-
-const HISTORY_PAGE_SIZE = 10
+import { useUserSettings } from "@/hooks/use-user-settings"
 
 const statusFilters: Array<{ label: string; value: "ALL" | CaseStatus }> = [
   { label: "전체", value: "ALL" },
@@ -28,9 +27,12 @@ const statusFilters: Array<{ label: string; value: "ALL" | CaseStatus }> = [
   { label: "오류", value: "FAILED" },
 ]
 
+const CASE_LIST_PAGE_SIZE = 10
+
 export function MyPageContent() {
   const [cases, setCases] = useState<CaseSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
+  const [serverTotalPages, setServerTotalPages] = useState(1)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [query, setQuery] = useState("")
@@ -38,6 +40,12 @@ export function MyPageContent() {
   const [currentPage, setCurrentPage] = useState(1)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
   const [createOpen, setCreateOpen] = useState(false)
+  const { settings } = useUserSettings()
+  const pageSize = CASE_LIST_PAGE_SIZE
+  const sort = settings.listSort
+  const normalizedQuery = query.trim()
+  const requestPage = currentPage - 1
+  const requestSize = pageSize
 
   useEffect(() => {
     function syncSession() {
@@ -57,10 +65,19 @@ export function MyPageContent() {
       setErrorMessage(null)
 
       try {
-        const response = await fetchMyAnalysisHistory()
+        const response = await fetchMyAnalysisHistory({
+          sort,
+          page: requestPage,
+          size: requestSize,
+        })
         if (cancelled) return
+        const nextServerTotalPages = Math.max(1, response.totalPages)
         setCases(response.content)
         setTotalCount(response.totalElements)
+        setServerTotalPages(nextServerTotalPages)
+        if (requestPage + 1 > nextServerTotalPages) {
+          setCurrentPage(nextServerTotalPages)
+        }
       } catch (error) {
         if (cancelled) return
         if (isUnauthorizedError(error)) {
@@ -70,6 +87,7 @@ export function MyPageContent() {
         }
         setCases([])
         setTotalCount(0)
+        setServerTotalPages(1)
       } finally {
         if (!cancelled) {
           setIsLoading(false)
@@ -81,7 +99,7 @@ export function MyPageContent() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [requestPage, requestSize, sort])
 
   const currentUser = getAppUserFromSession(session)
   const canCreateCase = canRegisterCase(session)
@@ -95,7 +113,7 @@ export function MyPageContent() {
   }, [cases])
 
   const filteredCases = useMemo(() => {
-    const keyword = query.trim().toLowerCase()
+    const keyword = normalizedQuery.toLowerCase()
 
     return accessibleCases.filter((item) => {
       const matchesStatus = statusFilter === "ALL" || item.status === statusFilter
@@ -107,18 +125,14 @@ export function MyPageContent() {
 
       return matchesStatus && matchesKeyword
     })
-  }, [accessibleCases, query, statusFilter])
+  }, [accessibleCases, normalizedQuery, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filteredCases.length / HISTORY_PAGE_SIZE))
-  const pageStart = filteredCases.length === 0 ? 0 : (currentPage - 1) * HISTORY_PAGE_SIZE + 1
-  const pageEnd = Math.min(currentPage * HISTORY_PAGE_SIZE, filteredCases.length)
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [query, statusFilter])
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages))
-  }, [totalPages])
+  const visibleTotalCount = totalCount
+  const visiblePageCount = filteredCases.length
+  const totalPages = serverTotalPages
+  const currentVisiblePage = Math.min(currentPage, totalPages)
+  const pageStart = visibleTotalCount === 0 ? 0 : (currentVisiblePage - 1) * pageSize + 1
+  const pageEnd = Math.min((currentVisiblePage - 1) * pageSize + cases.length, visibleTotalCount)
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -159,14 +173,17 @@ export function MyPageContent() {
                 사건 목록
               </h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                총 {isReviewerView ? accessibleCases.length : totalCount}건 · {filteredCases.length}건 표시
+                총 {totalCount}건 · {visiblePageCount}건 표시
               </p>
             </div>
             <label className="relative block w-full lg:w-80">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value)
+                  setCurrentPage(1)
+                }}
                 placeholder="사건명 또는 증거 ID 검색"
                 className="h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm font-medium outline-none transition-colors placeholder:text-muted-foreground focus:border-teal-300 focus:ring-4 focus:ring-teal-100"
               />
@@ -180,7 +197,10 @@ export function MyPageContent() {
                 <button
                   key={filter.value}
                   type="button"
-                  onClick={() => setStatusFilter(filter.value)}
+                  onClick={() => {
+                    setStatusFilter(filter.value)
+                    setCurrentPage(1)
+                  }}
                   className={cn(
                     "h-9 rounded-full border px-4 text-sm font-bold transition-colors",
                     selected
@@ -214,21 +234,21 @@ export function MyPageContent() {
           <>
             <CaseHistorySection
               cases={filteredCases}
-              page={currentPage}
-              pageSize={HISTORY_PAGE_SIZE}
+              page={1}
+              pageSize={pageSize}
             />
-            {filteredCases.length > 0 ? (
+            {visibleTotalCount > 0 ? (
               <div className="flex flex-col gap-3 border-t border-border px-5 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                 <span>
-                  {pageStart}-{pageEnd} / {filteredCases.length}건 · {currentPage}/{totalPages} 페이지
+                  {pageStart}-{pageEnd} / {visibleTotalCount}건 · {currentVisiblePage}/{totalPages} 페이지
                 </span>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={currentPage <= 1}
-                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    disabled={currentVisiblePage <= 1}
+                    onClick={() => setCurrentPage(Math.max(1, currentVisiblePage - 1))}
                   >
                     <ChevronLeft className="size-3.5" aria-hidden="true" />
                     이전
@@ -237,8 +257,8 @@ export function MyPageContent() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={currentPage >= totalPages}
-                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                    disabled={currentVisiblePage >= totalPages}
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentVisiblePage + 1))}
                   >
                     다음
                     <ChevronRight className="size-3.5" aria-hidden="true" />

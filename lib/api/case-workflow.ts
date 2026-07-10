@@ -1,5 +1,5 @@
 import type { AnalysisType, CaseDetailData, EvidenceRole } from "@/lib/api/evidence-detail"
-import { apiRequest } from "@/lib/api/client"
+import { apiRequest, apiRequestForm } from "@/lib/api/client"
 import {
   mockCreateCase,
   mockCancelAnalysis,
@@ -14,6 +14,7 @@ import {
   cancelAnalysis,
   startEvidenceAnalysis,
   uploadEvidence,
+  type FileUploadResponse,
   type StartAnalysisResponse,
   type UploadResult,
 } from "@/lib/evidence-api"
@@ -61,7 +62,10 @@ export async function markEvidenceExcluded(evidenceId: number, reason: string): 
     return mockMarkEvidenceExcluded(evidenceId, reason)
   }
 
-  throw new Error("사용 제외 기능은 백엔드 API 계약 후 사용할 수 있습니다.")
+  await apiRequest<void>(`/api/v1/evidences/${evidenceId}/exclude`, {
+    method: "PATCH",
+    body: { reason: reason.trim() },
+  })
 }
 
 export async function replaceEvidenceInCase(
@@ -74,7 +78,28 @@ export async function replaceEvidenceInCase(
     return mockReplaceEvidence(caseId, oldEvidenceId, file, reason)
   }
 
-  throw new Error("대체 증거 등록 기능은 백엔드 API 계약 후 사용할 수 있습니다.")
+  const formData = new FormData()
+  formData.append("file", file)
+  if (reason.trim()) {
+    formData.append("reason", reason.trim())
+  }
+
+  const data = await apiRequestForm<FileUploadResponse>(
+    `/api/v1/evidences/${oldEvidenceId}/replace`,
+    { body: formData }
+  )
+
+  return {
+    evidenceId: data.evidenceId,
+    fileName: data.fileName,
+    caseName: data.caseName,
+    fileSize: data.fileSize,
+    hashAlgorithm: data.hashAlgorithm,
+    hashValue: data.hashValue,
+    metadata: data.metadata,
+    readiness: data.readiness ?? null,
+    uploadedAt: new Date().toISOString(),
+  }
 }
 
 export async function setRepresentativeEvidence(caseId: string, evidenceId: number): Promise<void> {
@@ -82,7 +107,11 @@ export async function setRepresentativeEvidence(caseId: string, evidenceId: numb
     return mockSetRepresentativeEvidence(caseId, evidenceId)
   }
 
-  throw new Error("대표 증거 지정 기능은 백엔드 API 계약 후 사용할 수 있습니다.")
+  const params = new URLSearchParams({ caseKey: caseId })
+  await apiRequest<void>(`/api/v1/cases/representative?${params}`, {
+    method: "PATCH",
+    body: { evidenceId },
+  })
 }
 
 export async function setEvidenceRole(evidenceId: number, role: EvidenceRole): Promise<void> {
@@ -90,7 +119,28 @@ export async function setEvidenceRole(evidenceId: number, role: EvidenceRole): P
     return mockSetEvidenceRole(evidenceId, role)
   }
 
-  throw new Error("증거 역할 변경 기능은 백엔드 API 계약 후 사용할 수 있습니다.")
+  await apiRequest<void>(`/api/v1/evidences/${evidenceId}/role`, {
+    method: "PATCH",
+    body: { role },
+  })
+}
+
+export async function updateCaseName(
+  caseId: string,
+  caseName: string
+): Promise<CaseDetailData> {
+  if (features.mockApi) {
+    const current = await import("@/lib/mock/forensic-api").then(
+      ({ mockFetchCaseDetail }) => mockFetchCaseDetail(caseId)
+    )
+    return { ...current, caseId: caseName.trim(), caseName: caseName.trim() }
+  }
+
+  const params = new URLSearchParams({ caseKey: caseId })
+  return apiRequest<CaseDetailData>(`/api/v1/cases?${params}`, {
+    method: "PATCH",
+    body: { caseName: caseName.trim() },
+  })
 }
 
 export type StartCaseAnalysisOptions = {
@@ -116,4 +166,29 @@ export async function cancelCaseAnalysis(evidenceId: number): Promise<void> {
   }
 
   return cancelAnalysis(evidenceId)
+}
+
+export async function recordCaseReviewDecision(
+  caseId: string,
+  decision: "APPROVED" | "REVISION",
+  memo?: string
+): Promise<CaseDetailData> {
+  if (features.mockApi) {
+    const current = await import("@/lib/mock/forensic-api").then(({ mockFetchCaseDetail }) =>
+      mockFetchCaseDetail(caseId)
+    )
+    return {
+      ...current,
+      reviewStatus: decision === "APPROVED" ? "REPORT_APPROVED" : "REVIEW_SUPPLEMENT_REQUESTED",
+    }
+  }
+
+  const params = new URLSearchParams({ caseKey: caseId })
+  return apiRequest<CaseDetailData>(`/api/v1/cases/review-decision?${params}`, {
+    method: "POST",
+    body: {
+      decision,
+      memo: memo?.trim() || undefined,
+    },
+  })
 }

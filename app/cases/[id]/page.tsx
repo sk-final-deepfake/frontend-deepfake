@@ -1,6 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import {
@@ -110,14 +119,23 @@ import {
 import {
   cancelCaseAnalysis,
   markEvidenceExcluded,
+  recordCaseReviewDecision,
+  setRepresentativeEvidence,
   startCaseAnalysis,
+  updateCaseName,
   uploadEvidenceToCase,
 } from "@/lib/api/case-workflow"
 import { fetchAnalysisStatus, fetchEvidenceReadiness, type EvidenceReadinessResponse } from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
-import { getLatestCompareResultSummary, type StoredCompareResultSummary } from "@/lib/compare-history"
+import { verifyRegisteredCompare } from "@/lib/api/compare"
+import { verifyEvidenceIntegrity } from "@/lib/api/evidence-verification"
+import {
+  getLatestCompareResultSummary,
+  saveCompareResultSummary,
+  type StoredCompareResultSummary,
+} from "@/lib/compare-history"
 import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
@@ -128,6 +146,18 @@ import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
+
+type ResultTab = "summary" | "deepfake" | "forgery" | "frames" | "models"
+type WorkflowMessage = { type: "success" | "error" | "info"; text: string }
+type AnalysisProgressOverrides = Record<number, { status: AnalysisStatus; progress: number }>
+
+const RESULT_TABS: Array<{ value: ResultTab; label: string }> = [
+  { value: "summary", label: "분석 요약" },
+  { value: "deepfake", label: "딥페이크 탐지" },
+  { value: "forgery", label: "위변조 탐지" },
+  { value: "frames", label: "프레임 분석" },
+  { value: "models", label: "분석 방법론" },
+]
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -194,6 +224,10 @@ const PRIORITY_REVIEW_START_SEC = 15.8
 const PRIORITY_REVIEW_END_SEC = 23.8
 const PRIORITY_REVIEW_RANGE_LABEL = "00:15.800 ~ 00:23.800"
 const PEAK_FRAME_TIME_LABEL = "00:19.800"
+const ANALYSIS_STATUS_POLL_ERROR_TEXT =
+  "분석 상태를 갱신하지 못했습니다. 잠시 후 새로고침하거나 다시 시도해 주세요."
+const ANALYSIS_STATUS_POLL_TIMEOUT_TEXT =
+  "분석 상태 확인 시간이 길어지고 있습니다. 현재 화면을 새로고침해 최신 상태를 확인해 주세요."
 
 function getEvidenceBucket(evidence: CaseEvidenceSummary): EvidenceStatusBucket {
   if ((evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") return "inactive"
@@ -257,7 +291,12 @@ export default function CaseDetailPage() {
   const [showResultDashboard, setShowResultDashboard] = useState(false)
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
+  const [analysisProgressOverrides, setAnalysisProgressOverrides] = useState<AnalysisProgressOverrides>({})
+  const [analysisPollingMessage, setAnalysisPollingMessage] = useState<WorkflowMessage | null>(null)
   const isReviewer = isReviewerSession(session)
+  const refreshCase = useCallback(() => {
+    setCaseRefreshKey((key) => key + 1)
+  }, [])
   const {
     dialogMode,
     loginId: stepUpLoginId,
@@ -291,6 +330,35 @@ export default function CaseDetailPage() {
       setShowIntegrityDashboard(true)
     }
   }, [initialView])
+
+  const trackedAnalysisIdsKey = useMemo(() => {
+    if (!caseData) return ""
+
+    const ids = new Set<number>()
+    const evidenceById = new Map(caseData.evidences.map((evidence) => [evidence.evidenceId, evidence]))
+
+    for (const evidence of caseData.evidences) {
+      if (isEvidenceAnalysisRunning(evidence)) ids.add(evidence.evidenceId)
+    }
+
+    for (const [evidenceId, override] of Object.entries(analysisProgressOverrides)) {
+      const numericEvidenceId = Number(evidenceId)
+      const serverEvidence = evidenceById.get(numericEvidenceId)
+      if (!serverEvidence || (serverEvidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE") continue
+
+      const serverStatus = normalizeStatus(serverEvidence.analysisStatus ?? "PENDING")
+      if (serverStatus === "COMPLETED" || serverStatus === "FAILED") continue
+
+      if (override.status === "PROCESSING" || override.status === "PENDING") {
+        ids.add(numericEvidenceId)
+      }
+    }
+
+    return Array.from(ids)
+      .filter((evidenceId) => Number.isFinite(evidenceId) && evidenceId > 0)
+      .sort((a, b) => a - b)
+      .join(",")
+  }, [analysisProgressOverrides, caseData])
 
   useEffect(() => {
     let cancelled = false
@@ -340,6 +408,174 @@ export default function CaseDetailPage() {
       cancelled = true
     }
   }, [caseId, caseRefreshKey])
+
+  useEffect(() => {
+    if (!caseData) return
+
+    setAnalysisProgressOverrides((current) => {
+      let changed = false
+      const next = { ...current }
+      const activeIds = new Set(caseData.evidences.map((evidence) => evidence.evidenceId))
+
+      for (const evidence of caseData.evidences) {
+        const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+        const progress = clampAnalysisProgress(evidence.analysisProgress)
+
+        if (status === "COMPLETED" || status === "FAILED") {
+          if (next[evidence.evidenceId]) {
+            delete next[evidence.evidenceId]
+            changed = true
+          }
+          continue
+        }
+
+        if (status === "PROCESSING") {
+          const previous = next[evidence.evidenceId]
+          const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+          if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
+            next[evidence.evidenceId] = { status: "PROCESSING", progress: nextProgress }
+            changed = true
+          }
+        }
+      }
+
+      for (const evidenceId of Object.keys(next)) {
+        if (!activeIds.has(Number(evidenceId))) {
+          delete next[Number(evidenceId)]
+          changed = true
+        }
+      }
+
+      return changed ? next : current
+    })
+  }, [caseData])
+
+  useEffect(() => {
+    const hasRunningOverride = Object.values(analysisProgressOverrides).some(
+      (item) => item.status === "PROCESSING" && item.progress < 92
+    )
+    if (!hasRunningOverride) return
+
+    const timer = window.setInterval(() => {
+      setAnalysisProgressOverrides((current) => {
+        let changed = false
+        const next = { ...current }
+
+        for (const [rawId, item] of Object.entries(current)) {
+          if (item.status !== "PROCESSING" || item.progress >= 92) continue
+
+          const increment = item.progress < 18 ? 3 : item.progress < 55 ? 2 : 1
+          const progress = Math.min(92, item.progress + increment)
+          if (progress !== item.progress) {
+            next[Number(rawId)] = { ...item, progress }
+            changed = true
+          }
+        }
+
+        return changed ? next : current
+      })
+    }, 1500)
+
+    return () => window.clearInterval(timer)
+  }, [analysisProgressOverrides])
+
+  useEffect(() => {
+    if (!trackedAnalysisIdsKey) {
+      setAnalysisPollingMessage(null)
+      return
+    }
+
+    const pollIds = trackedAnalysisIdsKey
+      .split(",")
+      .map((evidenceId) => Number(evidenceId))
+      .filter((evidenceId) => Number.isFinite(evidenceId) && evidenceId > 0)
+
+    if (pollIds.length === 0) return
+
+    let cancelled = false
+    let lastRefreshAt = 0
+    let failedPollCount = 0
+    let timeoutNotified = false
+    const pollingStartedAt = Date.now()
+
+    async function pollAnalysisStatuses() {
+      const statuses = await Promise.all(
+        pollIds.map((evidenceId) => fetchAnalysisStatus(evidenceId).catch(() => null))
+      )
+
+      if (cancelled) return
+
+      const validStatuses = statuses.filter((status) => status != null)
+      if (validStatuses.length === 0) {
+        failedPollCount += 1
+        if (failedPollCount >= 2) {
+          setAnalysisPollingMessage({ type: "error", text: ANALYSIS_STATUS_POLL_ERROR_TEXT })
+        }
+        return
+      }
+
+      failedPollCount = 0
+      setAnalysisPollingMessage(null)
+      setAnalysisProgressOverrides((current) => {
+        let changed = false
+        const next = { ...current }
+
+        for (const statusUpdate of validStatuses) {
+          const status = normalizeStatus(statusUpdate.status)
+          const progress = clampAnalysisProgress(statusUpdate.progressPercent)
+
+          if (status === "COMPLETED" || status === "FAILED") {
+            const nextProgress = status === "COMPLETED" ? 100 : progress
+            const previous = next[statusUpdate.evidenceId]
+            if (!previous || previous.status !== status || previous.progress !== nextProgress) {
+              next[statusUpdate.evidenceId] = { status, progress: nextProgress }
+              changed = true
+            }
+            continue
+          }
+
+          if (status === "PROCESSING" || progress > 0) {
+            const previous = next[statusUpdate.evidenceId]
+            const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+            if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
+              next[statusUpdate.evidenceId] = { status: "PROCESSING", progress: nextProgress }
+              changed = true
+            }
+          }
+        }
+
+        return changed ? next : current
+      })
+
+      const hasTerminalStatus = statuses.some(
+        (status) =>
+          normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
+      )
+      const now = Date.now()
+
+      if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
+        lastRefreshAt = now
+        refreshCase()
+      }
+
+      if (!timeoutNotified && now - pollingStartedAt > 60000 && !hasTerminalStatus) {
+        timeoutNotified = true
+        setAnalysisPollingMessage({ type: "error", text: ANALYSIS_STATUS_POLL_TIMEOUT_TEXT })
+      }
+    }
+
+    void pollAnalysisStatuses()
+
+    const interval = window.setInterval(() => {
+      if (document.hidden) return
+      void pollAnalysisStatuses()
+    }, 4000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [refreshCase, trackedAnalysisIdsKey])
 
   useEffect(() => {
     if (!caseData || !Number.isFinite(initialEvidenceId)) return
@@ -407,10 +643,6 @@ export default function CaseDetailPage() {
     }
   }
 
-  const refreshCase = useCallback(() => {
-    setCaseRefreshKey((key) => key + 1)
-  }, [])
-
   function viewResult(evidenceId: number) {
     selectEvidence(evidenceId)
     setShowIntegrityDashboard(false)
@@ -441,8 +673,34 @@ export default function CaseDetailPage() {
     router.push(`/compare/${compareId}`)
   }
 
-  function updateCaseSettings(caseName: string, representativeEvidenceId: number | null) {
-    setCaseData((current) => (current ? { ...current, caseName, representativeEvidenceId } : current))
+  async function updateCaseSettings(
+    caseName: string,
+    representativeEvidenceId: number | null
+  ): Promise<void> {
+    if (!caseData) return
+
+    let updatedCase = caseData
+    if (caseName !== caseData.caseName) {
+      updatedCase = await updateCaseName(caseData.caseId, caseName)
+    }
+
+    if (
+      representativeEvidenceId !== null &&
+      representativeEvidenceId !== updatedCase.representativeEvidenceId
+    ) {
+      await setRepresentativeEvidence(updatedCase.caseId, representativeEvidenceId)
+      updatedCase = { ...updatedCase, representativeEvidenceId }
+    }
+
+    setCaseData(updatedCase)
+    if (updatedCase.caseId !== caseId) {
+      router.replace(
+        buildCaseDetailPath(updatedCase.caseId, selectedEvidenceId ?? undefined),
+        {
+          scroll: false,
+        }
+      )
+    }
   }
 
   return (
@@ -504,6 +762,9 @@ export default function CaseDetailPage() {
                     onStartCompare={startCompareVerification}
                     onUpdateCaseSettings={updateCaseSettings}
                     onRefresh={refreshCase}
+                    analysisProgressOverrides={analysisProgressOverrides}
+                    setAnalysisProgressOverrides={setAnalysisProgressOverrides}
+                    analysisPollingMessage={analysisPollingMessage}
                     currentUserName={getAppUserFromSession(session)?.name ?? null}
                     readOnly={isReviewer}
                   />
@@ -583,7 +844,7 @@ function CaseBreadcrumb() {
   )
 }
 
-type ResultMediaMode = "original" | "overlay" | "heatmap"
+type ResultMediaMode = "original" | "overlay"
 
 function MockAnalysisOverlay() {
   return (
@@ -593,28 +854,6 @@ function MockAnalysisOverlay() {
       <div className="absolute left-[34%] top-[56%] h-[18%] w-[36%] rounded-md border border-red-700/40 bg-red-700/10" />
       <div className="absolute bottom-4 left-4 rounded-md bg-red-700/95 px-2.5 py-1 text-xs font-bold text-white">
         얼굴 경계 불연속 · 압축 흔적
-      </div>
-    </div>
-  )
-}
-
-function HeatmapLayer({ heatmapImageUrl }: { heatmapImageUrl: string | null }) {
-  return (
-    <div className="pointer-events-none absolute inset-0">
-      {heatmapImageUrl ? (
-        <img
-          src={heatmapImageUrl}
-          alt=""
-          className="absolute inset-0 size-full object-cover opacity-70 mix-blend-screen"
-        />
-      ) : (
-        <>
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_52%_32%,rgba(255,0,0,0.58),rgba(255,210,0,0.42)_16%,rgba(0,210,255,0.18)_34%,rgba(0,0,0,0)_58%)] mix-blend-screen" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_48%_57%,rgba(255,80,0,0.42),rgba(255,220,0,0.2)_20%,rgba(0,0,0,0)_50%)] mix-blend-screen" />
-        </>
-      )}
-      <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
-        위험도가 높은 영역을 색상으로 표시합니다.
       </div>
     </div>
   )
@@ -668,28 +907,6 @@ function EvidenceWatermarkOverlay({
   )
 }
 
-function requestProtectedFullscreen(element: HTMLElement | null) {
-  if (!element) return
-
-  const fullscreenDocument = document as Document & {
-    webkitFullscreenElement?: Element | null
-    webkitExitFullscreen?: () => Promise<void> | void
-  }
-  const fullscreenElement = document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement
-  if (fullscreenElement === element) {
-    const exitFullscreen = document.exitFullscreen ?? fullscreenDocument.webkitExitFullscreen
-    void exitFullscreen?.call(fullscreenDocument)
-    return
-  }
-
-  const fullscreenTarget = element as HTMLElement & {
-    webkitRequestFullscreen?: () => Promise<void> | void
-  }
-  const requestFullscreen = fullscreenTarget.requestFullscreen ?? fullscreenTarget.webkitRequestFullscreen
-  void requestFullscreen?.call(fullscreenTarget)
-}
-
-
 function CaseResultView({
   caseData,
   evidenceDetail,
@@ -708,7 +925,7 @@ function CaseResultView({
   onBack: () => void
 }) {
   const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
-  const [resultTab, setResultTab] = useState<"summary" | "detection" | "frames" | "models">("summary")
+  const [resultTab, setResultTab] = useState<ResultTab>("summary")
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const [resultReadiness, setResultReadiness] = useState<EvidenceReadinessResponse | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -734,19 +951,19 @@ function CaseResultView({
     evidenceDetail?.analysisInfo.overlayVideoUrl ??
     evidenceDetail?.evidenceInfo.overlayVideoUrl ??
     null
-  const heatmapImageUrl =
-    evidenceDetail?.analysisInfo.heatmapImageUrl ??
-    evidenceDetail?.evidenceInfo.heatmapImageUrl ??
-    evidenceDetail?.analysisInfo.representativeFrames?.find((frame) => Boolean(frame.heatmapUrl))?.heatmapUrl ??
-    null
   const useOverlaySrc = mediaMode === "overlay" && Boolean(overlayVideoUrl)
   const showResultPlayer = useOverlaySrc || hasHlsOriginal || Boolean(hlsPlayback)
+  const playerSurfaceKey = useOverlaySrc
+    ? `direct-${overlayVideoUrl ?? "none"}`
+    : `hls-${hlsPlayback?.streamToken ?? hlsPlayback?.hlsStatus ?? "pending"}`
   const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
   const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
   const readinessMetrics = buildReadinessMetricItems(resultReadiness)
-  const showExtraAnalysisSection = extraRiskSignals.length > 0 || readinessMetrics.length > 0
+  const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
+  const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
+  const forgeryRiskSignals = buildForgeryRiskSignals(evidenceDetail, detectionThreshold)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
@@ -789,7 +1006,15 @@ function CaseResultView({
   const highRiskFrameCount = frameScores.filter(
     (frame) => normalizeResultValue(frame.score) >= detectionThreshold
   ).length
+  const forgeryHighestScore = forgeryRiskSignals.reduce(
+    (highest, signal) => Math.max(highest, normalizeResultValue(signal.score)),
+    0
+  )
+  const forgeryOverThresholdCount = forgeryRiskSignals.filter(
+    (signal) => normalizeResultValue(signal.score) >= detectionThreshold
+  ).length
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
+  const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
 
   useEffect(() => {
     if (!selectedEvidenceId) {
@@ -839,7 +1064,7 @@ function CaseResultView({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <h1 className="truncate text-2xl font-bold tracking-normal text-slate-950 dark:text-foreground">
-                딥페이크 분석 결과
+                AI 조작 분석 결과
               </h1>
             </div>
             <p className="mt-1 text-sm font-medium text-slate-500">
@@ -866,6 +1091,7 @@ function CaseResultView({
           open={reportDialogOpen}
           onClose={() => setReportDialogOpen(false)}
           data={evidenceDetail}
+          reviewApproved={caseData.reviewStatus === "REPORT_APPROVED"}
         />
       ) : null}
 
@@ -885,14 +1111,13 @@ function CaseResultView({
                 <div>
                   <h2 className="text-base font-bold text-slate-950 dark:text-foreground">증거 영상</h2>
                   <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                    원본, 오버레이, 히트맵을 같은 위치에서 비교합니다.
+                    원본과 오버레이를 같은 위치에서 비교합니다.
                   </p>
                 </div>
                 <div className="flex rounded-full bg-slate-950/80 p-1 backdrop-blur-sm">
                   {([
                     ["original", "원본"],
                     ["overlay", "오버레이"],
-                    ["heatmap", "히트맵"],
                   ] as const).map(([mode, label]) => (
                     <button
                       key={mode}
@@ -911,14 +1136,15 @@ function CaseResultView({
               <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
                 {showResultPlayer ? (
                   <ProtectedEvidencePlayer
+                    key={`result-player-${selectedEvidenceId ?? "none"}-${playerSurfaceKey}`}
                     src={useOverlaySrc ? overlayVideoUrl : null}
                     playback={useOverlaySrc ? null : hlsPlayback}
+                    fallbackOpenUrl={mediaMode === "overlay" ? overlayVideoUrl : null}
                     videoRef={videoRef}
                     objectFit="cover"
                     onSecurityEvent={reportSecurityEvent}
                   >
                     {mediaMode === "overlay" && !overlayVideoUrl ? <MockAnalysisOverlay /> : null}
-                    {mediaMode === "heatmap" ? <HeatmapLayer heatmapImageUrl={heatmapImageUrl} /> : null}
                     {mediaMode === "original" ? (
                       <EvidenceWatermarkOverlay
                         caseId={caseData.caseId}
@@ -927,9 +1153,9 @@ function CaseResultView({
                         viewerLoginId={currentSession?.loginId ?? null}
                       />
                     ) : null}
-                    {mediaMode !== "original" ? (
+                    {mediaMode === "overlay" ? (
                       <div className="absolute left-4 top-4 z-20 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
-                        {mediaMode === "overlay" ? "탐지 오버레이" : "히트맵"}
+                        탐지 오버레이
                       </div>
                     ) : null}
                   </ProtectedEvidencePlayer>
@@ -1010,13 +1236,8 @@ function CaseResultView({
                 <p className="mt-1 text-[11px] font-semibold text-slate-400">종합 위험 점수</p>
               </div>
             </div>
-            <div className="relative grid shrink-0 grid-cols-4 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
-              {([
-                ["summary", "분석 요약"],
-                ["detection", "위험 신호"],
-                ["frames", "프레임 분석"],
-                ["models", "분석 방법론"],
-              ] as const).map(([tab, label]) => (
+            <div className="relative grid shrink-0 grid-cols-5 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
+              {RESULT_TABS.map(({ value: tab, label }) => (
                 <button
                   key={tab}
                   type="button"
@@ -1033,8 +1254,8 @@ function CaseResultView({
                 aria-hidden="true"
                 className="pointer-events-none absolute bottom-[-1px] z-10 h-0.5 bg-slate-950 transition-[left] duration-300 ease-out dark:bg-foreground"
                 style={{
-                  left: `${(resultTab === "summary" ? 0 : resultTab === "detection" ? 1 : resultTab === "frames" ? 2 : 3) * 25}%`,
-                  width: "25%",
+                  left: `${Math.max(0, RESULT_TABS.findIndex((tab) => tab.value === resultTab)) * 20}%`,
+                  width: "20%",
                 }}
               />
             </div>
@@ -1089,10 +1310,10 @@ function CaseResultView({
                             ) : action.tab ? (
                               <button
                                 type="button"
-                                onClick={() => setResultTab(action.tab as "detection" | "frames")}
+                                onClick={() => setResultTab(action.tab === "frames" ? "frames" : "deepfake")}
                                 className="ml-2 inline-flex items-center gap-1 text-sm font-bold text-teal-700 hover:underline dark:text-teal-300"
                               >
-                                {action.tab === "detection" ? "위험 신호 보기" : "프레임 분석 보기"}
+                                {action.tab === "frames" ? "프레임 분석 보기" : "딥페이크 탐지 보기"}
                                 <ChevronRight className="size-3.5" aria-hidden="true" />
                               </button>
                             ) : null}
@@ -1103,22 +1324,38 @@ function CaseResultView({
                   </section>
 
                 </div>
-              ) : resultTab === "detection" ? (
+              ) : resultTab === "deepfake" ? (
                 <section>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위험 신호</h3>
+                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">딥페이크 탐지</h3>
                       <p className="mt-1 text-sm font-semibold text-slate-500">
-                        AI가 먼저 확인해야 할 조작 의심 근거를 정리했습니다.
+                        얼굴 합성, 시계열 일관성, 움직임 보조 신호를 모델별로 확인합니다.
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
-                      우선 확인 {primaryRiskSignals.length}개
+                    <span className="shrink-0 rounded-full bg-teal-50 px-3 py-1 text-xs font-bold text-teal-700">
+                      모델 {methodology.models.length}개
                     </span>
                   </div>
-                  {primaryRiskSignals.length > 0 ? (
+
+                  {methodology.models.length > 0 ? (
+                    <section className="mt-5 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">딥페이크 모델별 판단 점수</h4>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
+                          판정 기준 {Math.round(detectionThreshold * 100)} / 100
+                        </span>
+                      </div>
+                      <MethodologyModelChart
+                        models={methodology.models}
+                        thresholdPercent={Math.round(detectionThreshold * 100)}
+                      />
+                    </section>
+                  ) : null}
+
+                  {deepfakeRiskSignals.length > 0 ? (
                     <ul className="mt-5 space-y-3">
-                      {primaryRiskSignals.map((signal, index) => (
+                      {deepfakeRiskSignals.map((signal, index) => (
                         <RiskSignalCard
                           key={`${signal.label}-${index}`}
                           signal={signal}
@@ -1129,61 +1366,114 @@ function CaseResultView({
                     </ul>
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                      우선 확인할 조작 의심 신호가 없습니다.
+                      딥페이크 탐지 신호가 아직 제공되지 않았습니다.
+                    </p>
+                  )}
+                </section>
+              ) : resultTab === "forgery" ? (
+                <section>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위변조 탐지</h3>
+                      <p className="mt-1 text-sm font-semibold text-slate-500">
+                        프레임 편집, 구간 이어붙이기, 재인코딩, 국소 변조 신호를 따로 확인합니다.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-secondary">
+                      세부 모델 {forgeryRiskSignals.length}개
+                    </span>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    <FrameMetricCard
+                      label="위변조 최고 점수"
+                      value={forgeryRiskSignals.length > 0 ? formatScoreOutOf100(forgeryHighestScore) : "-"}
+                      sub="Frame Edit / Splicing / Re-encoding 기준"
+                      tone={forgeryHighestScore >= detectionThreshold ? "danger" : "neutral"}
+                    />
+                    <FrameMetricCard
+                      label="기준 초과 항목"
+                      value={`${forgeryOverThresholdCount} / ${forgeryRiskSignals.length}개`}
+                      sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
+                      tone={forgeryOverThresholdCount > 0 ? "danger" : "neutral"}
+                    />
+                    <FrameMetricCard
+                      label="의심 구간"
+                      value={priorityReviewRange ? priorityReviewRange.label : "-"}
+                      sub={priorityReviewRange ? "프레임 분석에서 시간축 확인" : "임계값 초과 구간 없음"}
+                    />
+                    <FrameMetricCard
+                      label="시각 증거"
+                      value={representativeFrames.length > 0 ? "제공됨" : "대기"}
+                      sub="대표 프레임/마스크 수신 시 표시"
+                    />
+                  </div>
+
+                  {forgeryRiskSignals.length > 0 ? (
+                    <ul className="mt-5 space-y-3">
+                      {forgeryRiskSignals.map((signal, index) => (
+                        <RiskSignalCard
+                          key={`${signal.label}-${index}`}
+                          signal={signal}
+                          delayMs={index * 120}
+                          onSeek={seekResultVideo}
+                        />
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
+                      위변조 세부 모델 결과가 아직 제공되지 않았습니다.
+                      <br />
+                      AI 서버가 frameEdit, splicing, reEncoding 또는 forgery 계열 점수를 보내면 이 영역에 표시됩니다.
                     </p>
                   )}
 
-                  {showExtraAnalysisSection ? (
-                  <details className="mt-4 rounded-xl border border-slate-100 bg-white p-4 dark:border-border dark:bg-card">
-                    <summary className="cursor-pointer text-sm font-bold text-slate-700">
-                      기타 분석 항목 보기
-                    </summary>
-                    <div className="mt-4 space-y-3">
-                      {extraRiskSignals.map((item, index) => (
-                        <div key={`${item.label}-${item.modelLabel ?? "signal"}-${index}`} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border">
-                          <div>
-                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">
-                              {item.label}
-                              {item.modelLabel ? (
-                                <span className="ml-1.5 font-mono text-[11px] font-semibold text-slate-400">
-                                  {item.modelLabel}
-                                </span>
-                              ) : null}
-                            </p>
-                            <p className="mt-1 text-xs font-semibold text-slate-500">{item.definition}</p>
+                  {representativeFrames.length > 0 ? (
+                    <section className="mt-5">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">대표 프레임 근거</h4>
+                        <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                          원본과 히트맵을 전환하며 국소 위변조 의심 영역을 확인합니다.
+                        </p>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {representativeFrames.slice(0, 2).map((frame, index) => (
+                          <RepresentativeFrameDetailCard
+                            key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
+                            frame={frame}
+                            index={index}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {readinessMetrics.length > 0 ? (
+                    <details className="mt-4 rounded-xl border border-slate-100 bg-white p-4 dark:border-border dark:bg-card">
+                      <summary className="cursor-pointer text-sm font-bold text-slate-700">
+                        화질 사전 검사 보기
+                      </summary>
+                      <div className="mt-4 space-y-3">
+                        {readinessMetrics.map((metric) => (
+                          <div
+                            key={metric.key}
+                            className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                                {metric.label}
+                              </p>
+                              <p className="mt-1 text-xs font-semibold text-slate-500">
+                                {metric.description}
+                              </p>
+                            </div>
+                            <span className="shrink-0 font-mono text-sm font-bold text-slate-700 dark:text-foreground">
+                              {metric.value}
+                            </span>
                           </div>
-                          <span className="font-mono text-sm font-bold text-slate-700">{formatScoreOutOf100(item.score)}</span>
-                        </div>
-                      ))}
-                      {readinessMetrics.length > 0 ? (
-                        <div className={extraRiskSignals.length > 0 ? "border-t border-slate-100 pt-3 dark:border-border" : ""}>
-                          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
-                            화질 사전 검사
-                          </p>
-                          <div className="space-y-3">
-                            {readinessMetrics.map((metric) => (
-                              <div
-                                key={metric.key}
-                                className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border"
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-bold text-slate-950 dark:text-foreground">
-                                    {metric.label}
-                                  </p>
-                                  <p className="mt-1 text-xs font-semibold text-slate-500">
-                                    {metric.description}
-                                  </p>
-                                </div>
-                                <span className="shrink-0 font-mono text-sm font-bold text-slate-700 dark:text-foreground">
-                                  {metric.value}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </details>
+                        ))}
+                      </div>
+                    </details>
                   ) : null}
                 </section>
               ) : resultTab === "frames" ? (
@@ -1249,7 +1539,7 @@ function CaseResultView({
                         <div>
                           <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">상위 위험 프레임</h4>
                           <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                            행을 선택하면 영상이 해당 지점으로 이동하고, 히트맵으로 조작 의심 영역을 확인할 수 있습니다.
+                            행을 선택하면 영상이 해당 지점으로 이동합니다.
                           </p>
                         </div>
                         <div className="mt-2 divide-y divide-slate-100 dark:divide-border">
@@ -1260,12 +1550,12 @@ function CaseResultView({
                                 item.timestamp === frame.time
                             )
                             return (
-                              <div key={frame.time} className="flex items-center gap-2 py-2">
-                                <button
-                                  type="button"
-                                  onClick={() => seekResultVideo(frame.seconds)}
-                                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-secondary/40"
-                                >
+                              <button
+                                key={frame.time}
+                                type="button"
+                                onClick={() => seekResultVideo(frame.seconds)}
+                                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-secondary/40"
+                              >
                                   <span className="w-4 shrink-0 text-xs font-bold text-slate-400">{index + 1}</span>
                                   <span className="h-11 w-[74px] shrink-0 overflow-hidden rounded-md bg-slate-100 dark:bg-secondary">
                                     {representative?.imageUrl ? (
@@ -1289,15 +1579,6 @@ function CaseResultView({
                                     {frame.signal}
                                   </span>
                                 </button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 shrink-0 rounded-lg border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                  onClick={() => seekResultVideo(frame.seconds, "heatmap")}
-                                >
-                                  히트맵
-                                </Button>
-                              </div>
                             )
                           })}
                         </div>
@@ -1324,57 +1605,75 @@ function CaseResultView({
 
                   <section className="mt-5 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
-                      <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">모델별 추론 결과</h4>
+                      <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">딥페이크 모델 방법론</h4>
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
                         판정 기준 {Math.round(detectionThreshold * 100)} / 100
                       </span>
                     </div>
                     {methodology.models.length > 0 ? (
-                      <>
-                        <MethodologyModelChart
-                          models={methodology.models}
-                          thresholdPercent={Math.round(detectionThreshold * 100)}
-                        />
-
-                        <div className="mt-3 divide-y divide-slate-50 border-t border-slate-100 dark:divide-border dark:border-border">
-                          {methodology.models.map((model) => (
-                            <div key={`${model.name}-${model.version}`} className="px-5 py-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-sm font-bold text-slate-950 dark:text-foreground">
-                                  {model.name}
-                                  <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">
-                                    {model.version}
-                                  </span>
-                                </p>
-                                <span
-                                  className={cn(
-                                    "rounded-full px-2.5 py-1 text-[11px] font-bold",
-                                    model.score != null && model.overThreshold
-                                      ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
-                                      : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
-                                  )}
-                                >
-                                  {model.score == null ? "정보 없음" : model.overThreshold ? "기준 초과" : "기준 미만"}
+                      <div className="divide-y divide-slate-50 dark:divide-border">
+                        {methodology.models.map((model) => (
+                          <div key={`${model.name}-${model.version}`} className="px-5 py-3.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                                {model.name}
+                                <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">
+                                  {model.version}
                                 </span>
-                              </div>
-                              <p className="mt-1 text-xs font-semibold text-slate-500">담당 신호: {model.role}</p>
-                              <p className="mt-0.5 text-xs font-medium text-slate-400">
-                                검증 성능: {model.benchmark ?? "정보 없음"}
                               </p>
+                              <span
+                                className={cn(
+                                  "rounded-full px-2.5 py-1 text-[11px] font-bold",
+                                  model.score != null && model.overThreshold
+                                    ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+                                    : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
+                                )}
+                              >
+                                {model.score == null ? "정보 없음" : model.overThreshold ? "기준 초과" : "기준 미만"}
+                              </span>
                             </div>
-                          ))}
-                        </div>
-
-                        <p className="border-t border-slate-100 px-5 py-3 text-xs font-medium leading-5 text-slate-400 dark:border-border">
-                          점수는 이번 분석에서 각 모델이 담당한 신호의 최고 위험 점수입니다. 검증 성능은 모델 개발
-                          시점의 벤치마크 결과로, 이번 사건의 측정값과 무관합니다.
-                        </p>
-                      </>
+                            <p className="mt-1 text-xs font-semibold text-slate-500">분석 목적: {model.role}</p>
+                            <p className="mt-0.5 text-xs font-medium text-slate-400">
+                              검증 성능: {model.benchmark ?? "정보 없음"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
                       <p className="px-5 py-6 text-center text-sm font-semibold text-slate-400">
                         모델 식별 정보가 아직 제공되지 않았습니다. 백엔드가 모델명·버전을 보고하면 이 영역에 표시됩니다.
                       </p>
                     )}
+                  </section>
+
+                  <section className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
+                      <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">위변조 모델 방법론</h4>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
+                        세부 검사 {forgeryMethodologyItems.length}개
+                      </span>
+                    </div>
+                    <div className="divide-y divide-slate-50 dark:divide-border">
+                      {forgeryMethodologyItems.map((item) => (
+                        <div key={item.name} className="px-5 py-3.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">{item.name}</p>
+                            <span
+                              className={cn(
+                                "rounded-full px-2.5 py-1 text-[11px] font-bold",
+                                item.available
+                                  ? "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300"
+                                  : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
+                              )}
+                            >
+                              {item.available ? "결과 수신" : "대기"}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs font-semibold text-slate-500">분석 목적: {item.role}</p>
+                          <p className="mt-0.5 text-xs font-medium text-slate-400">표시 데이터: {item.output}</p>
+                        </div>
+                      ))}
+                    </div>
                   </section>
 
                   <section className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
@@ -1811,7 +2110,7 @@ function CaseIntegrityView({
                               className="relative z-10 mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200 dark:bg-card dark:ring-border"
                               aria-hidden="true"
                             >
-                              <span className={cn("size-2.5 rounded-full", getCocEventDotClass(log.eventType))} />
+                              <span className={cn("size-2.5 rounded-full", getCocEventDotClass(log))} />
                             </span>
                             <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 transition-colors hover:border-slate-200 dark:border-border dark:bg-background">
                               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2174,6 +2473,9 @@ function CaseWorkflowPanel({
   onStartCompare,
   onUpdateCaseSettings,
   onRefresh,
+  analysisProgressOverrides,
+  setAnalysisProgressOverrides,
+  analysisPollingMessage,
   currentUserName,
   readOnly = false,
 }: {
@@ -2187,8 +2489,14 @@ function CaseWorkflowPanel({
   onViewIntegrity: (evidenceId: number) => void
   onViewCompareResult: (compareId: number) => void
   onStartCompare: (evidenceId: number) => void
-  onUpdateCaseSettings: (caseName: string, representativeEvidenceId: number | null) => void
+  onUpdateCaseSettings: (
+    caseName: string,
+    representativeEvidenceId: number | null
+  ) => Promise<void>
   onRefresh: () => void
+  analysisProgressOverrides: AnalysisProgressOverrides
+  setAnalysisProgressOverrides: Dispatch<SetStateAction<AnalysisProgressOverrides>>
+  analysisPollingMessage: WorkflowMessage | null
   currentUserName?: string | null
   readOnly?: boolean
 }) {
@@ -2209,12 +2517,9 @@ function CaseWorkflowPanel({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [analystCommentsByEvidence, setAnalystCommentsByEvidence] = useState<Record<number, string>>({})
   const [reviewCommentsByEvidence, setReviewCommentsByEvidence] = useState<Record<number, string>>({})
-  const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null)
+  const [message, setMessage] = useState<WorkflowMessage | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
-  const [analysisProgressOverrides, setAnalysisProgressOverrides] = useState<
-    Record<number, { status: AnalysisStatus; progress: number }>
-  >({})
   const [readinessByEvidenceId, setReadinessByEvidenceId] = useState<
     Record<number, EvidenceReadinessResponse>
   >({})
@@ -2234,6 +2539,24 @@ function CaseWorkflowPanel({
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [statusFilter, setStatusFilter] = useState<EvidenceStatusBucket | "all">("all")
 
+  useEffect(() => {
+    if (caseData.reviewStatus === "REPORT_APPROVED") {
+      setReviewDecision("APPROVED")
+      return
+    }
+    if (
+      caseData.reviewStatus === "REVIEW_SUPPLEMENT_REQUESTED" ||
+      caseData.reviewStatus === "SUPPLEMENT_REQUESTED" ||
+      caseData.reviewStatus === "REVIEW_REVISION_REQUESTED" ||
+      caseData.reviewStatus === "REVISION_REQUESTED" ||
+      caseData.reviewStatus === "REVIEW_NEEDS_CHANGES"
+    ) {
+      setReviewDecision("REVISION")
+      return
+    }
+    setReviewDecision("PENDING")
+  }, [caseData.reviewStatus])
+
   const evidences = useMemo(
     () =>
       caseData.evidences.map((evidence) => {
@@ -2252,24 +2575,6 @@ function CaseWorkflowPanel({
       }),
     [analysisProgressOverrides, caseData.evidences]
   )
-  const trackedAnalysisIdsKey = useMemo(() => {
-    const ids = new Set<number>()
-
-    for (const evidence of caseData.evidences) {
-      if (isEvidenceAnalysisRunning(evidence)) ids.add(evidence.evidenceId)
-    }
-
-    for (const [evidenceId, override] of Object.entries(analysisProgressOverrides)) {
-      if (override.status === "PROCESSING" || override.status === "PENDING") {
-        ids.add(Number(evidenceId))
-      }
-    }
-
-    return Array.from(ids)
-      .filter((id) => Number.isFinite(id) && id > 0)
-      .sort((a, b) => a - b)
-      .join(",")
-  }, [analysisProgressOverrides, caseData.evidences])
   const activeEvidences = evidences.filter((item) => (item.lifecycleStatus ?? "ACTIVE") === "ACTIVE")
   const bucketCounts = evidences.reduce(
     (counts, evidence) => {
@@ -2304,12 +2609,17 @@ function CaseWorkflowPanel({
   )
   const selectedEvidenceCompleted = selectedEvidenceActive && selectedEvidenceStatus === "COMPLETED"
   const selectedEvidenceAnalysisSelectable = selectedEvidence
-    ? !readOnly && isEvidenceSelectableForAnalysis(selectedEvidence)
+    ? !readOnly && isEvidenceSelectableForAnalysisType(selectedEvidence, analysisType)
     : false
   const selectedEvidenceRepresentative =
     selectedEvidence != null && caseData.representativeEvidenceId === selectedEvidence.evidenceId
   const selectedEvidenceExcludable = selectedEvidence ? isEvidenceExcludable(selectedEvidence) : false
-  const selectableAnalysisEvidences = readOnly ? [] : evidences.filter(isEvidenceSelectableForAnalysis)
+  const selectableAnalysisEvidences =
+    readOnly || analysisType === "COMPARE"
+      ? []
+      : evidences.filter((evidence) =>
+          isEvidenceSelectableForAnalysisType(evidence, analysisType)
+        )
   const selectedAnalysisIdSet = new Set(selectedAnalysisIds)
   const selectedAnalysisCount = selectedAnalysisIds.filter((id) =>
     selectableAnalysisEvidences.some((evidence) => evidence.evidenceId === id)
@@ -2387,74 +2697,6 @@ function CaseWorkflowPanel({
   }, [message])
 
   useEffect(() => {
-    setAnalysisProgressOverrides((current) => {
-      let changed = false
-      const next = { ...current }
-      const activeIds = new Set(caseData.evidences.map((evidence) => evidence.evidenceId))
-
-      for (const evidence of caseData.evidences) {
-        const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
-        const progress = clampAnalysisProgress(evidence.analysisProgress)
-
-        if (status === "COMPLETED" || status === "FAILED") {
-          if (next[evidence.evidenceId]) {
-            delete next[evidence.evidenceId]
-            changed = true
-          }
-          continue
-        }
-
-        if (status === "PROCESSING") {
-          const previous = next[evidence.evidenceId]
-          const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
-          if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
-            next[evidence.evidenceId] = { status: "PROCESSING", progress: nextProgress }
-            changed = true
-          }
-        }
-      }
-
-      for (const id of Object.keys(next)) {
-        if (!activeIds.has(Number(id))) {
-          delete next[Number(id)]
-          changed = true
-        }
-      }
-
-      return changed ? next : current
-    })
-  }, [caseData.evidences])
-
-  useEffect(() => {
-    const hasRunningOverride = Object.values(analysisProgressOverrides).some(
-      (item) => item.status === "PROCESSING" && item.progress < 92
-    )
-    if (!hasRunningOverride) return
-
-    const timer = window.setInterval(() => {
-      setAnalysisProgressOverrides((current) => {
-        let changed = false
-        const next = { ...current }
-
-        for (const [rawId, item] of Object.entries(current)) {
-          if (item.status !== "PROCESSING" || item.progress >= 92) continue
-
-          const increment = item.progress < 18 ? 3 : item.progress < 55 ? 2 : 1
-          const progress = Math.min(92, item.progress + increment)
-          if (progress !== item.progress) {
-            next[Number(rawId)] = { ...item, progress }
-            changed = true
-          }
-        }
-
-        return changed ? next : current
-      })
-    }, 1500)
-
-    return () => window.clearInterval(timer)
-  }, [analysisProgressOverrides])
-
-  useEffect(() => {
     const selectableIds = new Set(selectableAnalysisEvidences.map((evidence) => evidence.evidenceId))
     setSelectedAnalysisIds((current) => {
       const next = current.filter((id) => selectableIds.has(id))
@@ -2481,104 +2723,6 @@ function CaseWorkflowPanel({
     return () => window.removeEventListener("keydown", handleEscape)
   }, [selectedAnalysisCount])
 
-  useEffect(() => {
-    if (!trackedAnalysisIdsKey) return
-
-    const pollIds = trackedAnalysisIdsKey
-      .split(",")
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id) && id > 0)
-
-    if (pollIds.length === 0) return
-
-    let cancelled = false
-    let lastRefreshAt = 0
-    let failedPollCount = 0
-    let timeoutNotified = false
-    const pollingStartedAt = Date.now()
-
-    async function pollAnalysisStatuses() {
-      const statuses = await Promise.all(
-        pollIds.map((evidenceId) => fetchAnalysisStatus(evidenceId).catch(() => null))
-      )
-
-      if (cancelled) return
-
-      const validStatuses = statuses.filter((status) => status != null)
-      if (validStatuses.length === 0) {
-        failedPollCount += 1
-        if (failedPollCount >= 2) {
-          setMessage({
-            type: "error",
-            text: "분석 상태를 갱신하지 못했습니다. 잠시 후 새로고침하거나 다시 시도해 주세요.",
-          })
-        }
-        return
-      }
-
-      failedPollCount = 0
-      setAnalysisProgressOverrides((current) => {
-        let changed = false
-        const next = { ...current }
-
-        for (const statusUpdate of validStatuses) {
-          const status = normalizeStatus(statusUpdate.status)
-          const progress = clampAnalysisProgress(statusUpdate.progressPercent)
-
-          if (status === "COMPLETED" || status === "FAILED") {
-            const nextProgress = status === "COMPLETED" ? 100 : progress
-            const previous = next[statusUpdate.evidenceId]
-            if (!previous || previous.status !== status || previous.progress !== nextProgress) {
-              next[statusUpdate.evidenceId] = { status, progress: nextProgress }
-              changed = true
-            }
-            continue
-          }
-
-          if (status === "PROCESSING" || progress > 0) {
-            const previous = next[statusUpdate.evidenceId]
-            const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
-            if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
-              next[statusUpdate.evidenceId] = { status: "PROCESSING", progress: nextProgress }
-              changed = true
-            }
-          }
-        }
-
-        return changed ? next : current
-      })
-      const hasTerminalStatus = statuses.some(
-        (status) => normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
-      )
-      const now = Date.now()
-
-      if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
-        lastRefreshAt = now
-        onRefresh()
-      }
-
-      if (!timeoutNotified && now - pollingStartedAt > 60000 && !hasTerminalStatus) {
-        timeoutNotified = true
-        setMessage({
-          type: "error",
-          text: "분석 상태 확인 시간이 길어지고 있습니다. 현재 화면을 새로고침해 최신 상태를 확인해 주세요.",
-        })
-      }
-    }
-
-    void pollAnalysisStatuses()
-
-    const interval = window.setInterval(() => {
-      if (document.hidden) return
-      void pollAnalysisStatuses()
-    }, 4000)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [onRefresh, trackedAnalysisIdsKey])
-
   async function runAction(
     action: () => Promise<void>,
     successText: string,
@@ -2595,11 +2739,13 @@ function CaseWorkflowPanel({
       if (options.refresh !== false) {
         onRefresh()
       }
+      return true
     } catch (error) {
       setMessage({
         type: "error",
         text: error instanceof Error ? error.message : "작업 처리 중 오류가 발생했습니다.",
       })
+      return false
     } finally {
       setIsWorking(false)
     }
@@ -2633,7 +2779,7 @@ function CaseWorkflowPanel({
     if (readOnly) return
 
     const target = evidences.find((evidence) => evidence.evidenceId === evidenceId)
-    if (!target || !isEvidenceSelectableForAnalysis(target)) return
+    if (!target || !isEvidenceSelectableForAnalysisType(target, analysisType)) return
 
     setSelectedAnalysisIds((current) =>
       current.includes(evidenceId)
@@ -2695,6 +2841,30 @@ function CaseWorkflowPanel({
       .filter((evidence): evidence is CaseEvidenceSummary => evidence != null)
 
     setMessage(null)
+
+    if (analysisType === "COMPARE" && baseEvidenceId && targetEvidenceId) {
+      await runAction(async () => {
+        const result = await verifyRegisteredCompare(baseEvidenceId, targetEvidenceId)
+        saveCompareResultSummary(result)
+        setActionMode("idle")
+        onViewCompareResult(result.compareId)
+      }, "등록된 증거 간 비교검증이 완료되었습니다.", { refresh: false })
+      return
+    }
+
+    if (analysisType === "INTEGRITY") {
+      const verified = await runAction(async () => {
+        await Promise.all(targetIds.map((evidenceId) => verifyEvidenceIntegrity(evidenceId)))
+      }, "무결성 검증이 완료되었습니다.", { refresh: false })
+
+      if (verified && targetIds[0]) {
+        onSelectEvidence(targetIds[0])
+        setSelectedAnalysisIds([])
+        setActionMode("idle")
+        onViewIntegrity(targetIds[0])
+      }
+      return
+    }
 
     await startAnalysisWithReadiness({
       targets: targetEvidenceSummaries.map(readinessTargetFromCaseEvidence),
@@ -2782,7 +2952,7 @@ function CaseWorkflowPanel({
     onStartCompare(selectedEvidence.evidenceId)
   }
 
-  function handleSaveCaseSettings() {
+  async function handleSaveCaseSettings() {
     if (readOnly) return
 
     const nextName = caseNameDraft.trim()
@@ -2791,12 +2961,12 @@ function CaseWorkflowPanel({
       return
     }
 
-    onUpdateCaseSettings(nextName, representativeDraftId)
-    setEditCaseOpen(false)
-    setMessage({
-      type: "success",
-      text: "사건 정보가 수정되었습니다. 원본 증거와 CoC 기록은 변경되지 않습니다.",
-    })
+    const saved = await runAction(
+      () => onUpdateCaseSettings(nextName, representativeDraftId),
+      "사건 정보가 수정되었습니다. 원본 증거와 CoC 기록은 변경되지 않습니다.",
+      { refresh: false }
+    )
+    if (saved) setEditCaseOpen(false)
   }
 
   async function handleConfirmDeleteEvidence() {
@@ -2816,31 +2986,42 @@ function CaseWorkflowPanel({
 
     await runAction(async () => {
       await markEvidenceExcluded(selectedEvidence.evidenceId, "화면에서 사용제외 처리")
-      if (selectedEvidenceRepresentative && !nextActiveEvidence) {
-        onUpdateCaseSettings(caseData.caseName, null)
-      }
       if (nextActiveEvidence) onSelectEvidence(nextActiveEvidence.evidenceId)
     }, `${formatEvidenceTitle(selectedEvidence)}가 사용제외 처리되었습니다.`)
 
     setDeleteConfirmOpen(false)
   }
 
-  function handleReviewDecision(nextDecision: "APPROVED" | "REVISION") {
-    setReviewDecision(nextDecision)
-    if (selectedEvidence) {
-      try {
-        if (nextDecision === "APPROVED") {
-          window.localStorage.setItem(`fs-report-approval:${selectedEvidence.evidenceId}`, "1")
-        } else {
-          window.localStorage.removeItem(`fs-report-approval:${selectedEvidence.evidenceId}`)
-        }
-        window.dispatchEvent(new Event("fs-report-approval-change"))
-      } catch {
-        // localStorage 접근 불가 환경에서는 보고서 다운로드 승인 연동을 건너뛴다
+  async function handleReviewDecision(nextDecision: "APPROVED" | "REVISION") {
+    if (isWorking) return
+
+    setIsWorking(true)
+    setMessage(null)
+    try {
+      const updated = await recordCaseReviewDecision(
+        caseData.caseId,
+        nextDecision,
+        selectedEvidence ? reviewCommentsByEvidence[selectedEvidence.evidenceId] : undefined
+      )
+      setReviewDecision(nextDecision)
+      setMessage({
+        type: "success",
+        text: nextDecision === "APPROVED" ? "검토 승인과 최종 보고서 발행이 완료되었습니다." : "재검토가 요청되었습니다.",
+      })
+      if (updated.reviewStatus !== caseData.reviewStatus) {
+        onRefresh()
       }
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: getApiErrorMessage(error, "검토 결과를 저장하지 못했습니다."),
+      })
+    } finally {
+      setIsWorking(false)
     }
-    window.alert(nextDecision === "APPROVED" ? "승인되었습니다." : "재검토로 표시되었습니다.")
   }
+
+  const visibleMessage = analysisPollingMessage ?? message
 
   return (
     <section className="relative rounded-xl border border-border bg-card p-3 shadow-sm sm:p-5">
@@ -2854,23 +3035,23 @@ function CaseWorkflowPanel({
           onChange={(event) => void handleUploadFiles(event.target.files)}
         />
       ) : null}
-      {message ? (
+      {visibleMessage ? (
         <div
           className={cn(
             "mt-4 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold",
-            message.type === "success"
+            visibleMessage.type === "success"
               ? "border-slate-200 bg-slate-50 text-slate-700"
-              : message.type === "info"
+              : visibleMessage.type === "info"
                 ? "border-slate-200 bg-slate-50 text-slate-700"
                 : "border-red-700/25 bg-red-50 text-red-700"
           )}
         >
-          {message.type === "success" ? (
+          {visibleMessage.type === "success" ? (
             <CheckCircle2 className="size-4" aria-hidden="true" />
           ) : (
             <AlertCircle className="size-4" aria-hidden="true" />
           )}
-          {message.text}
+          {visibleMessage.text}
         </div>
       ) : null}
 
@@ -2994,7 +3175,9 @@ function CaseWorkflowPanel({
                       representative={caseData.representativeEvidenceId === evidence.evidenceId}
                       disabled={(evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
                       running={getEvidenceBucket(evidence) === "running"}
-                      analysisSelectable={!readOnly && isEvidenceSelectableForAnalysis(evidence)}
+                      analysisSelectable={
+                        !readOnly && isEvidenceSelectableForAnalysisType(evidence, analysisType)
+                      }
                       analysisSelected={selectedAnalysisIdSet.has(evidence.evidenceId)}
                       selectionMode={selectedAnalysisCount > 0}
                       onToggleAnalysisSelect={() => toggleAnalysisEvidence(evidence.evidenceId)}
@@ -3244,6 +3427,7 @@ function CaseWorkflowPanel({
                 {isReviewerMode ? (
                   <ReviewerDecisionActions
                     decision={reviewDecision}
+                    disabled={isWorking}
                     onApprove={() => handleReviewDecision("APPROVED")}
                     onRevision={() => handleReviewDecision("REVISION")}
                   />
@@ -3762,10 +3946,12 @@ function CaseMetadataRow({
 
 function ReviewerDecisionActions({
   decision,
+  disabled,
   onApprove,
   onRevision,
 }: {
   decision: "PENDING" | "APPROVED" | "REVISION"
+  disabled: boolean
   onApprove: () => void
   onRevision: () => void
 }) {
@@ -3792,6 +3978,7 @@ function ReviewerDecisionActions({
           type="button"
           variant="outline"
           className="h-10 font-bold"
+          disabled={disabled}
           onClick={onRevision}
         >
           재검토
@@ -3799,8 +3986,10 @@ function ReviewerDecisionActions({
         <Button
           type="button"
           className="h-10 bg-teal-600 font-bold text-white hover:bg-teal-700"
+          disabled={disabled}
           onClick={onApprove}
         >
+          {disabled ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
           승인
         </Button>
       </div>
@@ -3970,23 +4159,15 @@ function RiskSignalCard({
       {signal.segments.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {signal.segments.map((segment) => (
-            <span key={`${segment.label}-${segment.startSec}`} className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
-              <button
-                type="button"
-                onClick={() => onSeek?.(segment.startSec)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:text-foreground dark:hover:bg-secondary/40"
-              >
-                <Play className="size-3 text-teal-600 dark:text-teal-300" aria-hidden="true" />
-                {segment.label}
-              </button>
-              <button
-                type="button"
-                onClick={() => onSeek?.(segment.startSec, "heatmap")}
-                className="inline-flex items-center border-l border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:border-border dark:hover:bg-secondary/40"
-              >
-                히트맵
-              </button>
-            </span>
+            <button
+              key={`${segment.label}-${segment.startSec}`}
+              type="button"
+              onClick={() => onSeek?.(segment.startSec)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground dark:hover:bg-secondary/40"
+            >
+              <Play className="size-3 text-teal-600 dark:text-teal-300" aria-hidden="true" />
+              {segment.label}
+            </button>
           ))}
         </div>
       ) : null}
@@ -3995,12 +4176,10 @@ function RiskSignalCard({
 }
 
 function RepresentativeFrameDetailCard({ frame, index }: { frame: RepresentativeFrame; index: number }) {
-  const [view, setView] = useState<"original" | "heatmap">("original")
   const score = frame.score == null ? null : Math.round(normalizeResultValue(frame.score) * 100)
   const tone = score == null ? null : getDetectionTone(score / 100)
   const timeLabel =
     frame.timestamp ?? (frame.timeSec != null ? formatDuration(frame.timeSec) : `프레임 ${index + 1}`)
-  const hasHeatmap = Boolean(frame.heatmapUrl)
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50/70 dark:border-border dark:bg-background">
@@ -4013,47 +4192,17 @@ function RepresentativeFrameDetailCard({ frame, index }: { frame: Representative
             대표 프레임
           </div>
         )}
-        {view === "heatmap" && frame.heatmapUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={frame.heatmapUrl}
-            alt=""
-            className="pointer-events-none absolute inset-0 size-full object-cover opacity-70 mix-blend-screen"
-          />
-        ) : null}
 
         <div className="absolute left-3 top-3 rounded-md bg-black/55 px-2 py-1 text-xs font-bold text-white">
           {timeLabel}
         </div>
-        {hasHeatmap ? (
-          <div className="absolute right-3 top-3 flex rounded-full bg-black/45 p-0.5 backdrop-blur-sm">
-            {([
-              ["original", "원본"],
-              ["heatmap", "히트맵"],
-            ] as const).map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setView(mode)}
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-[11px] font-bold transition-colors",
-                  view === mode ? "bg-teal-500 text-white" : "text-white/80 hover:text-white"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-slate-950 dark:text-foreground">
             {frame.frameNumber != null ? `프레임 ${frame.frameNumber}` : `대표 ${index + 1}`}
           </p>
-          <p className="mt-0.5 text-xs font-semibold text-slate-500">
-            {view === "heatmap" ? "위험 영역 히트맵" : "원본 프레임"}
-          </p>
+          <p className="mt-0.5 text-xs font-semibold text-slate-500">원본 프레임</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="font-mono text-sm font-bold text-slate-950 dark:text-foreground">
@@ -4593,6 +4742,130 @@ function getManipulationSuspicionLabel(tone: ReturnType<typeof getCaseRiskTone>)
   return "조작 의심 높음"
 }
 
+type DetailModuleResult = EvidenceDetailData["analysisInfo"]["moduleResults"][number]
+
+const FORGERY_METHOD_BASELINES = [
+  {
+    name: "Frame Edit",
+    role: "프레임 삽입·삭제·복제처럼 시간축 편집으로 생기는 불연속성을 확인합니다.",
+    output: "프레임 편집 점수, 의심 구간",
+    keywords: ["frame_edit", "frame edit", "frameedit", "frame manipulation", "frame tamper"],
+    labels: ["프레임 편집"],
+  },
+  {
+    name: "Splicing",
+    role: "서로 다른 영상 구간을 이어붙였을 때 나타나는 경계·압축 패턴 변화를 확인합니다.",
+    output: "구간 이어붙이기 점수, 경계 구간",
+    keywords: ["splicing", "splice"],
+    labels: ["이어붙이기"],
+  },
+  {
+    name: "Re-encoding",
+    role: "재압축·트랜스코딩 과정에서 남는 인코딩 특성 변화를 확인합니다.",
+    output: "재인코딩 점수, 압축 흔적 설명",
+    keywords: ["re_encoding", "re-encoding", "reencoding", "re encode", "reencode", "transcoding", "transcode"],
+    labels: ["재인코딩"],
+  },
+  {
+    name: "Forgery Localization",
+    role: "국소 위변조 의심 영역을 프레임 단위 히트맵이나 마스크로 확인합니다.",
+    output: "대표 프레임, 히트맵, 마스크 URL",
+    keywords: ["forgery", "tamper", "localization", "mask"],
+    labels: ["국소 위변조", "히트맵", "마스크"],
+  },
+]
+
+function isForgeryKeywordText(value: string | null | undefined) {
+  const normalized = value?.toLowerCase() ?? ""
+  return FORGERY_METHOD_BASELINES.some((method) =>
+    [...method.keywords, ...method.labels].some((keyword) => normalized.includes(keyword.toLowerCase()))
+  )
+}
+
+function isForgeryRiskSignal(signal: UiRiskSignal) {
+  return isForgeryKeywordText(signal.label) || isForgeryKeywordText(signal.modelLabel)
+}
+
+function formatForgeryModuleLabel(moduleName: string) {
+  const normalized = moduleName.toLowerCase()
+  if (normalized.includes("splic")) return "구간 이어붙이기"
+  if (normalized.includes("re_encoding") || normalized.includes("re-encoding") || normalized.includes("reencoding")) {
+    return "재인코딩 흔적"
+  }
+  if (normalized.includes("forgery") || normalized.includes("tamper") || normalized.includes("localization") || normalized.includes("mask")) {
+    return "국소 위변조 탐지"
+  }
+  if (normalized.includes("frame") || normalized.includes("edit")) return "프레임 편집 흔적"
+  return formatModuleLabel(moduleName)
+}
+
+function formatForgeryDefinition(label: string) {
+  if (label.includes("이어붙이기")) return "서로 다른 구간을 연결했을 때 생기는 경계·압축 흔적을 확인합니다."
+  if (label.includes("재인코딩")) return "재압축이나 변환 과정에서 생기는 인코딩 특성 변화를 확인합니다."
+  if (label.includes("국소")) return "프레임 내부의 변조 의심 영역을 히트맵이나 마스크 기반으로 확인합니다."
+  return "프레임 삽입·삭제·합성처럼 시간축 편집으로 생기는 위변조 흔적을 확인합니다."
+}
+
+function formatModuleModelName(module: DetailModuleResult) {
+  const name = module.modelName?.trim()
+  if (!name) return null
+  const version = module.modelVersion?.trim()
+  return version ? `${name} ${version}` : name
+}
+
+function signalToneFromScore(score: number, threshold: number): UiRiskSignal["tone"] {
+  if (score >= threshold) return "danger"
+  if (score >= 0.3) return "warning"
+  return "neutral"
+}
+
+function signalBadgeFromScore(score: number, detected: boolean, threshold: number) {
+  if (score >= threshold || detected) return "우선 확인"
+  if (score >= 0.3) return "추가 검토"
+  return "낮음"
+}
+
+function buildForgeryRiskSignals(data: EvidenceDetailData | null, threshold: number): UiRiskSignal[] {
+  const modules = (data?.analysisInfo.moduleResults ?? []).filter((module) =>
+    isForgeryKeywordText(module.moduleName)
+  )
+
+  return modules
+    .map((module) => {
+      const score = normalizeResultValue(module.score)
+      const label = formatForgeryModuleLabel(module.moduleName)
+      return {
+        label,
+        modelLabel: formatModuleModelName(module),
+        definition: formatForgeryDefinition(label),
+        badge: signalBadgeFromScore(score, module.detected, threshold),
+        score,
+        thresholdPercent: Math.round(threshold * 100),
+        tone: signalToneFromScore(score, threshold),
+        segments: (module.affectedSegments ?? []).map((segment) => ({
+          label: `${formatDuration(segment.startTime)} ~ ${formatDuration(segment.endTime)}`,
+          startSec: segment.startTime,
+        })),
+      }
+    })
+    .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
+}
+
+function buildForgeryMethodologyItems(signals: UiRiskSignal[]) {
+  return FORGERY_METHOD_BASELINES.map((method) => {
+    const available = signals.some((signal) => {
+      const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
+      return [...method.keywords, ...method.labels].some((keyword) => text.includes(keyword.toLowerCase()))
+    })
+    return {
+      name: method.name,
+      role: method.role,
+      output: available ? `${method.output}, 이번 분석 점수` : method.output,
+      available,
+    }
+  })
+}
+
 function buildResultSummaryParagraph(data: EvidenceDetailData | null, verdict: string, score: number) {
   if (data?.analysisInfo.summary) {
     return data.analysisInfo.summary
@@ -4811,29 +5084,57 @@ function getCocEventLabel(eventType: string) {
     UPLOAD: "증거 등록",
     EVIDENCE_UPLOADED: "증거 파일 업로드",
     EVIDENCE_REGISTERED: "증거 등록",
+    EVIDENCE_DELETED: "증거 삭제",
+    EVIDENCE_VIEWED: "증거 열람",
     HASH_CREATED: "해시 생성",
     HASH_GENERATED: "해시 생성",
     FILE_HASH_CREATED: "파일 해시 생성",
     METADATA_EXTRACTED: "메타데이터 추출",
     INTEGRITY_VERIFIED: "무결성 검증",
+    QUALITY_WARNING_ACKNOWLEDGED: "화질 안내 확인",
     ANALYSIS_REQUESTED: "분석 요청",
+    ANALYSIS_STARTED: "분석 시작",
     FRAME_ANALYSIS_STARTED: "프레임 분석 시작",
     ANALYSIS_COMPLETED: "분석 완료",
     ANALYSIS_FAILED: "분석 실패",
+    ANALYSIS_CANCELLED: "분석 중단",
+    ANALYSIS_COPY_CREATED: "분석용 사본 생성",
+    ANALYSIS_COPY_VERIFIED: "분석용 사본 검증",
+    ANALYSIS_COPY_DELETED: "분석용 사본 삭제",
     COMPARE_VERIFICATION_STARTED: "비교검증 시작",
     COMPARE_VERIFICATION_COMPLETED: "비교검증 완료",
     REPORT_GENERATED: "보고서 생성",
+    REPORT_CREATED: "보고서 생성",
+    REPORT_DOWNLOADED: "보고서 다운로드",
+    EVIDENCE_HLS_PACKAGED: "HLS 패키징",
+    ERROR_OCCURRED: "오류 발생",
   }
 
-  return labels[eventType] ?? eventType
+  return labels[normalizeCocEventType(eventType)] ?? eventType
 }
 
-// 점 색상 = 이벤트 성격. 실패=빨강, 완료·검증 계열=초록, 그 외 진행 단계=파랑
-function getCocEventDotClass(eventType: string) {
-  if (eventType === "ANALYSIS_FAILED") return "bg-red-700"
-  if (eventType === "ANALYSIS_COMPLETED" || eventType === "INTEGRITY_VERIFIED" || eventType === "REPORT_GENERATED")
+// 점 색상 = 현재 상태. 실패=빨강, 완료·검증=초록, 진행 중=파랑
+function getCocEventDotClass(log: EvidenceDetailData["cocLogs"][number]) {
+  const text = normalizeCocEventText(`${log.eventType} ${log.description ?? ""}`)
+  if (/(FAILED|FAILURE|ERROR|BROKEN|INVALID|MISMATCH|실패|오류|에러|불일치)/.test(text)) {
+    return "bg-red-700"
+  }
+  if (
+    /(COMPLETED|CREATED|GENERATED|EXTRACTED|VERIFIED|UPLOADED|REGISTERED|ACKNOWLEDGED|PACKAGED|DOWNLOADED|VIEWED|DELETED|APPROVED|COPIED|STORED|SAVED|ANCHORED|VALID|MATCH|SUCCESS|완료|생성|검증|등록|업로드|추출|확인|일치|저장|패키징|다운로드|열람|삭제)/.test(
+      text
+    )
+  ) {
     return "bg-emerald-500"
+  }
   return "bg-blue-500"
+}
+
+function normalizeCocEventType(eventType: string) {
+  return (eventType ?? "").trim().toUpperCase()
+}
+
+function normalizeCocEventText(value: string) {
+  return value.trim().toUpperCase()
 }
 
 type CocActorDisplay = {
@@ -4997,6 +5298,19 @@ function isEvidenceSelectableForAnalysis(evidence: CaseEvidenceSummary) {
   const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
 
   return lifecycle === "ACTIVE" && (status === "PENDING" || status === "FAILED")
+}
+
+function isEvidenceSelectableForAnalysisType(
+  evidence: CaseEvidenceSummary,
+  analysisType: AnalysisType
+) {
+  if (analysisType === "DEEPFAKE") {
+    return isEvidenceSelectableForAnalysis(evidence)
+  }
+  if (analysisType === "INTEGRITY") {
+    return (evidence.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
+  }
+  return false
 }
 
 function isEvidenceExcludable(evidence: CaseEvidenceSummary) {
