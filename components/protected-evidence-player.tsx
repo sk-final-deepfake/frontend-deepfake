@@ -160,9 +160,20 @@ export function ProtectedEvidencePlayer({
     return (
       <div className="relative flex size-full flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-bold text-white/60">
         <FileVideo className="mb-3 size-8" aria-hidden="true" />
-        {loadFailed
-          ? "재생할 수 없습니다. step-up 인증이 만료되었거나 stream token이 유효하지 않습니다."
-          : "미리보기 가능한 영상이 없습니다."}
+        {loadFailed ? (
+          useHls ? (
+            <>
+              재생할 수 없습니다. step-up 인증이 만료되었거나 stream token이 유효하지 않습니다.
+              <span className="mt-2 text-xs font-semibold text-white/45">
+                비밀번호 재인증 후 페이지를 새로고침해 주세요.
+              </span>
+            </>
+          ) : (
+            "미리보기 가능한 영상을 불러오지 못했습니다."
+          )
+        ) : (
+          "미리보기 가능한 영상이 없습니다."
+        )}
       </div>
     )
   }

@@ -611,21 +611,31 @@ function MockAnalysisOverlay() {
 }
 
 function HeatmapLayer({ heatmapImageUrl }: { heatmapImageUrl: string | null }) {
+  const [imageFailed, setImageFailed] = useState(false)
+
+  useEffect(() => {
+    setImageFailed(false)
+  }, [heatmapImageUrl])
+
+  const showGeneratedHeatmap = Boolean(heatmapImageUrl) && !imageFailed
+
   return (
-    <div className="pointer-events-none absolute inset-0">
-      {heatmapImageUrl ? (
+    <div className="pointer-events-none absolute inset-0 z-20">
+      {showGeneratedHeatmap ? (
         <img
-          src={heatmapImageUrl}
+          src={heatmapImageUrl ?? undefined}
           alt=""
-          className="absolute inset-0 size-full object-cover opacity-70 mix-blend-screen"
+          onError={() => setImageFailed(true)}
+          className="absolute inset-0 size-full object-cover opacity-80"
+          style={{ mixBlendMode: "hard-light" }}
         />
       ) : (
         <>
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_52%_32%,rgba(255,0,0,0.58),rgba(255,210,0,0.42)_16%,rgba(0,210,255,0.18)_34%,rgba(0,0,0,0)_58%)] mix-blend-screen" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_48%_57%,rgba(255,80,0,0.42),rgba(255,220,0,0.2)_20%,rgba(0,0,0,0)_50%)] mix-blend-screen" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_52%_32%,rgba(255,0,0,0.58),rgba(255,210,0,0.42)_16%,rgba(0,210,255,0.18)_34%,rgba(0,0,0,0)_58%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_48%_57%,rgba(255,80,0,0.42),rgba(255,220,0,0.2)_20%,rgba(0,0,0,0)_50%)]" />
         </>
       )}
-      <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
+      <div className="absolute bottom-16 left-4 rounded-md bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
         위험도가 높은 영역을 색상으로 표시합니다.
       </div>
     </div>
@@ -900,7 +910,7 @@ function CaseResultView({
                   </div>
                 ) : showResultPlayer ? (
                   <ProtectedEvidencePlayer
-                    key={useOverlaySrc ? overlayVideoUrl ?? "overlay" : hlsPlayback?.streamToken ?? "hls"}
+                    key={`result-player-${selectedEvidenceId ?? "none"}`}
                     src={useOverlaySrc ? overlayVideoUrl : null}
                     playback={useOverlaySrc ? null : hlsPlayback}
                     videoRef={videoRef}
