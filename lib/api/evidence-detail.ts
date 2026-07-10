@@ -256,7 +256,6 @@ export type CaseEvidenceSummary = {
 export type CaseDetailData = {
   caseId: string
   caseName: string
-  caseNumber?: string | null
   status: string
   createdAt: string
   representativeEvidenceId?: number | null

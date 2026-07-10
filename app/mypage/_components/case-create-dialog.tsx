@@ -61,7 +61,7 @@ export function CaseCreateDialog({
     setCreateError(null)
 
     try {
-      const created = await createCase(trimmed, newCaseNumber.trim() || undefined)
+      const created = await createCase(trimmed)
       if (!initialEvidenceFile) {
         resetForm()
         onClose()

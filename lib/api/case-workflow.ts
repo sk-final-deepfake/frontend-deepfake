@@ -28,21 +28,14 @@ export type StartCaseAnalysisPayload = {
   targetEvidenceId?: number | null
 }
 
-export async function createCase(caseName: string, caseNumber?: string): Promise<CaseDetailData> {
+export async function createCase(caseName: string): Promise<CaseDetailData> {
   if (features.mockApi) {
-    return mockCreateCase(caseName, caseNumber)
-  }
-
-  const trimmedCaseName = caseName.trim()
-  const trimmedCaseNumber = caseNumber?.trim()
-  const body: Record<string, string> = { caseName: trimmedCaseName }
-  if (trimmedCaseNumber) {
-    body.caseNumber = trimmedCaseNumber
+    return mockCreateCase(caseName)
   }
 
   const data = await apiRequest<CaseDetailData>("/api/v1/cases", {
     method: "POST",
-    body,
+    body: { caseName: caseName.trim() },
   })
 
   return {
