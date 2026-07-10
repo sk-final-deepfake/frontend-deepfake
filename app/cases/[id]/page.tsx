@@ -2214,7 +2214,7 @@ function CaseWorkflowPanel({
     }
 
     return Array.from(ids)
-      .filter((id) => Number.isFinite(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
       .sort((a, b) => a - b)
       .join(",")
   }, [analysisProgressOverrides, caseData.evidences])
@@ -2430,10 +2430,12 @@ function CaseWorkflowPanel({
   }, [selectedAnalysisCount])
 
   useEffect(() => {
+    if (!trackedAnalysisIdsKey) return
+
     const pollIds = trackedAnalysisIdsKey
       .split(",")
       .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
 
     if (pollIds.length === 0) return
 

@@ -231,7 +231,12 @@ export function UploadPanel({ onMetadataChange, onAnalyzeComplete }: UploadPanel
     if (!pollingKey) return
 
     const pollStatuses = async () => {
-      const evidenceIds = pollingKey.split(",").map(Number)
+      const evidenceIds = pollingKey
+        .split(",")
+        .map(Number)
+        .filter((id) => Number.isFinite(id) && id > 0)
+      if (evidenceIds.length === 0) return
+
       const statuses = await Promise.all(
         evidenceIds.map((id) =>
           fetchAnalysisStatus(id).catch(() => null)
