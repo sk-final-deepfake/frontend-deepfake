@@ -576,13 +576,51 @@ export async function updateAdminUser(
   userId: string,
   payload: UpdateAdminUserPayload
 ): Promise<AdminUser> {
+  const requestPayload = {
+    displayName: payload.displayName,
+    email: payload.email,
+    organizationType: payload.organizationType,
+    department: payload.department,
+    role: payload.role,
+  }
+
   return withMockFallback(
     () =>
       apiRequest<AdminUser>(`/api/v1/admin/users/${userId}`, {
         method: "PATCH",
-        body: payload,
+        body: requestPayload,
       }),
     () => patchMockAdminUser(userId, payload)
+  )
+}
+
+export async function suspendAdminUser(
+  userId: string
+): Promise<AdminUserStatusResponse> {
+  return withMockFallback(
+    () =>
+      apiRequest<AdminUserStatusResponse>(`/api/v1/admin/users/${userId}/suspend`, {
+        method: "POST",
+      }),
+    () => {
+      const user = patchMockAdminUser(userId, { status: "SUSPENDED" })
+      return { userId: user.id, status: user.status }
+    }
+  )
+}
+
+export async function reactivateAdminUser(
+  userId: string
+): Promise<AdminUserStatusResponse> {
+  return withMockFallback(
+    () =>
+      apiRequest<AdminUserStatusResponse>(`/api/v1/admin/users/${userId}/reactivate`, {
+        method: "POST",
+      }),
+    () => {
+      const user = patchMockAdminUser(userId, { status: "APPROVED" })
+      return { userId: user.id, status: user.status }
+    }
   )
 }
 

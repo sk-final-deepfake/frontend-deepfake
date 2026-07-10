@@ -436,12 +436,12 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
     }
   >()
 
-  for (const module of getDetectionModules(data?.analysisInfo.moduleResults ?? [])) {
-    const name = module.modelName?.trim()
+  for (const detectionModule of getDetectionModules(data?.analysisInfo.moduleResults ?? [])) {
+    const name = detectionModule.modelName?.trim()
     if (!name) continue
-    const version = cleanModelVersion(module.modelVersion)
+    const version = cleanModelVersion(detectionModule.modelVersion)
     const key = `${name}::${version}`
-    const score = normalizeResultValue(module.score)
+    const score = normalizeResultValue(detectionModule.score)
     const entry =
       modelMap.get(key) ??
       {
@@ -450,12 +450,14 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
         roles: new Set<string>(),
         score: 0,
         overThreshold: false,
-        benchmark: module.modelBenchmark?.trim() || MODEL_BENCHMARKS[name] || null,
+        benchmark:
+          detectionModule.modelBenchmark?.trim() || MODEL_BENCHMARKS[name] || null,
       }
 
-    entry.roles.add(formatModuleLabel(module.moduleName))
+    entry.roles.add(formatModuleLabel(detectionModule.moduleName))
     entry.score = Math.max(entry.score, score)
-    entry.overThreshold = entry.overThreshold || module.detected || score >= threshold
+    entry.overThreshold =
+      entry.overThreshold || detectionModule.detected || score >= threshold
     modelMap.set(key, entry)
   }
 

@@ -19,8 +19,8 @@ const themeOptions: { value: ThemeMode; label: string }[] = [
 ]
 
 const dateFormatOptions: { value: DateFormat; label: string }[] = [
-  { value: "ko-full", label: "2026. 06. 18. 14:30" },
-  { value: "ko-date", label: "2026. 06. 18." },
+  { value: "kr", label: "2026. 06. 18. 14:30" },
+  { value: "us", label: "06/18/2026, 2:30 PM" },
   { value: "iso", label: "2026-06-18 14:30" },
 ]
 

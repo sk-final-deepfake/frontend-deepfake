@@ -111,14 +111,22 @@ import {
   cancelCaseAnalysis,
   markEvidenceExcluded,
   recordCaseReviewDecision,
+  setRepresentativeEvidence,
   startCaseAnalysis,
+  updateCaseName,
   uploadEvidenceToCase,
 } from "@/lib/api/case-workflow"
 import { fetchAnalysisStatus, fetchEvidenceReadiness, type EvidenceReadinessResponse } from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
-import { getLatestCompareResultSummary, type StoredCompareResultSummary } from "@/lib/compare-history"
+import { verifyRegisteredCompare } from "@/lib/api/compare"
+import { verifyEvidenceIntegrity } from "@/lib/api/evidence-verification"
+import {
+  getLatestCompareResultSummary,
+  saveCompareResultSummary,
+  type StoredCompareResultSummary,
+} from "@/lib/compare-history"
 import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
@@ -129,6 +137,16 @@ import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
+
+type ResultTab = "summary" | "deepfake" | "forgery" | "frames" | "models"
+
+const RESULT_TABS: Array<{ value: ResultTab; label: string }> = [
+  { value: "summary", label: "분석 요약" },
+  { value: "deepfake", label: "딥페이크 탐지" },
+  { value: "forgery", label: "위변조 탐지" },
+  { value: "frames", label: "프레임 분석" },
+  { value: "models", label: "분석 방법론" },
+]
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -453,8 +471,34 @@ export default function CaseDetailPage() {
     router.push(`/compare/${compareId}`)
   }
 
-  function updateCaseSettings(caseName: string, representativeEvidenceId: number | null) {
-    setCaseData((current) => (current ? { ...current, caseName, representativeEvidenceId } : current))
+  async function updateCaseSettings(
+    caseName: string,
+    representativeEvidenceId: number | null
+  ): Promise<void> {
+    if (!caseData) return
+
+    let updatedCase = caseData
+    if (caseName !== caseData.caseName) {
+      updatedCase = await updateCaseName(caseData.caseId, caseName)
+    }
+
+    if (
+      representativeEvidenceId !== null &&
+      representativeEvidenceId !== updatedCase.representativeEvidenceId
+    ) {
+      await setRepresentativeEvidence(updatedCase.caseId, representativeEvidenceId)
+      updatedCase = { ...updatedCase, representativeEvidenceId }
+    }
+
+    setCaseData(updatedCase)
+    if (updatedCase.caseId !== caseId) {
+      router.replace(
+        buildCaseDetailPath(updatedCase.caseId, selectedEvidenceId ?? undefined),
+        {
+          scroll: false,
+        }
+      )
+    }
   }
 
   return (
@@ -676,7 +720,7 @@ function CaseResultView({
   onBack: () => void
 }) {
   const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
-  const [resultTab, setResultTab] = useState<"summary" | "detection" | "frames" | "models">("summary")
+  const [resultTab, setResultTab] = useState<ResultTab>("summary")
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const lastSecurityEventRef = useRef<{ key: string; recordedAt: number } | null>(null)
@@ -710,6 +754,9 @@ function CaseResultView({
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
   const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
+  const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
+  const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
+  const forgeryRiskSignals = buildForgeryRiskSignals(evidenceDetail, detectionThreshold)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
@@ -752,7 +799,15 @@ function CaseResultView({
   const highRiskFrameCount = frameScores.filter(
     (frame) => normalizeResultValue(frame.score) >= detectionThreshold
   ).length
+  const forgeryHighestScore = forgeryRiskSignals.reduce(
+    (highest, signal) => Math.max(highest, normalizeResultValue(signal.score)),
+    0
+  )
+  const forgeryOverThresholdCount = forgeryRiskSignals.filter(
+    (signal) => normalizeResultValue(signal.score) >= detectionThreshold
+  ).length
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
+  const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
 
   function seekResultVideo(seconds: number, mode: ResultMediaMode = mediaMode) {
     setMediaMode(mode)
@@ -781,7 +836,7 @@ function CaseResultView({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <h1 className="truncate text-2xl font-bold tracking-normal text-slate-950 dark:text-foreground">
-                딥페이크 분석 결과
+                AI 조작 분석 결과
               </h1>
             </div>
             <p className="mt-1 text-sm font-medium text-slate-500">
@@ -953,13 +1008,8 @@ function CaseResultView({
                 <p className="mt-1 text-[11px] font-semibold text-slate-400">종합 위험 점수</p>
               </div>
             </div>
-            <div className="relative grid shrink-0 grid-cols-4 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
-              {([
-                ["summary", "분석 요약"],
-                ["detection", "위험 신호"],
-                ["frames", "프레임 분석"],
-                ["models", "분석 방법론"],
-              ] as const).map(([tab, label]) => (
+            <div className="relative grid shrink-0 grid-cols-5 border-b border-slate-200 text-center text-sm font-medium text-slate-500 dark:border-border">
+              {RESULT_TABS.map(({ value: tab, label }) => (
                 <button
                   key={tab}
                   type="button"
@@ -976,8 +1026,8 @@ function CaseResultView({
                 aria-hidden="true"
                 className="pointer-events-none absolute bottom-[-1px] z-10 h-0.5 bg-slate-950 transition-[left] duration-300 ease-out dark:bg-foreground"
                 style={{
-                  left: `${(resultTab === "summary" ? 0 : resultTab === "detection" ? 1 : resultTab === "frames" ? 2 : 3) * 25}%`,
-                  width: "25%",
+                  left: `${Math.max(0, RESULT_TABS.findIndex((tab) => tab.value === resultTab)) * 20}%`,
+                  width: "20%",
                 }}
               />
             </div>
@@ -1032,10 +1082,10 @@ function CaseResultView({
                             ) : action.tab ? (
                               <button
                                 type="button"
-                                onClick={() => setResultTab(action.tab as "detection" | "frames")}
+                                onClick={() => setResultTab(action.tab === "frames" ? "frames" : "deepfake")}
                                 className="ml-2 inline-flex items-center gap-1 text-sm font-bold text-teal-700 hover:underline dark:text-teal-300"
                               >
-                                {action.tab === "detection" ? "위험 신호 보기" : "프레임 분석 보기"}
+                                {action.tab === "frames" ? "프레임 분석 보기" : "딥페이크 탐지 보기"}
                                 <ChevronRight className="size-3.5" aria-hidden="true" />
                               </button>
                             ) : null}
@@ -1046,22 +1096,38 @@ function CaseResultView({
                   </section>
 
                 </div>
-              ) : resultTab === "detection" ? (
+              ) : resultTab === "deepfake" ? (
                 <section>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위험 신호</h3>
+                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">딥페이크 탐지</h3>
                       <p className="mt-1 text-sm font-semibold text-slate-500">
-                        AI가 먼저 확인해야 할 조작 의심 근거를 정리했습니다.
+                        얼굴 합성, 시계열 일관성, 움직임 보조 신호를 모델별로 확인합니다.
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
-                      우선 확인 {primaryRiskSignals.length}개
+                    <span className="shrink-0 rounded-full bg-teal-50 px-3 py-1 text-xs font-bold text-teal-700">
+                      모델 {methodology.models.length}개
                     </span>
                   </div>
-                  {primaryRiskSignals.length > 0 ? (
+
+                  {methodology.models.length > 0 ? (
+                    <section className="mt-5 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">딥페이크 모델별 판단 점수</h4>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
+                          판정 기준 {Math.round(detectionThreshold * 100)} / 100
+                        </span>
+                      </div>
+                      <MethodologyModelChart
+                        models={methodology.models}
+                        thresholdPercent={Math.round(detectionThreshold * 100)}
+                      />
+                    </section>
+                  ) : null}
+
+                  {deepfakeRiskSignals.length > 0 ? (
                     <ul className="mt-5 space-y-3">
-                      {primaryRiskSignals.map((signal, index) => (
+                      {deepfakeRiskSignals.map((signal, index) => (
                         <RiskSignalCard
                           key={`${signal.label}-${index}`}
                           signal={signal}
@@ -1072,34 +1138,86 @@ function CaseResultView({
                     </ul>
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                      우선 확인할 조작 의심 신호가 없습니다.
+                      딥페이크 탐지 신호가 아직 제공되지 않았습니다.
+                    </p>
+                  )}
+                </section>
+              ) : resultTab === "forgery" ? (
+                <section>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위변조 탐지</h3>
+                      <p className="mt-1 text-sm font-semibold text-slate-500">
+                        프레임 편집, 구간 이어붙이기, 재인코딩, 국소 변조 신호를 따로 확인합니다.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-secondary">
+                      세부 모델 {forgeryRiskSignals.length}개
+                    </span>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    <FrameMetricCard
+                      label="위변조 최고 점수"
+                      value={forgeryRiskSignals.length > 0 ? formatScoreOutOf100(forgeryHighestScore) : "-"}
+                      sub="Frame Edit / Splicing / Re-encoding 기준"
+                      tone={forgeryHighestScore >= detectionThreshold ? "danger" : "neutral"}
+                    />
+                    <FrameMetricCard
+                      label="기준 초과 항목"
+                      value={`${forgeryOverThresholdCount} / ${forgeryRiskSignals.length}개`}
+                      sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
+                      tone={forgeryOverThresholdCount > 0 ? "danger" : "neutral"}
+                    />
+                    <FrameMetricCard
+                      label="의심 구간"
+                      value={priorityReviewRange ? priorityReviewRange.label : "-"}
+                      sub={priorityReviewRange ? "프레임 분석에서 시간축 확인" : "임계값 초과 구간 없음"}
+                    />
+                    <FrameMetricCard
+                      label="시각 증거"
+                      value={representativeFrames.length > 0 || heatmapImageUrl ? "제공됨" : "대기"}
+                      sub={heatmapImageUrl ? "히트맵 사용 가능" : "대표 프레임/마스크 수신 시 표시"}
+                    />
+                  </div>
+
+                  {forgeryRiskSignals.length > 0 ? (
+                    <ul className="mt-5 space-y-3">
+                      {forgeryRiskSignals.map((signal, index) => (
+                        <RiskSignalCard
+                          key={`${signal.label}-${index}`}
+                          signal={signal}
+                          delayMs={index * 120}
+                          onSeek={seekResultVideo}
+                        />
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
+                      위변조 세부 모델 결과가 아직 제공되지 않았습니다.
+                      <br />
+                      AI 서버가 frameEdit, splicing, reEncoding 또는 forgery 계열 점수를 보내면 이 영역에 표시됩니다.
                     </p>
                   )}
 
-                  {extraRiskSignals.length > 0 ? (
-                  <details className="mt-4 rounded-xl border border-slate-100 bg-white p-4 dark:border-border dark:bg-card">
-                    <summary className="cursor-pointer text-sm font-bold text-slate-700">
-                      기타 분석 항목 보기
-                    </summary>
-                    <div className="mt-4 space-y-3">
-                      {extraRiskSignals.map((item, index) => (
-                        <div key={`${item.label}-${item.modelLabel ?? "signal"}-${index}`} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 dark:border-border">
-                          <div>
-                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">
-                              {item.label}
-                              {item.modelLabel ? (
-                                <span className="ml-1.5 font-mono text-[11px] font-semibold text-slate-400">
-                                  {item.modelLabel}
-                                </span>
-                              ) : null}
-                            </p>
-                            <p className="mt-1 text-xs font-semibold text-slate-500">{item.definition}</p>
-                          </div>
-                          <span className="font-mono text-sm font-bold text-slate-700">{formatScoreOutOf100(item.score)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
+                  {representativeFrames.length > 0 ? (
+                    <section className="mt-5">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">대표 프레임 근거</h4>
+                        <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                          원본과 히트맵을 전환하며 국소 위변조 의심 영역을 확인합니다.
+                        </p>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {representativeFrames.slice(0, 2).map((frame, index) => (
+                          <RepresentativeFrameDetailCard
+                            key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
+                            frame={frame}
+                            index={index}
+                          />
+                        ))}
+                      </div>
+                    </section>
                   ) : null}
                 </section>
               ) : resultTab === "frames" ? (
@@ -1231,57 +1349,75 @@ function CaseResultView({
 
                   <section className="mt-5 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
-                      <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">모델별 추론 결과</h4>
+                      <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">딥페이크 모델 방법론</h4>
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
                         판정 기준 {Math.round(detectionThreshold * 100)} / 100
                       </span>
                     </div>
                     {methodology.models.length > 0 ? (
-                      <>
-                        <MethodologyModelChart
-                          models={methodology.models}
-                          thresholdPercent={Math.round(detectionThreshold * 100)}
-                        />
-
-                        <div className="mt-3 divide-y divide-slate-50 border-t border-slate-100 dark:divide-border dark:border-border">
-                          {methodology.models.map((model) => (
-                            <div key={`${model.name}-${model.version}`} className="px-5 py-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-sm font-bold text-slate-950 dark:text-foreground">
-                                  {model.name}
-                                  <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">
-                                    {model.version}
-                                  </span>
-                                </p>
-                                <span
-                                  className={cn(
-                                    "rounded-full px-2.5 py-1 text-[11px] font-bold",
-                                    model.score != null && model.overThreshold
-                                      ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
-                                      : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
-                                  )}
-                                >
-                                  {model.score == null ? "정보 없음" : model.overThreshold ? "기준 초과" : "기준 미만"}
+                      <div className="divide-y divide-slate-50 dark:divide-border">
+                        {methodology.models.map((model) => (
+                          <div key={`${model.name}-${model.version}`} className="px-5 py-3.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                                {model.name}
+                                <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">
+                                  {model.version}
                                 </span>
-                              </div>
-                              <p className="mt-1 text-xs font-semibold text-slate-500">담당 신호: {model.role}</p>
-                              <p className="mt-0.5 text-xs font-medium text-slate-400">
-                                검증 성능: {model.benchmark ?? "정보 없음"}
                               </p>
+                              <span
+                                className={cn(
+                                  "rounded-full px-2.5 py-1 text-[11px] font-bold",
+                                  model.score != null && model.overThreshold
+                                    ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+                                    : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
+                                )}
+                              >
+                                {model.score == null ? "정보 없음" : model.overThreshold ? "기준 초과" : "기준 미만"}
+                              </span>
                             </div>
-                          ))}
-                        </div>
-
-                        <p className="border-t border-slate-100 px-5 py-3 text-xs font-medium leading-5 text-slate-400 dark:border-border">
-                          점수는 이번 분석에서 각 모델이 담당한 신호의 최고 위험 점수입니다. 검증 성능은 모델 개발
-                          시점의 벤치마크 결과로, 이번 사건의 측정값과 무관합니다.
-                        </p>
-                      </>
+                            <p className="mt-1 text-xs font-semibold text-slate-500">분석 목적: {model.role}</p>
+                            <p className="mt-0.5 text-xs font-medium text-slate-400">
+                              검증 성능: {model.benchmark ?? "정보 없음"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
                       <p className="px-5 py-6 text-center text-sm font-semibold text-slate-400">
                         모델 식별 정보가 아직 제공되지 않았습니다. 백엔드가 모델명·버전을 보고하면 이 영역에 표시됩니다.
                       </p>
                     )}
+                  </section>
+
+                  <section className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
+                      <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">위변조 모델 방법론</h4>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
+                        세부 검사 {forgeryMethodologyItems.length}개
+                      </span>
+                    </div>
+                    <div className="divide-y divide-slate-50 dark:divide-border">
+                      {forgeryMethodologyItems.map((item) => (
+                        <div key={item.name} className="px-5 py-3.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">{item.name}</p>
+                            <span
+                              className={cn(
+                                "rounded-full px-2.5 py-1 text-[11px] font-bold",
+                                item.available
+                                  ? "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300"
+                                  : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
+                              )}
+                            >
+                              {item.available ? "결과 수신" : "대기"}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs font-semibold text-slate-500">분석 목적: {item.role}</p>
+                          <p className="mt-0.5 text-xs font-medium text-slate-400">표시 데이터: {item.output}</p>
+                        </div>
+                      ))}
+                    </div>
                   </section>
 
                   <section className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
@@ -2094,7 +2230,10 @@ function CaseWorkflowPanel({
   onViewIntegrity: (evidenceId: number) => void
   onViewCompareResult: (compareId: number) => void
   onStartCompare: (evidenceId: number) => void
-  onUpdateCaseSettings: (caseName: string, representativeEvidenceId: number | null) => void
+  onUpdateCaseSettings: (
+    caseName: string,
+    representativeEvidenceId: number | null
+  ) => Promise<void>
   onRefresh: () => void
   currentUserName?: string | null
   readOnly?: boolean
@@ -2236,12 +2375,17 @@ function CaseWorkflowPanel({
   )
   const selectedEvidenceCompleted = selectedEvidenceActive && selectedEvidenceStatus === "COMPLETED"
   const selectedEvidenceAnalysisSelectable = selectedEvidence
-    ? !readOnly && isEvidenceSelectableForAnalysis(selectedEvidence)
+    ? !readOnly && isEvidenceSelectableForAnalysisType(selectedEvidence, analysisType)
     : false
   const selectedEvidenceRepresentative =
     selectedEvidence != null && caseData.representativeEvidenceId === selectedEvidence.evidenceId
   const selectedEvidenceExcludable = selectedEvidence ? isEvidenceExcludable(selectedEvidence) : false
-  const selectableAnalysisEvidences = readOnly ? [] : evidences.filter(isEvidenceSelectableForAnalysis)
+  const selectableAnalysisEvidences =
+    readOnly || analysisType === "COMPARE"
+      ? []
+      : evidences.filter((evidence) =>
+          isEvidenceSelectableForAnalysisType(evidence, analysisType)
+        )
   const selectedAnalysisIdSet = new Set(selectedAnalysisIds)
   const selectedAnalysisCount = selectedAnalysisIds.filter((id) =>
     selectableAnalysisEvidences.some((evidence) => evidence.evidenceId === id)
@@ -2528,11 +2672,13 @@ function CaseWorkflowPanel({
       if (options.refresh !== false) {
         onRefresh()
       }
+      return true
     } catch (error) {
       setMessage({
         type: "error",
         text: error instanceof Error ? error.message : "작업 처리 중 오류가 발생했습니다.",
       })
+      return false
     } finally {
       setIsWorking(false)
     }
@@ -2566,7 +2712,7 @@ function CaseWorkflowPanel({
     if (readOnly) return
 
     const target = evidences.find((evidence) => evidence.evidenceId === evidenceId)
-    if (!target || !isEvidenceSelectableForAnalysis(target)) return
+    if (!target || !isEvidenceSelectableForAnalysisType(target, analysisType)) return
 
     setSelectedAnalysisIds((current) =>
       current.includes(evidenceId)
@@ -2628,6 +2774,30 @@ function CaseWorkflowPanel({
       .filter((evidence): evidence is CaseEvidenceSummary => evidence != null)
 
     setMessage(null)
+
+    if (analysisType === "COMPARE" && baseEvidenceId && targetEvidenceId) {
+      await runAction(async () => {
+        const result = await verifyRegisteredCompare(baseEvidenceId, targetEvidenceId)
+        saveCompareResultSummary(result)
+        setActionMode("idle")
+        onViewCompareResult(result.compareId)
+      }, "등록된 증거 간 비교검증이 완료되었습니다.", { refresh: false })
+      return
+    }
+
+    if (analysisType === "INTEGRITY") {
+      const verified = await runAction(async () => {
+        await Promise.all(targetIds.map((evidenceId) => verifyEvidenceIntegrity(evidenceId)))
+      }, "무결성 검증이 완료되었습니다.", { refresh: false })
+
+      if (verified && targetIds[0]) {
+        onSelectEvidence(targetIds[0])
+        setSelectedAnalysisIds([])
+        setActionMode("idle")
+        onViewIntegrity(targetIds[0])
+      }
+      return
+    }
 
     await startAnalysisWithReadiness({
       targets: targetEvidenceSummaries.map(readinessTargetFromCaseEvidence),
@@ -2715,7 +2885,7 @@ function CaseWorkflowPanel({
     onStartCompare(selectedEvidence.evidenceId)
   }
 
-  function handleSaveCaseSettings() {
+  async function handleSaveCaseSettings() {
     if (readOnly) return
 
     const nextName = caseNameDraft.trim()
@@ -2724,12 +2894,12 @@ function CaseWorkflowPanel({
       return
     }
 
-    onUpdateCaseSettings(nextName, representativeDraftId)
-    setEditCaseOpen(false)
-    setMessage({
-      type: "success",
-      text: "사건 정보가 수정되었습니다. 원본 증거와 CoC 기록은 변경되지 않습니다.",
-    })
+    const saved = await runAction(
+      () => onUpdateCaseSettings(nextName, representativeDraftId),
+      "사건 정보가 수정되었습니다. 원본 증거와 CoC 기록은 변경되지 않습니다.",
+      { refresh: false }
+    )
+    if (saved) setEditCaseOpen(false)
   }
 
   async function handleConfirmDeleteEvidence() {
@@ -2749,9 +2919,6 @@ function CaseWorkflowPanel({
 
     await runAction(async () => {
       await markEvidenceExcluded(selectedEvidence.evidenceId, "화면에서 사용제외 처리")
-      if (selectedEvidenceRepresentative && !nextActiveEvidence) {
-        onUpdateCaseSettings(caseData.caseName, null)
-      }
       if (nextActiveEvidence) onSelectEvidence(nextActiveEvidence.evidenceId)
     }, `${formatEvidenceTitle(selectedEvidence)}가 사용제외 처리되었습니다.`)
 
@@ -2942,7 +3109,9 @@ function CaseWorkflowPanel({
                       representative={caseData.representativeEvidenceId === evidence.evidenceId}
                       disabled={(evidence.lifecycleStatus ?? "ACTIVE") !== "ACTIVE"}
                       running={getEvidenceBucket(evidence) === "running"}
-                      analysisSelectable={!readOnly && isEvidenceSelectableForAnalysis(evidence)}
+                      analysisSelectable={
+                        !readOnly && isEvidenceSelectableForAnalysisType(evidence, analysisType)
+                      }
                       analysisSelected={selectedAnalysisIdSet.has(evidence.evidenceId)}
                       selectionMode={selectedAnalysisCount > 0}
                       onToggleAnalysisSelect={() => toggleAnalysisEvidence(evidence.evidenceId)}
@@ -4507,6 +4676,130 @@ function getManipulationSuspicionLabel(tone: ReturnType<typeof getCaseRiskTone>)
   return "조작 의심 높음"
 }
 
+type DetailModuleResult = EvidenceDetailData["analysisInfo"]["moduleResults"][number]
+
+const FORGERY_METHOD_BASELINES = [
+  {
+    name: "Frame Edit",
+    role: "프레임 삽입·삭제·복제처럼 시간축 편집으로 생기는 불연속성을 확인합니다.",
+    output: "프레임 편집 점수, 의심 구간",
+    keywords: ["frame_edit", "frame edit", "frameedit", "frame manipulation", "frame tamper"],
+    labels: ["프레임 편집"],
+  },
+  {
+    name: "Splicing",
+    role: "서로 다른 영상 구간을 이어붙였을 때 나타나는 경계·압축 패턴 변화를 확인합니다.",
+    output: "구간 이어붙이기 점수, 경계 구간",
+    keywords: ["splicing", "splice"],
+    labels: ["이어붙이기"],
+  },
+  {
+    name: "Re-encoding",
+    role: "재압축·트랜스코딩 과정에서 남는 인코딩 특성 변화를 확인합니다.",
+    output: "재인코딩 점수, 압축 흔적 설명",
+    keywords: ["re_encoding", "re-encoding", "reencoding", "re encode", "reencode", "transcoding", "transcode"],
+    labels: ["재인코딩"],
+  },
+  {
+    name: "Forgery Localization",
+    role: "국소 위변조 의심 영역을 프레임 단위 히트맵이나 마스크로 확인합니다.",
+    output: "대표 프레임, 히트맵, 마스크 URL",
+    keywords: ["forgery", "tamper", "localization", "mask"],
+    labels: ["국소 위변조", "히트맵", "마스크"],
+  },
+]
+
+function isForgeryKeywordText(value: string | null | undefined) {
+  const normalized = value?.toLowerCase() ?? ""
+  return FORGERY_METHOD_BASELINES.some((method) =>
+    [...method.keywords, ...method.labels].some((keyword) => normalized.includes(keyword.toLowerCase()))
+  )
+}
+
+function isForgeryRiskSignal(signal: UiRiskSignal) {
+  return isForgeryKeywordText(signal.label) || isForgeryKeywordText(signal.modelLabel)
+}
+
+function formatForgeryModuleLabel(moduleName: string) {
+  const normalized = moduleName.toLowerCase()
+  if (normalized.includes("splic")) return "구간 이어붙이기"
+  if (normalized.includes("re_encoding") || normalized.includes("re-encoding") || normalized.includes("reencoding")) {
+    return "재인코딩 흔적"
+  }
+  if (normalized.includes("forgery") || normalized.includes("tamper") || normalized.includes("localization") || normalized.includes("mask")) {
+    return "국소 위변조 탐지"
+  }
+  if (normalized.includes("frame") || normalized.includes("edit")) return "프레임 편집 흔적"
+  return formatModuleLabel(moduleName)
+}
+
+function formatForgeryDefinition(label: string) {
+  if (label.includes("이어붙이기")) return "서로 다른 구간을 연결했을 때 생기는 경계·압축 흔적을 확인합니다."
+  if (label.includes("재인코딩")) return "재압축이나 변환 과정에서 생기는 인코딩 특성 변화를 확인합니다."
+  if (label.includes("국소")) return "프레임 내부의 변조 의심 영역을 히트맵이나 마스크 기반으로 확인합니다."
+  return "프레임 삽입·삭제·합성처럼 시간축 편집으로 생기는 위변조 흔적을 확인합니다."
+}
+
+function formatModuleModelName(module: DetailModuleResult) {
+  const name = module.modelName?.trim()
+  if (!name) return null
+  const version = module.modelVersion?.trim()
+  return version ? `${name} ${version}` : name
+}
+
+function signalToneFromScore(score: number, threshold: number): UiRiskSignal["tone"] {
+  if (score >= threshold) return "danger"
+  if (score >= 0.3) return "warning"
+  return "neutral"
+}
+
+function signalBadgeFromScore(score: number, detected: boolean, threshold: number) {
+  if (score >= threshold || detected) return "우선 확인"
+  if (score >= 0.3) return "추가 검토"
+  return "낮음"
+}
+
+function buildForgeryRiskSignals(data: EvidenceDetailData | null, threshold: number): UiRiskSignal[] {
+  const modules = (data?.analysisInfo.moduleResults ?? []).filter((module) =>
+    isForgeryKeywordText(module.moduleName)
+  )
+
+  return modules
+    .map((module) => {
+      const score = normalizeResultValue(module.score)
+      const label = formatForgeryModuleLabel(module.moduleName)
+      return {
+        label,
+        modelLabel: formatModuleModelName(module),
+        definition: formatForgeryDefinition(label),
+        badge: signalBadgeFromScore(score, module.detected, threshold),
+        score,
+        thresholdPercent: Math.round(threshold * 100),
+        tone: signalToneFromScore(score, threshold),
+        segments: (module.affectedSegments ?? []).map((segment) => ({
+          label: `${formatDuration(segment.startTime)} ~ ${formatDuration(segment.endTime)}`,
+          startSec: segment.startTime,
+        })),
+      }
+    })
+    .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
+}
+
+function buildForgeryMethodologyItems(signals: UiRiskSignal[]) {
+  return FORGERY_METHOD_BASELINES.map((method) => {
+    const available = signals.some((signal) => {
+      const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
+      return [...method.keywords, ...method.labels].some((keyword) => text.includes(keyword.toLowerCase()))
+    })
+    return {
+      name: method.name,
+      role: method.role,
+      output: available ? `${method.output}, 이번 분석 점수` : method.output,
+      available,
+    }
+  })
+}
+
 function buildResultSummaryParagraph(data: EvidenceDetailData | null, verdict: string, score: number) {
   if (data?.analysisInfo.summary) {
     return data.analysisInfo.summary
@@ -4939,6 +5232,19 @@ function isEvidenceSelectableForAnalysis(evidence: CaseEvidenceSummary) {
   const status = normalizeStatus(evidence.analysisStatus ?? "PENDING")
 
   return lifecycle === "ACTIVE" && (status === "PENDING" || status === "FAILED")
+}
+
+function isEvidenceSelectableForAnalysisType(
+  evidence: CaseEvidenceSummary,
+  analysisType: AnalysisType
+) {
+  if (analysisType === "DEEPFAKE") {
+    return isEvidenceSelectableForAnalysis(evidence)
+  }
+  if (analysisType === "INTEGRITY") {
+    return (evidence.lifecycleStatus ?? "ACTIVE") === "ACTIVE"
+  }
+  return false
 }
 
 function isEvidenceExcludable(evidence: CaseEvidenceSummary) {

@@ -5,6 +5,12 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Bell, ChevronDown, LogOut, Moon, Sun, UserCog, User } from "lucide-react"
 import { useUserSettings } from "@/hooks/use-user-settings"
+import {
+  fetchNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type ApiNotification,
+} from "@/lib/api/notifications"
 import { fetchMyProfile } from "@/lib/api/user"
 import { logoutApi } from "@/lib/auth-api"
 import { clearStepUpToken } from "@/lib/api/step-up-auth"
@@ -23,6 +29,20 @@ const themeOptions: { value: "light" | "dark"; label: string; icon: typeof Sun }
   { value: "light", label: "라이트", icon: Sun },
   { value: "dark", label: "다크", icon: Moon },
 ]
+
+function mapApiNotification(notification: ApiNotification): AppNotification {
+  return {
+    id: String(notification.notificationId),
+    title: notification.title,
+    description: notification.message,
+    createdAt: notification.createdAt,
+    read: notification.read,
+    href:
+      notification.referenceId != null
+        ? `/evidences/${notification.referenceId}`
+        : undefined,
+  }
+}
 
 export function SiteHeaderAuth() {
   const router = useRouter()
@@ -110,17 +130,40 @@ export function SiteHeaderAuth() {
   }, [notificationOpen, open])
 
   useEffect(() => {
-    function syncNotifications() {
-      setNotifications(getAppNotifications())
+    let cancelled = false
+
+    async function syncNotifications() {
+      const currentSession = getSession()
+      if (!currentSession) {
+        if (!cancelled) setNotifications([])
+        return
+      }
+
+      if (isMockAuthSession(currentSession)) {
+        if (!cancelled) setNotifications(getAppNotifications())
+        return
+      }
+
+      try {
+        const response = await fetchNotifications(20)
+        if (!cancelled) {
+          setNotifications(response.notifications.map(mapApiNotification))
+        }
+      } catch {
+        // 기존 목록을 유지하고 다음 알림 열기/상태 변경 때 다시 조회합니다.
+      }
     }
 
-    syncNotifications()
+    void syncNotifications()
 
     window.addEventListener(APP_NOTIFICATION_EVENT, syncNotifications)
+    window.addEventListener("auth-change", syncNotifications)
     window.addEventListener("storage", syncNotifications)
 
     return () => {
+      cancelled = true
       window.removeEventListener(APP_NOTIFICATION_EVENT, syncNotifications)
+      window.removeEventListener("auth-change", syncNotifications)
       window.removeEventListener("storage", syncNotifications)
     }
   }, [])
@@ -154,18 +197,48 @@ export function SiteHeaderAuth() {
   const unreadCount = notifications.filter((item) => !item.read).length
 
   function handleToggleNotifications() {
-    setNotificationOpen((current) => !current)
+    const nextOpen = !notificationOpen
+    setNotificationOpen(nextOpen)
     setOpen(false)
+
+    if (nextOpen && !isMockAuthSession(session)) {
+      void fetchNotifications(20)
+        .then((response) => {
+          setNotifications(response.notifications.map(mapApiNotification))
+        })
+        .catch(() => undefined)
+    }
   }
 
   function handleReadAllNotifications() {
-    markAllAppNotificationsRead()
-    setNotifications(getAppNotifications())
+    if (isMockAuthSession(session)) {
+      markAllAppNotificationsRead()
+      setNotifications(getAppNotifications())
+      return
+    }
+
+    setNotifications((current) => current.map((item) => ({ ...item, read: true })))
+    void markAllNotificationsRead().catch(() => {
+      void fetchNotifications(20)
+        .then((response) => {
+          setNotifications(response.notifications.map(mapApiNotification))
+        })
+        .catch(() => undefined)
+    })
   }
 
   function handleOpenNotification(notification: AppNotification) {
-    removeAppNotification(notification.id)
-    setNotifications(getAppNotifications())
+    if (isMockAuthSession(session)) {
+      removeAppNotification(notification.id)
+      setNotifications(getAppNotifications())
+    } else if (!notification.read) {
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === notification.id ? { ...item, read: true } : item
+        )
+      )
+      void markNotificationRead(Number(notification.id)).catch(() => undefined)
+    }
     setNotificationOpen(false)
   }
 

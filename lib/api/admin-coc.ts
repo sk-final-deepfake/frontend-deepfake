@@ -47,11 +47,7 @@ export async function fetchAdminCocChains(): Promise<CocChainsResponse> {
     return buildSampleChains()
   }
 
-  try {
-    return await apiRequest<CocChainsResponse>("/api/v1/admin/coc/chains")
-  } catch {
-    return { ...buildSampleChains(), sample: true }
-  }
+  return apiRequest<CocChainsResponse>("/api/v1/admin/coc/chains")
 }
 
 export const COC_EVENT_LABELS: Record<string, string> = {
