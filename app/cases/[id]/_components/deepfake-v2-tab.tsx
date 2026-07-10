@@ -1067,7 +1067,16 @@ function formatNullable(value: number | null, formatter: (value: number) => stri
 
 function getPlayableVideoUrl(data: EvidenceDetailData) {
   const evidence = data.evidenceInfo
-  return evidence.videoUrl ?? evidence.streamUrl ?? evidence.fileUrl ?? evidence.previewUrl ?? null
+  const analysis = data.analysisInfo
+  return (
+    evidence.videoUrl ??
+    evidence.streamUrl ??
+    evidence.fileUrl ??
+    evidence.previewUrl ??
+    analysis.overlayVideoUrl ??
+    evidence.overlayVideoUrl ??
+    null
+  )
 }
 
 function formatFrameTime(frame?: Pick<FrameScore, "timeSec" | "timestamp"> | Pick<RepresentativeFrame, "timeSec" | "timestamp">) {

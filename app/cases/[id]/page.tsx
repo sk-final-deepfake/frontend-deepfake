@@ -680,28 +680,6 @@ function EvidenceWatermarkOverlay({
   )
 }
 
-function requestProtectedFullscreen(element: HTMLElement | null) {
-  if (!element) return
-
-  const fullscreenDocument = document as Document & {
-    webkitFullscreenElement?: Element | null
-    webkitExitFullscreen?: () => Promise<void> | void
-  }
-  const fullscreenElement = document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement
-  if (fullscreenElement === element) {
-    const exitFullscreen = document.exitFullscreen ?? fullscreenDocument.webkitExitFullscreen
-    void exitFullscreen?.call(fullscreenDocument)
-    return
-  }
-
-  const fullscreenTarget = element as HTMLElement & {
-    webkitRequestFullscreen?: () => Promise<void> | void
-  }
-  const requestFullscreen = fullscreenTarget.requestFullscreen ?? fullscreenTarget.webkitRequestFullscreen
-  void requestFullscreen?.call(fullscreenTarget)
-}
-
-
 function CaseResultView({
   caseData,
   evidenceDetail,
@@ -750,8 +728,16 @@ function CaseResultView({
     evidenceDetail?.evidenceInfo.heatmapImageUrl ??
     evidenceDetail?.analysisInfo.representativeFrames?.find((frame) => Boolean(frame.heatmapUrl))?.heatmapUrl ??
     null
-  const useOverlaySrc = mediaMode === "overlay" && Boolean(overlayVideoUrl)
+  const useOverlaySrc =
+    (mediaMode === "overlay" && Boolean(overlayVideoUrl)) ||
+    (mediaMode === "heatmap" && Boolean(heatmapImageUrl) && !hasHlsOriginal && Boolean(overlayVideoUrl))
   const showResultPlayer = useOverlaySrc || hasHlsOriginal || Boolean(hlsPlayback)
+  const showHeatmapOnly =
+    mediaMode === "heatmap" &&
+    Boolean(heatmapImageUrl) &&
+    !useOverlaySrc &&
+    !hasHlsOriginal &&
+    !Boolean(hlsPlayback)
   const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
@@ -898,8 +884,23 @@ function CaseResultView({
                 </div>
               </div>
               <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-                {showResultPlayer ? (
+                {showHeatmapOnly ? (
+                  <div className="relative size-full">
+                    <img
+                      src={heatmapImageUrl ?? undefined}
+                      alt="위험도 히트맵"
+                      className="absolute inset-0 size-full object-contain"
+                    />
+                    <div className="absolute left-4 top-4 z-20 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
+                      히트맵
+                    </div>
+                    <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
+                      위험도가 높은 영역을 색상으로 표시합니다.
+                    </div>
+                  </div>
+                ) : showResultPlayer ? (
                   <ProtectedEvidencePlayer
+                    key={useOverlaySrc ? overlayVideoUrl ?? "overlay" : hlsPlayback?.streamToken ?? "hls"}
                     src={useOverlaySrc ? overlayVideoUrl : null}
                     playback={useOverlaySrc ? null : hlsPlayback}
                     videoRef={videoRef}

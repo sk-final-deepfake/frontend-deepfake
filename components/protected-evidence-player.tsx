@@ -65,7 +65,13 @@ export function ProtectedEvidencePlayer({
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
-  }, [src, playback?.streamToken, playback?.hlsStatus])
+    if (!useHls) {
+      const video = internalVideoRef.current
+      if (video) {
+        video.load()
+      }
+    }
+  }, [src, playback?.streamToken, playback?.hlsStatus, useHls])
 
   useEffect(() => {
     function handleKeyUp(event: KeyboardEvent) {
@@ -164,10 +170,11 @@ export function ProtectedEvidencePlayer({
   return (
     <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
       <video
+        key={useHls ? playback?.streamToken ?? "hls" : src ?? "direct"}
         ref={setVideoElement}
         src={useHls ? undefined : (src ?? undefined)}
         playsInline
-        preload="metadata"
+        preload={useHls ? "metadata" : "auto"}
         controlsList="nodownload"
         disablePictureInPicture
         className={cn("absolute inset-0 size-full", objectFit === "cover" ? "object-cover" : "object-contain")}

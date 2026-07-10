@@ -324,7 +324,11 @@ export async function recordEvidenceSecurityEvent(
 
   await apiRequest<void>(`/api/v1/evidences/${evidenceId}/access-events`, {
     method: "POST",
-    body: payload,
+    body: {
+      eventType: "CAPTURE_ATTEMPT",
+      source: payload.eventType,
+      caseKey: payload.pagePath,
+    },
   })
 }
 
