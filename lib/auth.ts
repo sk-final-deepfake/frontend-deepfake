@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/api/config"
+import { features } from "@/lib/features"
 
 export type AuthRole =
   | "user"
@@ -168,7 +169,7 @@ let refreshPromise: Promise<boolean> | null = null
 // 이전에는 refresh 응답에서 accessToken만 반환했으나 이제는 accessToken과 refreshToken 모두 반환
 // 전체 세션 복구 코드
 export async function tryRefreshSession(): Promise<boolean> {
-  if (typeof window === "undefined") return false
+  if (typeof window === "undefined" || !features.authRefresh) return false
 
   if (!refreshPromise) {
     refreshPromise = (async () => {
@@ -213,7 +214,7 @@ export async function tryRefreshSession(): Promise<boolean> {
   return refreshPromise
 }
 
-// 새로고침 후 HttpOnly refresh 쿠키로 세션 복구 시도
+// 정책이 허용된 경우에만 새로고침 후 HttpOnly refresh 쿠키로 세션 복구 시도
 export async function bootstrapAuthSession(): Promise<void> {
   if (typeof window === "undefined") return
   if (authBootstrapped) return
