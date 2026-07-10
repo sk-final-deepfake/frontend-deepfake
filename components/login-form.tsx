@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShieldCheck, Lock } from "lucide-react"
 import { login } from "@/lib/auth-api"
-import { getApiErrorMessage } from "@/lib/api/errors"
+import { getLoginErrorMessage } from "@/lib/api/errors"
 import { applyLoginResponse, getSession, isReviewerRole } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
@@ -71,9 +71,7 @@ export function LoginForm() {
 
       router.replace(getLoginRedirectPath(response.role))
     } catch (error) {
-      setErrorMessage(
-        getApiErrorMessage(error, "로그인 요청에 실패했습니다. 백엔드 서버 상태를 확인해 주세요.")
-      )
+      setErrorMessage(getLoginErrorMessage(error))
     } finally {
       setIsSubmitting(false)
     }
