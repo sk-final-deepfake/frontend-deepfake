@@ -157,31 +157,73 @@ const READINESS_METRIC_DEFINITIONS: Record<
   },
 }
 
+const READINESS_METRIC_KEYS: UiReadinessMetricItem["key"][] = [
+  "blur",
+  "blockiness",
+  "fftPeak",
+]
+
+export function buildDefaultReadinessMetricItems(): UiReadinessMetricItem[] {
+  return READINESS_METRIC_KEYS.map((key) => {
+    const definition = READINESS_METRIC_DEFINITIONS[key]
+    return {
+      key,
+      label: definition.label,
+      value: "-",
+      description: definition.description,
+    }
+  })
+}
+
 export function buildReadinessMetricItems(
   readiness: EvidenceReadinessResponse | null | undefined
 ): UiReadinessMetricItem[] {
-  if (!readiness || readiness.frameCheckStatus !== "COMPLETED") return []
+  if (!readiness) return []
 
   const metrics = readiness.frameMetrics
-  if (!metrics) return []
 
-  const keys: UiReadinessMetricItem["key"][] = ["blur", "blockiness", "fftPeak"]
-
-  return keys.flatMap((key) => {
+  return READINESS_METRIC_KEYS.map((key) => {
     const definition = READINESS_METRIC_DEFINITIONS[key]
-    const aggregate = metrics[key]
+    const aggregate = metrics?.[key]
     const mean = aggregate?.mean
-    if (mean == null || Number.isNaN(mean)) return []
 
-    return [
-      {
-        key,
-        label: definition.label,
-        value: formatReadinessMetric(mean, definition.digits),
-        description: definition.description,
-      },
-    ]
+    return {
+      key,
+      label: definition.label,
+      value:
+        mean != null && !Number.isNaN(mean)
+          ? formatReadinessMetric(mean, definition.digits)
+          : "-",
+      description: definition.description,
+    }
   })
+}
+
+export function getReadinessFrameCheckNote(
+  readiness: EvidenceReadinessResponse | null | undefined
+): string | null {
+  if (!readiness) return null
+
+  const hasValues = READINESS_METRIC_KEYS.some((key) => {
+    const mean = readiness.frameMetrics?.[key]?.mean
+    return mean != null && !Number.isNaN(mean)
+  })
+
+  if (hasValues) return null
+
+  switch (readiness.frameCheckStatus) {
+    case "SKIPPED":
+      return (
+        readiness.frameCheckMessage ??
+        "프레임 화질 검사가 실행되지 않았습니다. 서버 readiness 설정을 확인해 주세요."
+      )
+    case "FAILED":
+      return readiness.frameCheckMessage ?? "프레임 화질 검사에 실패했습니다."
+    case "COMPLETED":
+      return "프레임 화질 검사는 완료되었으나 측정값을 불러오지 못했습니다."
+    default:
+      return "분석 시작 시 수행한 Blur·Blockiness·FFT Peak 검사 결과를 불러오는 중입니다."
+  }
 }
 
 export function readinessTierLabel(tier: ReadinessTier): string {

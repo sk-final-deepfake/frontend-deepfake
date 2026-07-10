@@ -130,7 +130,12 @@ import {
   updateCaseName,
   uploadEvidenceToCase,
 } from "@/lib/api/case-workflow"
-import { fetchAnalysisStatus, fetchEvidenceReadiness, type EvidenceReadinessResponse } from "@/lib/evidence-api"
+import {
+  fetchAnalysisStatus,
+  fetchEvidenceReadiness,
+  runEvidenceReadinessCheck,
+  type EvidenceReadinessResponse,
+} from "@/lib/evidence-api"
 import { ApiError } from "@/lib/api/client"
 import { getApiErrorMessage, isUnauthorizedError } from "@/lib/api/errors"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
@@ -146,7 +151,12 @@ import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
 import { addAppNotification } from "@/lib/notifications"
-import { buildReadinessMetricItems, readinessTargetFromCaseEvidence } from "@/lib/readiness"
+import {
+  buildReadinessMetricItems,
+  getReadinessFrameCheckNote,
+  isVideoEvidence,
+  readinessTargetFromCaseEvidence,
+} from "@/lib/readiness"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 
@@ -933,6 +943,8 @@ function CaseResultView({
   const [resultTab, setResultTab] = useState<ResultTab>("summary")
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const [resultReadiness, setResultReadiness] = useState<EvidenceReadinessResponse | null>(null)
+  const [readinessLoading, setReadinessLoading] = useState(false)
+  const readinessRefreshAttemptedRef = useRef<number | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const lastSecurityEventRef = useRef<{ key: string; recordedAt: number } | null>(null)
   const selectedEvidence =
@@ -966,6 +978,10 @@ function CaseResultView({
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
   const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
   const readinessMetrics = buildReadinessMetricItems(resultReadiness)
+  const readinessStatusNote = getReadinessFrameCheckNote(resultReadiness)
+  const showReadinessPanel = selectedEvidence
+    ? isVideoEvidence(readinessTargetFromCaseEvidence(selectedEvidence))
+    : false
   const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
   const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
   const forgeryRiskSignals = buildForgeryRiskSignals(evidenceDetail, detectionThreshold)
@@ -1022,25 +1038,53 @@ function CaseResultView({
   const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
 
   useEffect(() => {
-    if (!selectedEvidenceId) {
+    if (!selectedEvidenceId || !selectedEvidence) {
       setResultReadiness(null)
+      setReadinessLoading(false)
       return
     }
 
+    const evidenceId = selectedEvidenceId
+    const readinessTarget = readinessTargetFromCaseEvidence(selectedEvidence)
+    const isVideo = isVideoEvidence(readinessTarget)
     let cancelled = false
 
-    void fetchEvidenceReadiness(selectedEvidenceId)
-      .then((readiness) => {
+    async function loadReadiness() {
+      setReadinessLoading(true)
+
+      try {
+        let readiness = await fetchEvidenceReadiness(evidenceId)
+
+        const analysisCompleted = evidenceDetail?.analysisInfo.status === "COMPLETED"
+        const needsFrameRefresh =
+          isVideo &&
+          analysisCompleted &&
+          readiness.frameCheckStatus !== "COMPLETED" &&
+          readinessRefreshAttemptedRef.current !== evidenceId
+
+        if (needsFrameRefresh) {
+          readinessRefreshAttemptedRef.current = evidenceId
+          try {
+            readiness = await runEvidenceReadinessCheck(evidenceId)
+          } catch {
+            // 저장된 스냅샷 유지
+          }
+        }
+
         if (!cancelled) setResultReadiness(readiness)
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setResultReadiness(null)
-      })
+      } finally {
+        if (!cancelled) setReadinessLoading(false)
+      }
+    }
+
+    void loadReadiness()
 
     return () => {
       cancelled = true
     }
-  }, [selectedEvidenceId])
+  }, [evidenceDetail?.analysisInfo.status, selectedEvidence, selectedEvidenceId])
 
   function seekResultVideo(seconds: number, mode: ResultMediaMode = mediaMode) {
     setMediaMode(mode)
@@ -1287,7 +1331,13 @@ function CaseResultView({
                     />
                   </div>
 
-                  <ReadinessMetricPanel metrics={readinessMetrics} />
+                  {showReadinessPanel ? (
+                    <ReadinessMetricPanel
+                      metrics={readinessMetrics}
+                      loading={readinessLoading}
+                      statusMessage={readinessStatusNote}
+                    />
+                  ) : null}
 
                   <section className="rounded-xl border border-slate-100 bg-slate-50/70 p-6 dark:border-border dark:bg-background">
                     <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">확인 순서</h3>

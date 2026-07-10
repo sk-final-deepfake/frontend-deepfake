@@ -1,15 +1,28 @@
 "use client"
 
-import type { UiReadinessMetricItem } from "@/lib/readiness"
+import { Loader2 } from "lucide-react"
+
+import {
+  buildDefaultReadinessMetricItems,
+  type UiReadinessMetricItem,
+} from "@/lib/readiness"
 import { cn } from "@/lib/utils"
 
 type ReadinessMetricPanelProps = {
-  metrics: UiReadinessMetricItem[]
+  metrics?: UiReadinessMetricItem[]
+  loading?: boolean
+  statusMessage?: string | null
   className?: string
 }
 
-export function ReadinessMetricPanel({ metrics, className }: ReadinessMetricPanelProps) {
-  if (metrics.length === 0) return null
+export function ReadinessMetricPanel({
+  metrics,
+  loading = false,
+  statusMessage = null,
+  className,
+}: ReadinessMetricPanelProps) {
+  const displayMetrics =
+    metrics && metrics.length > 0 ? metrics : buildDefaultReadinessMetricItems()
 
   return (
     <section
@@ -18,14 +31,20 @@ export function ReadinessMetricPanel({ metrics, className }: ReadinessMetricPane
         className
       )}
     >
-      <div>
-        <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">화질 사전 검사</h3>
-        <p className="mt-1 text-sm font-semibold text-slate-500">
-          Blur, Blockiness, FFT Peak 측정 결과입니다.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">화질 사전 검사</h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            Blur, Blockiness, FFT Peak 측정 결과입니다.
+          </p>
+        </div>
+        {loading ? (
+          <Loader2 className="size-5 shrink-0 animate-spin text-slate-400" aria-hidden="true" />
+        ) : null}
       </div>
+
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        {metrics.map((metric) => (
+        {displayMetrics.map((metric) => (
           <div
             key={metric.key}
             className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3.5 dark:border-border dark:bg-background"
@@ -40,6 +59,12 @@ export function ReadinessMetricPanel({ metrics, className }: ReadinessMetricPane
           </div>
         ))}
       </div>
+
+      {statusMessage ? (
+        <p className="mt-4 text-sm font-medium leading-relaxed text-amber-700 dark:text-amber-300">
+          {statusMessage}
+        </p>
+      ) : null}
     </section>
   )
 }
