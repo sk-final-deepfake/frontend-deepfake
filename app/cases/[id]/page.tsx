@@ -2536,7 +2536,7 @@ function CaseWorkflowPanel({
   )
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [analystCommentsByEvidence, setAnalystCommentsByEvidence] = useState<Record<number, string>>({})
-  const [reviewCommentsByEvidence, setReviewCommentsByEvidence] = useState<Record<number, string>>({})
+  const [reviewerCommentDraft, setReviewerCommentDraft] = useState(caseData.reviewerComment ?? "")
   const [message, setMessage] = useState<WorkflowMessage | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
   const [isWorking, setIsWorking] = useState(false)
@@ -2576,6 +2576,10 @@ function CaseWorkflowPanel({
     }
     setReviewDecision("PENDING")
   }, [caseData.reviewStatus])
+
+  useEffect(() => {
+    setReviewerCommentDraft(caseData.reviewerComment ?? "")
+  }, [caseData.caseId, caseData.reviewerComment])
 
   const evidences = useMemo(
     () =>
@@ -2654,9 +2658,7 @@ function CaseWorkflowPanel({
   const selectedAnalystComment = selectedEvidence
     ? analystCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
     : ""
-  const selectedReviewComment = selectedEvidence
-    ? reviewCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
-    : ""
+  const selectedReviewComment = reviewerCommentDraft
   const analystName =
     (!readOnly ? currentUserName : null) ??
     getCaseActorName(caseData.assigneeId ?? caseData.createdBy)
@@ -3021,8 +3023,9 @@ function CaseWorkflowPanel({
       const updated = await recordCaseReviewDecision(
         caseData.caseId,
         nextDecision,
-        selectedEvidence ? reviewCommentsByEvidence[selectedEvidence.evidenceId] : undefined
+        reviewerCommentDraft
       )
+      setReviewerCommentDraft(updated.reviewerComment ?? "")
       setReviewDecision(nextDecision)
       setMessage({
         type: "success",
@@ -3429,11 +3432,7 @@ function CaseWorkflowPanel({
                     readOnly={!isReviewerMode}
                     onChange={(event) => {
                       if (!isReviewerMode) return
-
-                      setReviewCommentsByEvidence((current) => ({
-                        ...current,
-                        [selectedEvidence.evidenceId]: event.target.value,
-                      }))
+                      setReviewerCommentDraft(event.target.value)
                     }}
                     placeholder={
                       isReviewerMode

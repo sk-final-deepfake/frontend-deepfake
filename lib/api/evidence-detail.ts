@@ -273,6 +273,7 @@ export type CaseDetailData = {
   assigneeId?: string | null
   reviewerId?: string | null
   reviewStatus?: ReviewStatus | null
+  reviewerComment?: string | null
   evidences: CaseEvidenceSummary[]
 }
 

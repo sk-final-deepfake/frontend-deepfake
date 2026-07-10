@@ -87,6 +87,7 @@ type MockCaseRecord = {
   assigneeId?: string | null
   reviewerId?: string | null
   reviewStatus?: ReviewStatus | null
+  reviewerComment?: string | null
   aiResult?: AiResult | null
   reviewRequestedAt?: string | null
 }
@@ -1498,6 +1499,35 @@ export async function mockAssignReviewerToCase(caseId: string, reviewerId: strin
   })
 }
 
+export async function mockRecordCaseReviewDecision(
+  caseId: string,
+  decision: "APPROVED" | "REVISION",
+  memo?: string
+): Promise<CaseDetailData> {
+  await delay(180)
+
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  const store = materializeReviewQueueSeedCase(materializeSampleCase(readStore(), resolvedCaseId), resolvedCaseId)
+  const targetCase = findCaseRecord(store, resolvedCaseId)
+  if (!targetCase) {
+    throw new Error("검토 결정할 사건을 찾을 수 없습니다.")
+  }
+
+  const reviewStatus: ReviewStatus =
+    decision === "APPROVED" ? "REPORT_APPROVED" : "REVIEW_SUPPLEMENT_REQUESTED"
+  const reviewerComment = memo?.trim() || null
+  const cases = store.cases.some((item) => item.caseId === resolvedCaseId)
+    ? store.cases.map((item) =>
+        item.caseId === resolvedCaseId
+          ? { ...item, reviewStatus, reviewerComment }
+          : item
+      )
+    : [{ ...targetCase, reviewStatus, reviewerComment }, ...store.cases]
+
+  writeStore({ ...store, cases })
+  return mockFetchCaseDetail(resolvedCaseId)
+}
+
 export async function mockFetchMyAnalysisHistory(options?: {
   sort?: "newest" | "status"
   page?: number
@@ -2415,6 +2445,8 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
         createdBy: storedCase.createdBy ?? defaultCaseAccessFields().createdBy,
         assigneeId: storedCase.assigneeId ?? defaultCaseAccessFields().assigneeId,
         reviewerId: storedCase.reviewerId ?? null,
+        reviewStatus: storedCase.reviewStatus ?? "NONE",
+        reviewerComment: storedCase.reviewerComment ?? null,
         evidences: [],
       }
     }
@@ -2442,6 +2474,8 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
     createdBy: caseRecord?.createdBy ?? defaultCaseAccessFields().createdBy,
     assigneeId: caseRecord?.assigneeId ?? defaultCaseAccessFields().assigneeId,
     reviewerId: caseRecord?.reviewerId ?? null,
+    reviewStatus: caseRecord?.reviewStatus ?? "NONE",
+    reviewerComment: caseRecord?.reviewerComment ?? null,
     evidences,
   }
 }

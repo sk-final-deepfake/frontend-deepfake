@@ -174,13 +174,9 @@ export async function recordCaseReviewDecision(
   memo?: string
 ): Promise<CaseDetailData> {
   if (features.mockApi) {
-    const current = await import("@/lib/mock/forensic-api").then(({ mockFetchCaseDetail }) =>
-      mockFetchCaseDetail(caseId)
+    return import("@/lib/mock/forensic-api").then(({ mockRecordCaseReviewDecision }) =>
+      mockRecordCaseReviewDecision(caseId, decision, memo)
     )
-    return {
-      ...current,
-      reviewStatus: decision === "APPROVED" ? "REPORT_APPROVED" : "REVIEW_SUPPLEMENT_REQUESTED",
-    }
   }
 
   const params = new URLSearchParams({ caseKey: caseId })
