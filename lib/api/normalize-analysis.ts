@@ -9,6 +9,7 @@ import type {
   ModuleTimeline,
   ModuleTimelineKind,
   PairRisk,
+  PerFrameFaceScore,
   RepresentativeFrame,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
@@ -342,6 +343,28 @@ function normalizeRepresentativeFrames(frames: RepresentativeFrame[]): Represent
   }))
 }
 
+function normalizePerFrameFaceScores(scores: PerFrameFaceScore[] | null | undefined): PerFrameFaceScore[] {
+  if (!Array.isArray(scores)) return []
+  return scores.map((row, index) => ({
+    frameIndex: Math.max(0, Math.round(Number(row.frameIndex) || index)),
+    faceIndex: Math.max(0, Math.round(Number(row.faceIndex) || 0)),
+    riskScore: scoreOrZero(row.riskScore) / 100,
+    bbox:
+      row.bbox &&
+      Number.isFinite(Number(row.bbox.x)) &&
+      Number.isFinite(Number(row.bbox.y)) &&
+      Number.isFinite(Number(row.bbox.w)) &&
+      Number.isFinite(Number(row.bbox.h))
+        ? {
+            x: Math.round(Number(row.bbox.x)),
+            y: Math.round(Number(row.bbox.y)),
+            w: Math.round(Number(row.bbox.w)),
+            h: Math.round(Number(row.bbox.h)),
+          }
+        : null,
+  }))
+}
+
 function normalizeEvidenceItems(items: string[] | null | undefined) {
   return Array.isArray(items)
     ? items.map((item) => normalizeText(item)).filter(Boolean)
@@ -372,6 +395,7 @@ export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): Normal
   const modelOverlayArtifacts = normalizeModelOverlayArtifacts(detail.analysisInfo.modelOverlayArtifacts)
   const spatialOverlayVideoUrl = normalizeText(detail.analysisInfo.spatialOverlayVideoUrl, null)
   const temporalOverlayVideoUrl = normalizeText(detail.analysisInfo.temporalOverlayVideoUrl, null)
+  const perFrameFaceScores = normalizePerFrameFaceScores(detail.analysisInfo.perFrameFaceScores)
 
   const useMockFrames = frameScores.length === 0
   const useMockDetectionSignals = moduleResults.length === 0
@@ -401,6 +425,7 @@ export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): Normal
       modelOverlayArtifacts,
       spatialOverlayVideoUrl,
       temporalOverlayVideoUrl,
+      perFrameFaceScores,
     },
     ui: {
       useMockFrames,
