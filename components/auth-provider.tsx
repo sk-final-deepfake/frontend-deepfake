@@ -40,7 +40,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return
       }
 
-      timeoutId = window.setTimeout(expireSession, remainingMs)
+      // 타이머가 울릴 때 expiresAt을 다시 읽어, touchSessionExpiry로 연장된 경우를 반영한다.
+      timeoutId = window.setTimeout(() => {
+        const latestExpiresAt = getSessionExpiresAt()
+        if (latestExpiresAt && latestExpiresAt > Date.now()) {
+          scheduleSessionExpiry()
+          return
+        }
+        expireSession()
+      }, remainingMs)
     }
 
     scheduleSessionExpiry()
