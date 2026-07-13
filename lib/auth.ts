@@ -131,15 +131,7 @@ function isSessionExpired() {
   return expiresAt !== null && expiresAt <= Date.now()
 }
 
-function setSessionExpiry(accessTokenExpiresIn?: number, preserveExistingExpiry = false) {
-  if (typeof window === "undefined") return
-
-  const existingExpiresAt = readSessionExpiresAt()
-  if (preserveExistingExpiry && existingExpiresAt && existingExpiresAt > Date.now()) {
-    sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY)
-    return
-  }
-
+function sessionIdleTimeoutMs(accessTokenExpiresIn?: number) {
   const configuredTimeoutMs = features.authSessionTimeoutMinutes * 60 * 1000
   const backendTimeoutMs =
     typeof accessTokenExpiresIn === "number" &&
@@ -148,9 +140,24 @@ function setSessionExpiry(accessTokenExpiresIn?: number, preserveExistingExpiry 
       ? accessTokenExpiresIn
       : configuredTimeoutMs
 
-  // 서버 access JWT보다 프론트 세션이 길어지지 않게 하면서,
-  // 새로고침으로 세션 시간이 연장되지 않도록 최초 로그인 시간을 기준으로 둔다.
-  writeSessionExpiresAt(Date.now() + Math.min(backendTimeoutMs, configuredTimeoutMs))
+  // access JWT 수명보다 프론트 유휴 타임아웃이 길어지지 않게 캡한다.
+  return Math.min(backendTimeoutMs, configuredTimeoutMs)
+}
+
+function setSessionExpiry(accessTokenExpiresIn?: number) {
+  if (typeof window === "undefined") return
+  // 로그인·refresh 직후 유휴 타임아웃 시작점
+  writeSessionExpiresAt(Date.now() + sessionIdleTimeoutMs(accessTokenExpiresIn))
+}
+
+/** 인증 API 성공 등 활동 시 유휴 만료 시각을 지금 + N분으로 연장한다. */
+export function touchSessionExpiry() {
+  if (typeof window === "undefined") return
+  if (!memorySession || isMockAuthSession(memorySession)) return
+  if (isSessionExpired()) return
+
+  writeSessionExpiresAt(Date.now() + sessionIdleTimeoutMs())
+  notifyAuthChange()
 }
 
 function notifyAuthChange() {
@@ -199,10 +206,10 @@ export function applyLoginResponse(response: {
   token: string
   accessToken?: string
   accessTokenExpiresIn?: number
-}, options: { preserveSessionExpiry?: boolean } = {}) {
+}) {
   const accessToken = response.accessToken ?? response.token
   if (!accessToken.startsWith("mock-")) {
-    setSessionExpiry(response.accessTokenExpiresIn, options.preserveSessionExpiry)
+    setSessionExpiry(response.accessTokenExpiresIn)
   }
 
   setSession({
@@ -271,7 +278,7 @@ export async function tryRefreshSession(): Promise<boolean> {
           token: accessToken,
           accessToken,
           accessTokenExpiresIn: data.accessTokenExpiresIn,
-        }, { preserveSessionExpiry: true })
+        })
         return true
       } catch {
         return false
