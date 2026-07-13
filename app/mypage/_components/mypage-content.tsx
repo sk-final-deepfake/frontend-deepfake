@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   ChevronLeft,
@@ -28,6 +28,7 @@ const statusFilters: Array<{ label: string; value: "ALL" | CaseStatus }> = [
 ]
 
 const CASE_LIST_PAGE_SIZE = 10
+const SEARCH_DEBOUNCE_MS = 300
 
 export function MyPageContent() {
   const [cases, setCases] = useState<CaseSummary[]>([])
@@ -36,6 +37,7 @@ export function MyPageContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [debouncedQuery, setDebouncedQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<"ALL" | CaseStatus>("ALL")
   const [currentPage, setCurrentPage] = useState(1)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
@@ -43,7 +45,6 @@ export function MyPageContent() {
   const { settings } = useUserSettings()
   const pageSize = CASE_LIST_PAGE_SIZE
   const sort = settings.listSort
-  const normalizedQuery = query.trim()
   const requestPage = currentPage - 1
   const requestSize = pageSize
 
@@ -58,6 +59,13 @@ export function MyPageContent() {
   }, [])
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query.trim())
+    }, SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [query])
+
+  useEffect(() => {
     let cancelled = false
 
     async function loadCases() {
@@ -69,6 +77,8 @@ export function MyPageContent() {
           sort,
           page: requestPage,
           size: requestSize,
+          status: statusFilter,
+          q: debouncedQuery,
         })
         if (cancelled) return
         const nextServerTotalPages = Math.max(1, response.totalPages)
@@ -99,7 +109,7 @@ export function MyPageContent() {
     return () => {
       cancelled = true
     }
-  }, [requestPage, requestSize, sort])
+  }, [requestPage, requestSize, sort, statusFilter, debouncedQuery])
 
   const currentUser = getAppUserFromSession(session)
   const canCreateCase = canRegisterCase(session)
@@ -108,31 +118,10 @@ export function MyPageContent() {
     ? "권한 정보를 확인할 수 없습니다. 다시 로그인해 주세요."
     : null
 
-  const accessibleCases = useMemo(() => {
-    return cases
-  }, [cases])
-
-  const filteredCases = useMemo(() => {
-    const keyword = normalizedQuery.toLowerCase()
-
-    return accessibleCases.filter((item) => {
-      const matchesStatus = statusFilter === "ALL" || item.status === statusFilter
-      const matchesKeyword =
-        keyword.length === 0 ||
-        item.caseName.toLowerCase().includes(keyword) ||
-        (item.representativeEvidenceLabel ?? "").toLowerCase().includes(keyword) ||
-        (item.representativeEvidenceId ? `evd-${item.representativeEvidenceId}` : "").includes(keyword)
-
-      return matchesStatus && matchesKeyword
-    })
-  }, [accessibleCases, normalizedQuery, statusFilter])
-
-  const visibleTotalCount = totalCount
-  const visiblePageCount = filteredCases.length
   const totalPages = serverTotalPages
   const currentVisiblePage = Math.min(currentPage, totalPages)
-  const pageStart = visibleTotalCount === 0 ? 0 : (currentVisiblePage - 1) * pageSize + 1
-  const pageEnd = Math.min((currentVisiblePage - 1) * pageSize + cases.length, visibleTotalCount)
+  const pageStart = totalCount === 0 ? 0 : (currentVisiblePage - 1) * pageSize + 1
+  const pageEnd = Math.min((currentVisiblePage - 1) * pageSize + cases.length, totalCount)
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -173,7 +162,7 @@ export function MyPageContent() {
                 사건 목록
               </h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                총 {totalCount}건 · {visiblePageCount}건 표시
+                총 {totalCount}건 · {cases.length}건 표시
               </p>
             </div>
             <label className="relative block w-full lg:w-80">
@@ -232,15 +221,11 @@ export function MyPageContent() {
           </div>
         ) : (
           <>
-            <CaseHistorySection
-              cases={filteredCases}
-              page={1}
-              pageSize={pageSize}
-            />
-            {visibleTotalCount > 0 ? (
+            <CaseHistorySection cases={cases} />
+            {totalCount > 0 ? (
               <div className="flex flex-col gap-3 border-t border-border px-5 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                 <span>
-                  {pageStart}-{pageEnd} / {visibleTotalCount}건 · {currentVisiblePage}/{totalPages} 페이지
+                  {pageStart}-{pageEnd} / {totalCount}건 · {currentVisiblePage}/{totalPages} 페이지
                 </span>
                 <div className="flex items-center gap-2">
                   <Button
