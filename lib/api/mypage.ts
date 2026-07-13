@@ -1,5 +1,5 @@
 import { apiRequest } from "@/lib/api/client"
-import type { CaseSummary } from "@/app/mypage/_types/case"
+import type { CaseStatus, CaseSummary } from "@/app/mypage/_types/case"
 import type { ListSort } from "@/lib/user-settings"
 import { features } from "@/lib/features"
 import { mockFetchMyAnalysisHistory } from "@/lib/mock/forensic-api"
@@ -17,6 +17,8 @@ export async function fetchMyAnalysisHistory(options?: {
   sort?: ListSort
   page?: number
   size?: number
+  status?: "ALL" | CaseStatus
+  q?: string
 }): Promise<AnalysisHistoryResponse> {
   if (features.mockApi || isMockAuthSession(getSession())) {
     return mockFetchMyAnalysisHistory(options)
@@ -31,6 +33,15 @@ export async function fetchMyAnalysisHistory(options?: {
     page: String(page),
     size: String(size),
   })
+
+  if (options?.status && options.status !== "ALL") {
+    params.set("status", options.status)
+  }
+
+  const keyword = options?.q?.trim()
+  if (keyword) {
+    params.set("q", keyword)
+  }
 
   return apiRequest<AnalysisHistoryResponse>(`/api/v1/mypage/analysis-history?${params}`)
 }
