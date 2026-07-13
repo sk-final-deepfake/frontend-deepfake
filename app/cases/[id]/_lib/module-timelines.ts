@@ -16,6 +16,15 @@ import type {
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
 
+import {
+  DEFAULT_FORGERY_THRESHOLDS,
+  FORGERY_SPATIAL_MODULE,
+  FORGERY_TEMPORAL_MODULE,
+  forgeryModuleLabel,
+  forgeryModuleThreshold,
+  resolveForgeryModuleKey,
+} from "./forgery-ui"
+
 export type DeepfakeTimelineTab = {
   key: ModuleTimelineKind
   label: string
@@ -36,6 +45,7 @@ export type ForgeryTimelineTab = {
   label: string
   description: string
   modelName: string | null
+  modelVersion: string | null
   videoScore: number
   threshold: number
   detected: boolean
@@ -43,7 +53,7 @@ export type ForgeryTimelineTab = {
   segments: SuspiciousSegment[]
 }
 
-const TIMELINE_DISPLAY: Record<ModuleTimelineKind, { label: string; title: string; description: string; unitLabel: string }> = {
+const TIMELINE_DISPLAY: Record<"cnn" | "temporal" | "optical", { label: string; title: string; description: string; unitLabel: string }> = {
   cnn: {
     label: "Xception",
     title: "프레임별 위험도",
@@ -129,27 +139,158 @@ export function buildForgeryTimelineTabs(
 ): ForgeryTimelineTab[] {
   if (!data) return []
 
+  const fromTimelines = (data.analysisInfo.moduleTimelines ?? [])
+    .filter((timeline) => isForgeryTimelineModule(String(timeline.module ?? "")))
+    .map((timeline) => timelineToForgeryTab(timeline, threshold))
+
+  if (fromTimelines.length > 0) {
+    return fromTimelines.sort((a, b) => b.videoScore - a.videoScore)
+  }
+
+  const fromModelScores = buildForgeryTabsFromModelScores(data, threshold)
+  if (fromModelScores.length > 0) {
+    return fromModelScores
+  }
+
   return (data.analysisInfo.moduleResults ?? [])
     .filter((module) => isForgeryModule(module))
     .map((module) => {
+      const resolvedKey: string =
+        resolveForgeryModuleKey(module.moduleName, module.modelName) ??
+        String(module.moduleName ?? "forgery").trim().toLowerCase()
       const segments = module.affectedSegments ?? []
       const points = segmentsToFrameScores(segments)
       const score = normalizeResultValue(module.score)
-      const label = formatForgeryModuleLabel(module.moduleName)
+      const label =
+        resolvedKey === "forgery_spatial" || resolvedKey === "forgery_temporal"
+          ? forgeryModuleLabel(resolvedKey)
+          : formatForgeryModuleLabel(module.moduleName, module.modelName)
+      const moduleThreshold =
+        resolvedKey === "forgery_temporal"
+          ? DEFAULT_FORGERY_THRESHOLDS.temporal
+          : resolvedKey === "forgery_spatial"
+            ? DEFAULT_FORGERY_THRESHOLDS.spatial
+            : threshold
 
       return {
-        key: module.moduleName,
+        key: resolvedKey,
         label,
-        description: `${label} 모듈이 보고한 구간별 위변조 의심 신호입니다.`,
+        description:
+          resolvedKey === "forgery_temporal"
+            ? "TimeSformer가 보고한 시간축 편집(클립) 의심 신호입니다."
+            : resolvedKey === "forgery_spatial"
+              ? "TruFor가 보고한 국소 위변조(프레임) 의심 신호입니다."
+              : `${label} 모듈이 보고한 구간별 위변조 의심 신호입니다.`,
         modelName: module.modelName?.trim() || null,
+        modelVersion: module.modelVersion?.trim() || null,
         videoScore: score,
-        threshold,
-        detected: module.detected || score >= threshold,
+        threshold: moduleThreshold,
+        detected: module.detected || score >= moduleThreshold,
         points,
         segments,
       }
     })
+    .filter((tab, index, tabs) => tabs.findIndex((item) => item.key === tab.key) === index)
     .sort((a, b) => b.videoScore - a.videoScore)
+}
+
+function buildForgeryTabsFromModelScores(
+  data: EvidenceDetailData,
+  threshold: number
+): ForgeryTimelineTab[] {
+  const clipRisks = data.analysisInfo.clipRisks ?? []
+  const frameRisks = data.analysisInfo.frameRisks ?? []
+
+  const tabs = new Map<string, ForgeryTimelineTab>()
+
+  for (const score of data.analysisInfo.modelScores ?? []) {
+    const key = resolveForgeryModuleKey(score.moduleName, score.modelName)
+    if (!key) continue
+
+    const moduleThreshold = forgeryModuleThreshold(key)
+    const videoScore = normalizeResultValue(score.score)
+    const points =
+      key === FORGERY_TEMPORAL_MODULE
+        ? clipRisksToFrameScores(clipRisks)
+        : frameRisksToFrameScores(frameRisks)
+
+    tabs.set(key, {
+      key,
+      label: forgeryModuleLabel(key),
+      description:
+        key === FORGERY_TEMPORAL_MODULE
+          ? "TimeSformer가 보고한 시간축 편집(클립) 의심 신호입니다."
+          : "TruFor가 보고한 국소 위변조(프레임) 의심 신호입니다.",
+      modelName: score.modelName?.trim() || null,
+      modelVersion: score.modelVersion?.trim() || null,
+      videoScore,
+      threshold: moduleThreshold,
+      detected: Boolean(score.detected) || videoScore >= moduleThreshold,
+      points,
+      segments: segmentsToSuspiciousFromPoints(points, moduleThreshold),
+    })
+  }
+
+  return [...tabs.values()].sort((a, b) => b.videoScore - a.videoScore)
+}
+
+function isForgeryTimelineModule(module: string) {
+  const normalized = module.trim().toLowerCase()
+  return normalized === "forgery_spatial" || normalized === "forgery_temporal"
+}
+
+function timelineToForgeryTab(timeline: ModuleTimeline, threshold: number): ForgeryTimelineTab {
+  const moduleKey = String(timeline.module ?? "")
+  const defaultThreshold =
+    moduleKey === "forgery_temporal"
+      ? DEFAULT_FORGERY_THRESHOLDS.temporal
+      : moduleKey === "forgery_spatial"
+        ? DEFAULT_FORGERY_THRESHOLDS.spatial
+        : threshold
+  const moduleThreshold = normalizeThreshold(timeline.threshold, defaultThreshold)
+  const label =
+    moduleKey === "forgery_spatial"
+      ? "TruFor (Spatial)"
+      : moduleKey === "forgery_temporal"
+        ? "TimeSformer (Temporal)"
+        : formatForgeryModuleLabel(moduleKey)
+  const points =
+    moduleKey === "forgery_temporal"
+      ? clipRisksToFrameScores(timeline.clipRisks ?? [])
+      : frameRisksToFrameScores(timeline.frameRisks ?? [])
+  const segments =
+    timeline.suspiciousSegments && timeline.suspiciousSegments.length > 0
+      ? timeline.suspiciousSegments
+      : segmentsToSuspiciousFromPoints(points, moduleThreshold)
+  const score = normalizeResultValue(timeline.videoScore)
+
+  return {
+    key: moduleKey,
+    label,
+    description:
+      moduleKey === "forgery_temporal"
+        ? "TimeSformer가 보고한 시간축 편집(클립) 의심 신호입니다."
+        : "TruFor가 보고한 국소 위변조(프레임) 의심 신호입니다.",
+    modelName: timeline.modelName?.trim() || null,
+    modelVersion: timeline.modelVersion?.trim() || null,
+    videoScore: score,
+    threshold: moduleThreshold,
+    detected: timeline.detected || score >= moduleThreshold,
+    points,
+    segments,
+  }
+}
+
+function segmentsToSuspiciousFromPoints(points: FrameScore[], threshold: number): SuspiciousSegment[] {
+  return points
+    .filter((point) => normalizeResultValue(point.score) >= threshold)
+    .slice(0, 8)
+    .map((point) => ({
+      startTime: Math.max(0, (point.timeSec ?? 0) - 0.25),
+      endTime: (point.timeSec ?? 0) + 0.25,
+      maxRiskScore: normalizeResultValue(point.score),
+      reason: "위변조 의심 신호",
+    }))
 }
 
 function buildDeepfakeTimelinePoints(
@@ -257,11 +398,15 @@ function isForgeryModule(module: ModuleResult) {
   )
 }
 
-function formatForgeryModuleLabel(moduleName: string) {
+function formatForgeryModuleLabel(moduleName: string, modelName?: string | null) {
+  const key = resolveForgeryModuleKey(moduleName, modelName)
+  if (key) return forgeryModuleLabel(key)
+
   const normalized = moduleName.trim().toLowerCase().replace(/[\s-]+/g, "_")
-  for (const [key, label] of Object.entries(FORGERY_LABELS)) {
-    if (normalized.includes(key)) return label
+  for (const [token, label] of Object.entries(FORGERY_LABELS)) {
+    if (normalized.includes(token)) return label
   }
+  if (modelName?.trim()) return modelName.trim()
   return moduleName
 }
 

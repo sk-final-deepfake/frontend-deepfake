@@ -19,6 +19,7 @@ import {
   type OverlayCategory,
   type ResultMediaView,
 } from "../_lib/model-overlays"
+import { ModelOverlayLayer } from "./model-overlay-layer"
 
 type ResultEvidenceMediaProps = {
   evidenceDetail: EvidenceDetailData
@@ -77,13 +78,16 @@ export function ResultEvidenceMedia({
   const categoryOptions = overlayOptions.filter((item) => item.category === overlayCategory)
   const useOverlaySrc = mediaView === "overlay"
   const activeOverlayUrl = useOverlaySrc ? activeOverlay?.overlayVideoUrl ?? null : null
+  const useOverlayMp4 = useOverlaySrc && Boolean(activeOverlayUrl)
+  const useOverlayPreview = useOverlaySrc && !activeOverlayUrl && Boolean(activeOverlay?.ready)
   const hasHlsOriginal =
     hlsPlayback?.hlsStatus === "READY" &&
     Boolean(hlsPlayback.streamToken) &&
     Boolean(hlsPlayback.manifestPath)
-  const showResultPlayer = useOverlaySrc ? true : hasHlsOriginal || Boolean(hlsPlayback)
+  const showResultPlayer =
+    useOverlaySrc ? useOverlayMp4 || useOverlayPreview || hasHlsOriginal || Boolean(hlsPlayback) : hasHlsOriginal || Boolean(hlsPlayback)
   const playerSurfaceKey = useOverlaySrc
-    ? `overlay-${activeOverlay?.id ?? "none"}-${activeOverlayUrl ?? "pending"}`
+    ? `overlay-${activeOverlay?.id ?? "none"}-${activeOverlayUrl ?? (useOverlayPreview ? "preview" : "pending")}`
     : `hls-${hlsPlayback?.streamToken ?? hlsPlayback?.hlsStatus ?? "pending"}`
 
   const heatScores = useOverlaySrc
@@ -146,16 +150,14 @@ export function ResultEvidenceMedia({
         {showResultPlayer ? (
           <ProtectedEvidencePlayer
             key={`result-player-${selectedEvidenceId ?? "none"}-${playerSurfaceKey}`}
-            src={useOverlaySrc ? activeOverlayUrl : null}
-            playback={useOverlaySrc ? null : hlsPlayback}
-            fallbackOpenUrl={useOverlaySrc ? activeOverlayUrl : null}
+            src={useOverlayMp4 ? activeOverlayUrl : null}
+            playback={useOverlayMp4 ? null : hlsPlayback}
+            fallbackOpenUrl={useOverlayMp4 ? activeOverlayUrl : null}
             videoRef={videoRef}
             objectFit="cover"
             onSecurityEvent={onSecurityEvent}
           >
-            {useOverlaySrc && !activeOverlayUrl ? (
-              <MockModelOverlay option={activeOverlay} />
-            ) : null}
+            {useOverlayPreview ? <ModelOverlayLayer option={activeOverlay} videoRef={videoRef} /> : null}
             {mediaView === "original" ? renderWatermark : null}
             {useOverlaySrc && activeOverlay ? (
               <div className="absolute left-4 top-4 z-20 max-w-[70%] space-y-1">
@@ -180,8 +182,12 @@ export function ResultEvidenceMedia({
         <p className="mt-2 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
           {activeOverlay.pendingMessage}
           <span className="mt-1 block text-[11px] font-medium text-amber-700/80 dark:text-amber-300/80">
-            UI는 연동 완료를 가정해 구성되어 있습니다. BE/AI가 `overlayVideoUrl`을 모듈별로 내려주면 자동 재생됩니다.
+            모듈 타임라인(`frameRisks` / `clipRisks`)이 제공되면 원본 영상 위 미리보기 오버레이가 표시됩니다.
           </span>
+        </p>
+      ) : useOverlayPreview ? (
+        <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-600 dark:border-border dark:bg-background dark:text-muted-foreground">
+          AI 오버레이 MP4가 없어 원본 영상 위 모델별 미리보기를 표시합니다. 타임라인 구간과 재생 시점에 맞춰 bbox·클립 테두리가 강조됩니다.
         </p>
       ) : null}
 
@@ -294,50 +300,6 @@ function ModelOverlayPicker({
             : "딥페이크 모듈 타임라인이 없습니다."}
         </p>
       ) : null}
-    </div>
-  )
-}
-
-function MockModelOverlay({ option }: { option: ModelOverlayOption | null }) {
-  const label = option?.label ?? "모델"
-  const isForgery = option?.category === "forgery"
-  const isTemporal = option?.id === "deepfake:temporal"
-  const isOptical = option?.id === "deepfake:optical"
-
-  return (
-    <div className="pointer-events-none absolute inset-0">
-      {isForgery ? (
-        <>
-          <div className="absolute inset-x-[18%] top-[62%] h-[8%] rounded-sm border-2 border-orange-500 bg-orange-500/20" />
-          <div className="absolute bottom-4 left-4 rounded-md bg-orange-600/95 px-2.5 py-1 text-xs font-bold text-white">
-            {label} · 편집 구간 미리보기
-          </div>
-        </>
-      ) : isTemporal ? (
-        <>
-          <div className="absolute inset-x-0 top-0 h-1.5 bg-red-500/80" />
-          <div className="absolute inset-x-[8%] top-[12%] h-[76%] rounded-lg border-2 border-dashed border-red-400/70 bg-red-500/10" />
-          <div className="absolute bottom-4 left-4 rounded-md bg-red-700/95 px-2.5 py-1 text-xs font-bold text-white">
-            TimeSformer · 클립 구간
-          </div>
-        </>
-      ) : isOptical ? (
-        <>
-          <div className="absolute left-[30%] top-[35%] size-16 rounded-full border-2 border-cyan-400 bg-cyan-400/10" />
-          <div className="absolute left-[48%] top-[42%] size-10 rounded-full border-2 border-cyan-300 bg-cyan-300/10" />
-          <div className="absolute bottom-4 left-4 rounded-md bg-cyan-700/95 px-2.5 py-1 text-xs font-bold text-white">
-            GMFlow · motion 이상
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="absolute left-[39%] top-[20%] h-[34%] w-[24%] rounded-[18%] border-2 border-red-700 bg-red-700/15 shadow-[0_0_24px_rgba(185,28,28,0.3)]" />
-          <div className="absolute left-[43%] top-[38%] h-[7%] w-[16%] rounded-sm bg-yellow-300/55" />
-          <div className="absolute bottom-4 left-4 rounded-md bg-red-700/95 px-2.5 py-1 text-xs font-bold text-white">
-            {label} · 얼굴 bbox 미리보기
-          </div>
-        </>
-      )}
     </div>
   )
 }

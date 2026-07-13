@@ -126,8 +126,13 @@ export type SuspiciousSegment = {
   reason: string
 }
 
-/** AI 모듈 종류. cnn=Xception, temporal=TimeSformer, optical=GMFlow */
-export type ModuleTimelineKind = "cnn" | "temporal" | "optical"
+/** AI 모듈 종류. cnn=Xception, temporal=TimeSformer(deepfake), optical=GMFlow, forgery_*=위변조 */
+export type ModuleTimelineKind =
+  | "cnn"
+  | "temporal"
+  | "optical"
+  | "forgery_spatial"
+  | "forgery_temporal"
 
 /** 상세 UI용 모듈별 타임라인 묶음 (BE/FE 계약 확장) */
 export type ModuleTimeline = {
@@ -162,6 +167,9 @@ export type RepresentativeFrame = {
   frameNumber?: number | null
   score?: number | null
   imageUrl?: string | null
+  /** forgery / trufor / spatial 등 모듈 태그 (GPU visualization) */
+  module?: string | null
+  heatmapImageUrl?: string | null
 }
 
 export type AnalysisInfo = {
@@ -201,6 +209,10 @@ export type AnalysisInfo = {
   overlayVideoUrl?: string | null
   /** BE flat list (선택). moduleTimelines·moduleResults보다 우선하지 않음 */
   modelOverlayArtifacts?: ModelOverlayArtifact[] | null
+  /** GPU visualization 산출물 (TruFor spatial MP4) */
+  spatialOverlayVideoUrl?: string | null
+  /** GPU visualization 산출물 (TimeSformer temporal MP4) */
+  temporalOverlayVideoUrl?: string | null
 }
 
 /** 모델별 시각화 오버레이 산출물 (BE/AI 연동 계약) */

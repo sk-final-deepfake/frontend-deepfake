@@ -33,8 +33,9 @@ type DeepfakeV2TabProps = {
   data: EvidenceDetailData
 }
 
+type DeepfakeTimelineTabKey = Exclude<ModuleTimelineKind, "forgery_spatial" | "forgery_temporal">
 type ViewMode = "original" | "overlay"
-type TimelineTabKey = ModuleTimelineKind
+type TimelineTabKey = DeepfakeTimelineTabKey
 
 const DEFAULT_THRESHOLD = 0.6
 const MODEL_SCORE_ORDER = ["deepfake", "deepfake_cnn", "deepfake_temporal", "deepfake_optical"] as const
@@ -65,7 +66,7 @@ const MODEL_SCORE_DISPLAY: Record<
   },
 }
 
-const TIMELINE_DISPLAY: Record<TimelineTabKey, { label: string; title: string; description: string }> = {
+const TIMELINE_DISPLAY: Record<DeepfakeTimelineTabKey, { label: string; title: string; description: string }> = {
   cnn: {
     label: "Xception",
     title: "프레임별 위험도",
