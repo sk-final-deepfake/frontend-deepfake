@@ -188,3 +188,21 @@ export async function recordCaseReviewDecision(
     },
   })
 }
+
+export async function requestCaseReview(
+  caseId: string,
+  memo?: string
+): Promise<CaseDetailData> {
+  if (features.mockApi) {
+    return import("@/lib/mock/forensic-api").then(({ mockRequestCaseReview }) =>
+      mockRequestCaseReview(caseId, memo)
+    )
+  }
+
+  const params = new URLSearchParams({ caseKey: caseId })
+  const trimmedMemo = memo?.trim()
+  return apiRequest<CaseDetailData>(`/api/v1/cases/review-request?${params}`, {
+    method: "POST",
+    ...(trimmedMemo ? { body: { memo: trimmedMemo } } : {}),
+  })
+}
