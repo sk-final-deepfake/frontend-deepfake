@@ -3,7 +3,12 @@ import {
   shouldRetryAfterUnauthorized,
 } from "@/lib/api/interceptor"
 import { resolveStepUpHeaderValue, STEP_UP_HEADER } from "@/lib/api/step-up-auth"
-import { getToken, handleUnauthorizedResponse } from "@/lib/auth"
+import {
+  getToken,
+  handleUnauthorizedResponse,
+  isAuthApiPath,
+  touchSessionExpiry,
+} from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api/config"
 
 export type ApiErrorDetail = { field: string; reason: string }
@@ -66,6 +71,11 @@ function requireAccessToken(): string {
   throw new ApiError("로그인이 필요합니다.", 401, "UNAUTHORIZED")
 }
 
+function noteAuthenticatedActivity(path: string, auth: boolean) {
+  if (!auth || isAuthApiPath(path)) return
+  touchSessionExpiry()
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
@@ -114,6 +124,8 @@ export async function apiRequest<T>(
     throw await parseApiError(response)
   }
 
+  noteAuthenticatedActivity(path, auth)
+
   if (response.status === 204) {
     return undefined as T
   }
@@ -158,6 +170,8 @@ export async function apiRequestForm<T>(
     throw await parseApiError(response)
   }
 
+  noteAuthenticatedActivity(path, auth)
+
   if (response.status === 204) {
     return undefined as T
   }
@@ -190,5 +204,6 @@ export async function apiDownload(path: string, retried = false): Promise<Blob> 
     throw await parseApiError(response)
   }
 
+  noteAuthenticatedActivity(path, true)
   return response.blob()
 }

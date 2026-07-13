@@ -69,6 +69,8 @@ import { useAnalyzeWithReadiness } from "@/hooks/use-analyze-with-readiness"
 import { isStepUpCancelledError, useStepUpGate } from "@/hooks/use-step-up-gate"
 import { CaseHero } from "./_components/case-hero"
 import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
+import { ResultEvidenceMedia } from "./_components/result-evidence-media"
+import { ResultFrameAnalysis } from "./_components/result-frame-analysis"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
 import { MetadataReportTab } from "./_components/metadata-report-tab"
@@ -80,6 +82,14 @@ import {
   getCaseRiskTone,
   getDisplayRiskLabel,
 } from "./_lib/evidence-display"
+import { getXceptionFrameScores } from "./_lib/module-timelines"
+import {
+  buildForgeryRepresentativeFrames,
+  buildForgeryResultTabSignals,
+  formatForgeryThresholdLabel,
+  getForgeryPriorityReviewRange,
+  getForgerySpatialTimeline,
+} from "./_lib/forgery-ui"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -90,7 +100,6 @@ import {
   buildMethodologyInfo,
   buildRiskSignals,
   buildSummaryActions,
-  buildTopRiskFrames,
   formatModuleLabel,
   formatScoreOutOf100,
   getDetectionModules,
@@ -125,6 +134,7 @@ import {
   cancelCaseAnalysis,
   markEvidenceExcluded,
   recordCaseReviewDecision,
+  requestCaseReview,
   setRepresentativeEvidence,
   startCaseAnalysis,
   updateCaseName,
@@ -145,7 +155,7 @@ import {
   saveCompareResultSummary,
   type StoredCompareResultSummary,
 } from "@/lib/compare-history"
-import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permissions"
+import { getAppUserFromSession, mockUsers, roleLabelMap, canRequestReview, reviewStatusLabelMap, type AppUser } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
@@ -297,6 +307,7 @@ export default function CaseDetailPage() {
   const [copied, setCopied] = useState(false)
   const [caseRefreshKey, setCaseRefreshKey] = useState(0)
   const isInitialCaseLoad = useRef(true)
+  const selectedEvidenceIdRef = useRef<number | null>(null)
   const [showResultDashboard, setShowResultDashboard] = useState(false)
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
@@ -316,6 +327,42 @@ export default function CaseDetailPage() {
     closeSuccessDialog,
     fetchEvidenceDetailWithStepUp,
   } = useStepUpGate()
+
+  const refreshEvidenceDetail = useCallback(
+    async (evidenceId: number, options?: { silent?: boolean }) => {
+      if (!Number.isFinite(evidenceId) || evidenceId <= 0) return
+
+      const silent = options?.silent ?? false
+      if (!silent) {
+        setDetailLoading(true)
+        setDetailError(null)
+        setEvidenceDetail(null)
+      }
+
+      try {
+        const result = await fetchEvidenceDetailWithStepUp(evidenceId)
+        setEvidenceDetail(normalizeEvidenceDetailForUi(result))
+      } catch (error) {
+        if (!silent) {
+          setEvidenceDetail(null)
+          if (isStepUpCancelledError(error)) {
+            setDetailError("민감 정보 조회를 위해 비밀번호 재인증이 필요합니다.")
+          } else {
+            setDetailError(getErrorMessage(error, "증거 상세 정보를 불러오지 못했습니다."))
+          }
+        }
+      } finally {
+        if (!silent) {
+          setDetailLoading(false)
+        }
+      }
+    },
+    [fetchEvidenceDetailWithStepUp]
+  )
+
+  useEffect(() => {
+    selectedEvidenceIdRef.current = selectedEvidenceId
+  }, [selectedEvidenceId])
 
   useEffect(() => {
     function syncSession() {
@@ -561,6 +608,26 @@ export default function CaseDetailPage() {
           normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
       )
       const now = Date.now()
+      const selectedId = selectedEvidenceIdRef.current
+
+      if (hasTerminalStatus) {
+        for (const statusUpdate of validStatuses) {
+          const status = normalizeStatus(statusUpdate.status)
+          if (
+            (status === "COMPLETED" || status === "FAILED") &&
+            statusUpdate.evidenceId === selectedId
+          ) {
+            void refreshEvidenceDetail(statusUpdate.evidenceId, { silent: true })
+            if (status === "COMPLETED") {
+              window.setTimeout(() => {
+                if (selectedEvidenceIdRef.current !== statusUpdate.evidenceId) return
+                void refreshEvidenceDetail(statusUpdate.evidenceId, { silent: true })
+              }, 3000)
+            }
+            break
+          }
+        }
+      }
 
       if (hasTerminalStatus || now - lastRefreshAt >= 10000) {
         lastRefreshAt = now
@@ -584,7 +651,22 @@ export default function CaseDetailPage() {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [refreshCase, trackedAnalysisIdsKey])
+  }, [refreshCase, refreshEvidenceDetail, trackedAnalysisIdsKey])
+
+  useEffect(() => {
+    if (!caseData || !selectedEvidenceId) return
+
+    const evidence = caseData.evidences.find((item) => item.evidenceId === selectedEvidenceId)
+    if (!evidence) return
+
+    const serverStatus = normalizeStatus(evidence.analysisStatus ?? "PENDING")
+    if (serverStatus !== "COMPLETED" && serverStatus !== "FAILED") return
+
+    const detailStatus = normalizeStatus(evidenceDetail?.analysisInfo.status ?? "PENDING")
+    if (detailStatus === serverStatus) return
+
+    void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
+  }, [caseData, evidenceDetail?.analysisInfo.status, refreshEvidenceDetail, selectedEvidenceId])
 
   useEffect(() => {
     if (!caseData || !Number.isFinite(initialEvidenceId)) return
@@ -595,45 +677,13 @@ export default function CaseDetailPage() {
   }, [caseData, initialEvidenceId])
 
   useEffect(() => {
-    let cancelled = false
-
-    async function loadEvidenceDetail() {
-      if (!selectedEvidenceId) {
-        setEvidenceDetail(null)
-        return
-      }
-
-      setDetailLoading(true)
-      setDetailError(null)
+    if (!selectedEvidenceId) {
       setEvidenceDetail(null)
-
-      try {
-        const result = await fetchEvidenceDetailWithStepUp(selectedEvidenceId)
-        if (!cancelled) {
-          setEvidenceDetail(normalizeEvidenceDetailForUi(result))
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setEvidenceDetail(null)
-          if (isStepUpCancelledError(error)) {
-            setDetailError("민감 정보 조회를 위해 비밀번호 재인증이 필요합니다.")
-          } else {
-            setDetailError(getErrorMessage(error, "증거 상세 정보를 불러오지 못했습니다."))
-          }
-        }
-      } finally {
-        if (!cancelled) {
-          setDetailLoading(false)
-        }
-      }
+      return
     }
 
-    loadEvidenceDetail()
-
-    return () => {
-      cancelled = true
-    }
-  }, [selectedEvidenceId, fetchEvidenceDetailWithStepUp])
+    void refreshEvidenceDetail(selectedEvidenceId)
+  }, [refreshEvidenceDetail, selectedEvidenceId])
 
   async function copyHash(hash: string) {
     try {
@@ -775,6 +825,7 @@ export default function CaseDetailPage() {
                     setAnalysisProgressOverrides={setAnalysisProgressOverrides}
                     analysisPollingMessage={analysisPollingMessage}
                     currentUserName={getAppUserFromSession(session)?.name ?? null}
+                    currentUser={getAppUserFromSession(session)}
                     readOnly={isReviewer}
                   />
                 )}
@@ -933,7 +984,7 @@ function CaseResultView({
   currentSession: AuthSession | null
   onBack: () => void
 }) {
-  const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
+  const [mediaContext, setMediaContext] = useState("original")
   const [resultTab, setResultTab] = useState<ResultTab>("summary")
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -951,51 +1002,31 @@ function CaseResultView({
   const resultEvidenceIdLabel = selectedEvidence ? `EVD-${selectedEvidence.evidenceId}` : caseData.caseId
   const analyzedAt = evidenceDetail?.analysisInfo.completedAt ?? evidenceDetail?.analysisInfo.requestedAt ?? caseData.createdAt
   const hlsPlayback = evidenceDetail?.hlsPlayback ?? null
-  const hasHlsOriginal =
-    hlsPlayback?.hlsStatus === "READY" &&
-    Boolean(hlsPlayback.streamToken) &&
-    Boolean(hlsPlayback.manifestPath)
-  const overlayVideoUrl =
-    evidenceDetail?.analysisInfo.overlayVideoUrl ??
-    evidenceDetail?.evidenceInfo.overlayVideoUrl ??
-    null
-  const useOverlaySrc = mediaMode === "overlay" && Boolean(overlayVideoUrl)
-  const showResultPlayer = useOverlaySrc || hasHlsOriginal || Boolean(hlsPlayback)
-  const playerSurfaceKey = useOverlaySrc
-    ? `direct-${overlayVideoUrl ?? "none"}`
-    : `hls-${hlsPlayback?.streamToken ?? hlsPlayback?.hlsStatus ?? "pending"}`
-  const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
+  const frameScores = getXceptionFrameScores(evidenceDetail)
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
   const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
   const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
   const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
-  const forgeryRiskSignals = buildForgeryRiskSignals(evidenceDetail, detectionThreshold)
+  const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
+  const forgerySpatialTab = getForgerySpatialTimeline(evidenceDetail)
+  const forgerySpatialThreshold = forgerySpatialTab?.threshold ?? 0.515
+  const forgeryPriorityRange = getForgeryPriorityReviewRange(evidenceDetail)
+  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
   const overThresholdSignalCount = detectionModules.filter(
     (module) => normalizeResultValue(module.score) >= detectionThreshold
   ).length
-  const topRiskFrames = buildTopRiskFrames(evidenceDetail, frameScores)
   const priorityReviewRange = getPriorityReviewRange(evidenceDetail, frameScores)
   const representativeFrames = evidenceDetail?.analysisInfo.representativeFrames ?? []
-  const peakFrame = frameScores.reduce<FrameScore | null>(
-    (peak, frame) => (peak == null || frame.score > peak.score ? frame : peak),
-    null
-  )
-  const peakFrameTimeLabel =
-    peakFrame?.timeSec != null ? formatDuration(peakFrame.timeSec) : peakFrame?.timestamp ?? "-"
-  const avgFrameScore =
-    frameScores.length > 0
-      ? frameScores.reduce((sum, frame) => sum + normalizeResultValue(frame.score), 0) / frameScores.length
-      : null
 
   const reportSecurityEvent = useCallback((event: ProtectedSecurityEvent) => {
     if (!selectedEvidenceId) return
 
     const now = Date.now()
-    const eventKey = `${selectedEvidenceId}:${mediaMode}:${event.eventType}`
+    const eventKey = `${selectedEvidenceId}:${mediaContext}:${event.eventType}`
     const lastEvent = lastSecurityEventRef.current
     if (lastEvent?.key === eventKey && now - lastEvent.recordedAt < 5000) {
       return
@@ -1005,26 +1036,22 @@ function CaseResultView({
     void recordEvidenceSecurityEvent(selectedEvidenceId, {
       eventType: event.eventType,
       detail: event.detail,
-      mediaMode,
+      mediaMode: mediaContext,
       pagePath: `${window.location.pathname}${window.location.search}`,
       clientTimestamp: new Date().toISOString(),
     }).catch(() => undefined)
-  }, [mediaMode, selectedEvidenceId])
-  const highRiskFrameCount = frameScores.filter(
-    (frame) => normalizeResultValue(frame.score) >= detectionThreshold
-  ).length
+  }, [mediaContext, selectedEvidenceId])
   const forgeryHighestScore = forgeryRiskSignals.reduce(
     (highest, signal) => Math.max(highest, normalizeResultValue(signal.score)),
     0
   )
   const forgeryOverThresholdCount = forgeryRiskSignals.filter(
-    (signal) => normalizeResultValue(signal.score) >= detectionThreshold
+    (signal) => normalizeResultValue(signal.score) >= forgerySpatialThreshold
   ).length
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
   const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
 
-  function seekResultVideo(seconds: number, mode: ResultMediaMode = mediaMode) {
-    setMediaMode(mode)
+  function seekResultVideo(seconds: number) {
     requestAnimationFrame(() => {
       const video = videoRef.current
       if (!video) return
@@ -1091,85 +1118,29 @@ function CaseResultView({
         </Alert>
       ) : evidenceDetail ? (
         <>
-          <div className="grid gap-6 lg:h-[calc(100vh-14.5rem)] lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:overflow-y-auto dark:border-border dark:bg-card">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-bold text-slate-950 dark:text-foreground">증거 영상</h2>
-                  <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                    원본과 오버레이를 같은 위치에서 비교합니다.
-                  </p>
-                </div>
-                <div className="flex rounded-full bg-slate-950/80 p-1 backdrop-blur-sm">
-                  {([
-                    ["original", "원본"],
-                    ["overlay", "오버레이"],
-                  ] as const).map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs font-bold transition-colors",
-                        mediaMode === mode ? "bg-teal-500 text-white" : "text-white/80 hover:text-white"
-                      )}
-                      onClick={() => setMediaMode(mode)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-                {showResultPlayer ? (
-                  <ProtectedEvidencePlayer
-                    key={`result-player-${selectedEvidenceId ?? "none"}-${playerSurfaceKey}`}
-                    src={useOverlaySrc ? overlayVideoUrl : null}
-                    playback={useOverlaySrc ? null : hlsPlayback}
-                    fallbackOpenUrl={mediaMode === "overlay" ? overlayVideoUrl : null}
-                    videoRef={videoRef}
-                    objectFit="cover"
-                    onSecurityEvent={reportSecurityEvent}
-                  >
-                    {mediaMode === "overlay" && !overlayVideoUrl ? <MockAnalysisOverlay /> : null}
-                    {mediaMode === "original" ? (
-                      <EvidenceWatermarkOverlay
-                        caseId={caseData.caseId}
-                        evidenceId={selectedEvidence?.evidenceId ?? selectedEvidenceId}
-                        viewerName={currentSession?.name ?? null}
-                        viewerLoginId={currentSession?.loginId ?? null}
-                      />
-                    ) : null}
-                    {mediaMode === "overlay" ? (
-                      <div className="absolute left-4 top-4 z-20 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
-                        탐지 오버레이
-                      </div>
-                    ) : null}
-                  </ProtectedEvidencePlayer>
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
-                    <FileVideo className="mb-3 size-8" aria-hidden="true" />
-                    미리보기 가능한 영상이 없습니다.
-                  </div>
-                )}
-              </div>
-              {frameScores.length > 0 ? (
-                <FrameRiskHeatStrip scores={frameScores} onSeek={seekResultVideo} />
-              ) : (
-                <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-500 dark:bg-background">
-                  위험 신호가 높은 구간은 분석 탭에서 시간과 대표 프레임으로 확인할 수 있습니다.
-                </p>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
+            <ResultEvidenceMedia
+              evidenceDetail={evidenceDetail}
+              selectedEvidenceId={selectedEvidenceId}
+              hlsPlayback={hlsPlayback}
+              videoRef={videoRef}
+              onSecurityEvent={reportSecurityEvent}
+              onSeek={seekResultVideo}
+              onMediaContextChange={setMediaContext}
+              renderHeatStrip={({ scores, caption, onSeek: seek }) => (
+                <FrameRiskHeatStrip scores={scores} onSeek={seek} caption={caption} />
               )}
-              <div className="mt-4 border-t border-slate-100 pt-3 dark:border-border">
-                <p className="text-[11px] font-bold text-slate-400">분석 유의사항</p>
-                <ul className="mt-1.5 space-y-1 text-xs font-medium leading-5 text-slate-500">
-                  <li>본 결과는 AI 기반 조작 의심 신호 분석이며, 조작 여부를 확정하지 않습니다.</li>
-                  <li>해상도, 압축률, 조명, 얼굴 가림, 빠른 움직임에 따라 분석 신뢰도가 달라질 수 있습니다.</li>
-                  <li>최종 판단은 원본 자료, 사건 맥락, 전문가 검토 결과와 함께 이루어져야 합니다.</li>
-                </ul>
-              </div>
-            </section>
+              renderWatermark={
+                <EvidenceWatermarkOverlay
+                  caseId={caseData.caseId}
+                  evidenceId={selectedEvidence?.evidenceId ?? selectedEvidenceId}
+                  viewerName={currentSession?.name ?? null}
+                  viewerLoginId={currentSession?.loginId ?? null}
+                />
+              }
+            />
 
-            <section className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none lg:h-full dark:border-border dark:bg-card">
+            <section className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-border">
               <div className="flex min-w-0 items-start gap-3">
                 {riskTone === "red" ? (
@@ -1245,7 +1216,7 @@ function CaseResultView({
                 }}
               />
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+            <div className="p-5">
               {resultTab === "summary" ? (
                 <div className="space-y-5">
                   <div className="grid gap-3 sm:grid-cols-3">
@@ -1334,13 +1305,10 @@ function CaseResultView({
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
                         <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">딥페이크 모델별 판단 점수</h4>
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
-                          판정 기준 {Math.round(detectionThreshold * 100)} / 100
+                          모듈별 기준선 · 초과 시 탐지
                         </span>
                       </div>
-                      <MethodologyModelChart
-                        models={methodology.models}
-                        thresholdPercent={Math.round(detectionThreshold * 100)}
-                      />
+                      <MethodologyModelChart models={methodology.models} />
                     </section>
                   ) : null}
 
@@ -1367,7 +1335,7 @@ function CaseResultView({
                     <div>
                       <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위변조 탐지</h3>
                       <p className="mt-1 text-sm font-semibold text-slate-500">
-                        프레임 편집, 구간 이어붙이기, 재인코딩, 국소 변조 신호를 따로 확인합니다.
+                        TruFor 국소 위변조 신호를 확인합니다. 시간축(TimeSformer) 분석은 프레임 분석 탭에서 확인하세요.
                       </p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-secondary">
@@ -1379,24 +1347,24 @@ function CaseResultView({
                     <FrameMetricCard
                       label="위변조 최고 점수"
                       value={forgeryRiskSignals.length > 0 ? formatScoreOutOf100(forgeryHighestScore) : "-"}
-                      sub="Frame Edit / Splicing / Re-encoding 기준"
-                      tone={forgeryHighestScore >= detectionThreshold ? "danger" : "neutral"}
+                      sub={`TruFor · ${formatForgeryThresholdLabel(forgerySpatialThreshold)}`}
+                      tone={forgeryHighestScore >= forgerySpatialThreshold ? "danger" : "neutral"}
                     />
                     <FrameMetricCard
                       label="기준 초과 항목"
                       value={`${forgeryOverThresholdCount} / ${forgeryRiskSignals.length}개`}
-                      sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
+                      sub={formatForgeryThresholdLabel(forgerySpatialThreshold)}
                       tone={forgeryOverThresholdCount > 0 ? "danger" : "neutral"}
                     />
                     <FrameMetricCard
                       label="의심 구간"
-                      value={priorityReviewRange ? priorityReviewRange.label : "-"}
-                      sub={priorityReviewRange ? "프레임 분석에서 시간축 확인" : "임계값 초과 구간 없음"}
+                      value={forgeryPriorityRange ? forgeryPriorityRange.label : "-"}
+                      sub={forgeryPriorityRange ? "TruFor spatial 의심 구간" : "임계값 초과 구간 없음"}
                     />
                     <FrameMetricCard
                       label="시각 증거"
-                      value={representativeFrames.length > 0 ? "제공됨" : "대기"}
-                      sub="대표 프레임/마스크 수신 시 표시"
+                      value={forgeryRepresentativeFrames.length > 0 ? "제공됨" : "대기"}
+                      sub="고위험 프레임 시점 · 마스크 연동 시 표시"
                     />
                   </div>
 
@@ -1413,22 +1381,22 @@ function CaseResultView({
                     </ul>
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                      위변조 세부 모델 결과가 아직 제공되지 않았습니다.
+                      위변조(TruFor) 결과가 아직 제공되지 않았습니다.
                       <br />
-                      AI 서버가 frameEdit, splicing, reEncoding 또는 forgery 계열 점수를 보내면 이 영역에 표시됩니다.
+                      GPU worker가 forgery_spatial 점수와 frameRisks를 내면 이 영역에 표시됩니다.
                     </p>
                   )}
 
-                  {representativeFrames.length > 0 ? (
+                  {forgeryRepresentativeFrames.length > 0 ? (
                     <section className="mt-5">
                       <div>
-                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">대표 프레임 근거</h4>
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">고위험 프레임</h4>
                         <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                          원본과 히트맵을 전환하며 국소 위변조 의심 영역을 확인합니다.
+                          TruFor frameRisks 상위 시점입니다. 시간축·클립 분석은 프레임 분석 &gt; 위변조를 확인하세요.
                         </p>
                       </div>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        {representativeFrames.slice(0, 2).map((frame, index) => (
+                        {forgeryRepresentativeFrames.slice(0, 2).map((frame, index) => (
                           <RepresentativeFrameDetailCard
                             key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
                             frame={frame}
@@ -1440,121 +1408,12 @@ function CaseResultView({
                   ) : null}
                 </section>
               ) : resultTab === "frames" ? (
-                <section>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">프레임 분석</h3>
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
-                        영상 구간별 딥페이크 위험도 흐름입니다.
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-secondary">
-                      {frameScores.length}프레임
-                    </span>
-                  </div>
-
-                  {frameScores.length > 0 ? (
-                    <>
-                      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                        <FrameMetricCard
-                          label="최고 위험"
-                          value={formatScoreOutOf100(peakFrame?.score)}
-                          sub={`${peakFrameTimeLabel} 지점`}
-                          tone={
-                            peakFrame != null && normalizeResultValue(peakFrame.score) >= detectionThreshold
-                              ? "danger"
-                              : "neutral"
-                          }
-                        />
-                        <FrameMetricCard
-                          label="의심 구간"
-                          value={
-                            priorityReviewRange
-                              ? `${priorityReviewRange.startSec.toFixed(1)}초 ~ ${priorityReviewRange.endSec.toFixed(1)}초`
-                              : "-"
-                          }
-                          sub={
-                            priorityReviewRange
-                              ? priorityReviewRange.label
-                              : highRiskFrameCount > 0
-                                ? `${highRiskFrameCount}개 프레임 연속 감지`
-                                : "임계값 초과 구간 없음"
-                          }
-                        />
-                        <FrameMetricCard
-                          label="평균 위험도"
-                          value={formatScoreOutOf100(avgFrameScore)}
-                          sub="전체 프레임 평균"
-                        />
-                        <FrameMetricCard
-                          label="임계값 초과"
-                          value={`${highRiskFrameCount} / ${frameScores.length} 프레임`}
-                          sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
-                          tone={highRiskFrameCount > 0 ? "danger" : "neutral"}
-                        />
-                      </div>
-
-                      <div className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-                        <MiniFrameRiskChart scores={frameScores} />
-                      </div>
-
-                      <div className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">상위 위험 프레임</h4>
-                          <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                            행을 선택하면 영상이 해당 지점으로 이동합니다.
-                          </p>
-                        </div>
-                        <div className="mt-2 divide-y divide-slate-100 dark:divide-border">
-                          {topRiskFrames.map((frame, index) => {
-                            const representative = representativeFrames.find(
-                              (item) =>
-                                (item.timeSec != null && Math.abs(item.timeSec - frame.seconds) < 0.35) ||
-                                item.timestamp === frame.time
-                            )
-                            return (
-                              <button
-                                key={frame.time}
-                                type="button"
-                                onClick={() => seekResultVideo(frame.seconds)}
-                                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-secondary/40"
-                              >
-                                  <span className="w-4 shrink-0 text-xs font-bold text-slate-400">{index + 1}</span>
-                                  <span className="h-11 w-[74px] shrink-0 overflow-hidden rounded-md bg-slate-100 dark:bg-secondary">
-                                    {representative?.imageUrl ? (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img
-                                        src={representative.imageUrl}
-                                        alt={`${frame.time} 프레임 미리보기`}
-                                        className="size-full object-cover"
-                                      />
-                                    ) : (
-                                      <span className="flex size-full items-center justify-center">
-                                        <FileVideo className="size-4 text-slate-300" aria-hidden="true" />
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="font-mono text-sm font-semibold text-slate-950 dark:text-foreground">
-                                    {frame.time}
-                                  </span>
-                                  <span className="shrink-0 text-sm font-bold text-red-700">{frame.score} / 100</span>
-                                  <span className="truncate text-sm font-semibold text-slate-600 dark:text-muted-foreground">
-                                    {frame.signal}
-                                  </span>
-                                </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                      프레임 점수 데이터가 없습니다.
-                      <br />
-                      분석 서버가 프레임 데이터를 제공한 뒤 다시 분석하면 표시됩니다.
-                    </p>
-                  )}
-                </section>
+                <ResultFrameAnalysis
+                  evidenceDetail={evidenceDetail}
+                  detectionThreshold={detectionThreshold}
+                  representativeFrames={representativeFrames}
+                  onSeek={seekResultVideo}
+                />
               ) : (
                 <section>
                   <div className="flex items-center justify-between gap-3">
@@ -1592,7 +1451,11 @@ function CaseResultView({
                                     : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
                                 )}
                               >
-                                {model.score == null ? "정보 없음" : model.overThreshold ? "기준 초과" : "기준 미만"}
+                                {model.score == null
+                                  ? "정보 없음"
+                                  : model.overThreshold
+                                    ? `기준 ${Math.round(model.threshold * 100)} 초과`
+                                    : `기준 ${Math.round(model.threshold * 100)} 미만`}
                               </span>
                             </div>
                             <p className="mt-1 text-xs font-semibold text-slate-500">분석 목적: {model.role}</p>
@@ -2497,6 +2360,7 @@ function CaseWorkflowPanel({
   setAnalysisProgressOverrides,
   analysisPollingMessage,
   currentUserName,
+  currentUser = null,
   readOnly = false,
 }: {
   caseData: CaseDetailData
@@ -2518,6 +2382,7 @@ function CaseWorkflowPanel({
   setAnalysisProgressOverrides: Dispatch<SetStateAction<AnalysisProgressOverrides>>
   analysisPollingMessage: WorkflowMessage | null
   currentUserName?: string | null
+  currentUser?: AppUser | null
   readOnly?: boolean
 }) {
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -2539,6 +2404,8 @@ function CaseWorkflowPanel({
   const [reviewerCommentDraft, setReviewerCommentDraft] = useState(caseData.reviewerComment ?? "")
   const [message, setMessage] = useState<WorkflowMessage | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
+  const [reviewRequestOpen, setReviewRequestOpen] = useState(false)
+  const [reviewRequestMemo, setReviewRequestMemo] = useState("")
   const [isWorking, setIsWorking] = useState(false)
   const [readinessByEvidenceId, setReadinessByEvidenceId] = useState<
     Record<number, EvidenceReadinessResponse>
@@ -2678,6 +2545,12 @@ function CaseWorkflowPanel({
         ? "text-red-700 dark:text-red-400"
         : "text-amber-600"
   const isReviewerMode = readOnly
+  const showReviewRequestButton = !readOnly && canRequestReview(currentUser, caseData)
+  const caseReviewStatus = caseData.reviewStatus ?? "NONE"
+  const showCaseReviewStatus =
+    !readOnly && !showReviewRequestButton && caseReviewStatus !== "NONE"
+  const caseReviewStatusLabel =
+    reviewStatusLabelMap[caseReviewStatus as keyof typeof reviewStatusLabelMap] ?? caseReviewStatus
 
   useEffect(() => {
     if (!selectedEvidence) {
@@ -3044,6 +2917,30 @@ function CaseWorkflowPanel({
     }
   }
 
+  async function handleRequestReview() {
+    if (isWorking || !showReviewRequestButton) return
+
+    setIsWorking(true)
+    setMessage(null)
+    try {
+      await requestCaseReview(caseData.caseId, reviewRequestMemo)
+      setReviewRequestOpen(false)
+      setReviewRequestMemo("")
+      setMessage({
+        type: "success",
+        text: "검토 요청이 접수되었습니다. 기관 관리자가 검토자를 배정합니다.",
+      })
+      onRefresh()
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: getApiErrorMessage(error, "검토 요청에 실패했습니다."),
+      })
+    } finally {
+      setIsWorking(false)
+    }
+  }
+
   const visibleMessage = analysisPollingMessage ?? message
 
   return (
@@ -3075,6 +2972,33 @@ function CaseWorkflowPanel({
             <AlertCircle className="size-4" aria-hidden="true" />
           )}
           {visibleMessage.text}
+        </div>
+      ) : null}
+
+      {!readOnly && (showReviewRequestButton || showCaseReviewStatus) ? (
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-foreground">사건 검토</p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-muted-foreground">
+              {showReviewRequestButton
+                ? "분석이 완료되었습니다. 검토자 배정을 요청하면 관리자 페이지에서 검토자를 지정합니다."
+                : "검토 요청이 접수되었습니다. 기관 관리자의 검토자 배정을 기다리는 중입니다."}
+            </p>
+          </div>
+          {showReviewRequestButton ? (
+            <Button
+              type="button"
+              className="h-10 shrink-0 bg-teal-600 px-5 font-bold text-white hover:bg-teal-700"
+              disabled={isWorking}
+              onClick={() => setReviewRequestOpen(true)}
+            >
+              검토 요청
+            </Button>
+          ) : (
+            <span className="inline-flex h-10 shrink-0 items-center rounded-full bg-slate-100 px-4 text-sm font-bold text-slate-700">
+              {caseReviewStatusLabel}
+            </span>
+          )}
         </div>
       ) : null}
 
@@ -3572,6 +3496,71 @@ function CaseWorkflowPanel({
                 </Button>
               ) : null}
             </div>
+        </div>
+      ) : null}
+
+      {!readOnly && reviewRequestOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reviewRequestTitle"
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 id="reviewRequestTitle" className="text-lg font-bold text-foreground">
+                  검토 요청
+                </h3>
+                <p className="mt-2 text-sm font-bold leading-6 text-muted-foreground">
+                  이 사건의 분석 결과를 검토자에게 전달합니다. 검토자 배정은 기관 관리자가 관리자
+                  페이지에서 진행합니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                aria-label="검토 요청 닫기"
+                disabled={isWorking}
+                onClick={() => setReviewRequestOpen(false)}
+              >
+                <X className="size-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            <label htmlFor="reviewRequestMemo" className="mt-5 block text-sm font-bold text-foreground">
+              요청 메모
+              <span className="ml-1 text-xs font-semibold text-muted-foreground">(선택)</span>
+            </label>
+            <textarea
+              id="reviewRequestMemo"
+              value={reviewRequestMemo}
+              onChange={(event) => setReviewRequestMemo(event.target.value)}
+              placeholder="검토 시 참고할 내용을 입력하세요."
+              className="mt-2 h-24 w-full resize-none rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-slate-300"
+            />
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 font-bold"
+                disabled={isWorking}
+                onClick={() => setReviewRequestOpen(false)}
+              >
+                취소
+              </Button>
+              <Button
+                type="button"
+                className="h-10 bg-teal-600 px-5 font-bold text-white hover:bg-teal-700"
+                disabled={isWorking}
+                onClick={() => void handleRequestReview()}
+              >
+                {isWorking ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                검토 요청
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -4298,10 +4287,8 @@ const MODEL_BAR_COLORS = [
 
 function MethodologyModelChart({
   models,
-  thresholdPercent,
 }: {
   models: UiMethodologyModel[]
-  thresholdPercent: number
 }) {
   const [animated, setAnimated] = useState(false)
 
@@ -4315,59 +4302,76 @@ function MethodologyModelChart({
 
   return (
     <div className="px-6 pb-3 pt-8">
-      <div className="relative h-36 border-b border-slate-200 dark:border-border">
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 border-t-[1.5px] border-dashed border-slate-400/70 dark:border-slate-500"
-          style={{ bottom: `${thresholdPercent}%` }}
-        >
-          <span className="absolute -top-4 right-0 text-[10px] font-bold text-slate-400">
-            기준 {thresholdPercent}
-          </span>
-        </div>
-        <div className="mx-auto flex h-full max-w-[420px] items-end justify-center gap-3 px-2 sm:gap-4">
+      <div className="relative h-40 border-b border-slate-200 dark:border-border">
+        <div className="mx-auto flex h-full max-w-[560px] items-end justify-center gap-2 px-1 sm:gap-3">
           {models.map((model, index) => {
             const percent = model.score == null ? null : Math.round(model.score * 100)
+            const thresholdPercent = Math.round(model.threshold * 100)
+            const thresholdBottom = Math.max(0, Math.min(100, thresholdPercent))
             const color = MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length]
+            const over = model.score != null && model.overThreshold
             return (
               <div
                 key={`bar-${model.name}-${model.version}`}
-                className="flex h-full w-[86px] shrink-0 flex-col items-center justify-end gap-1.5"
+                className="relative flex h-full w-[108px] shrink-0 flex-col items-end justify-end pr-1"
               >
-                <span
-                  className={cn(
-                    "text-xs font-bold transition-opacity duration-500",
-                    animated ? "opacity-100" : "opacity-0",
-                    color.label
-                  )}
-                  style={{ transitionDelay: `${index * 140 + 350}ms` }}
-                >
-                  {percent ?? "-"}
-                </span>
                 <div
-                  className={cn("w-12 rounded-t-[3px] transition-[height] duration-700 ease-out", color.bar)}
-                  style={{
-                    height: animated ? `${Math.max(2, percent ?? 0)}%` : "0%",
-                    transitionDelay: `${index * 140}ms`,
-                  }}
-                />
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-x-0 z-10 flex items-center"
+                  style={{ bottom: `${thresholdBottom}%` }}
+                >
+                  <span className="w-[46px] shrink-0 text-right text-[9px] font-bold leading-none text-slate-500">
+                    기준 {thresholdPercent}
+                  </span>
+                  <span className="mx-0.5 w-2.5 shrink-0 border-t border-dashed border-slate-500/80 dark:border-slate-400" />
+                  <span className="w-12 shrink-0 border-t-[1.5px] border-dashed border-slate-500/80 dark:border-slate-400" />
+                </div>
+                <div className="flex h-full w-12 flex-col items-center justify-end">
+                  <span
+                    className={cn(
+                      "mb-1 text-xs font-bold transition-opacity duration-500",
+                      animated ? "opacity-100" : "opacity-0",
+                      over ? "text-red-700 dark:text-red-300" : color.label
+                    )}
+                    style={{ transitionDelay: `${index * 140 + 350}ms` }}
+                  >
+                    {percent ?? "-"}
+                  </span>
+                  <div
+                    className={cn(
+                      "w-12 rounded-t-[3px] transition-[height] duration-700 ease-out",
+                      over ? "bg-red-600 dark:bg-red-500" : color.bar
+                    )}
+                    style={{
+                      height: animated ? `${Math.max(2, percent ?? 0)}%` : "0%",
+                      transitionDelay: `${index * 140}ms`,
+                    }}
+                  />
+                </div>
               </div>
             )
           })}
         </div>
       </div>
-      <div className="mx-auto flex max-w-[420px] justify-center gap-3 px-2 pt-2 sm:gap-4">
+      <div className="mx-auto flex max-w-[560px] justify-center gap-2 px-1 pt-2 sm:gap-3">
         {models.map((model, index) => (
-          <span
+          <div
             key={`label-${model.name}-${model.version}`}
-            title={model.name}
-            className={cn(
-              "w-[86px] shrink-0 whitespace-nowrap text-center text-[11px] font-bold leading-tight",
-              MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length].label
-            )}
+            title={`${model.name} · 기준 ${Math.round(model.threshold * 100)} 초과 시 탐지`}
+            className="w-[108px] shrink-0 text-center"
           >
-            {model.name}
-          </span>
+            <span
+              className={cn(
+                "block whitespace-nowrap text-[11px] font-bold leading-tight",
+                MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length].label
+              )}
+            >
+              {model.name}
+            </span>
+            <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
+              {model.overThreshold ? "기준 초과 · 탐지" : "기준 미만"}
+            </span>
+          </div>
         ))}
       </div>
     </div>
@@ -4618,16 +4622,20 @@ function FrameMetricCard({
 function FrameRiskHeatStrip({
   scores,
   onSeek,
+  caption = "타임라인 위험도",
 }: {
   scores: FrameScore[]
   onSeek?: (seconds: number) => void
+  caption?: string
 }) {
   const items = scores.slice(0, 60)
 
   return (
     <div className="mt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-slate-400">타임라인 위험도 · 구간을 누르면 해당 지점으로 이동합니다</p>
+        <p className="text-xs font-semibold text-slate-400">
+          {caption} · 구간을 누르면 해당 지점으로 이동합니다
+        </p>
         <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-400">
           <span className="flex items-center gap-1">
             <span className="size-2 rounded-[3px] bg-slate-200 dark:bg-secondary" />
@@ -4845,23 +4853,71 @@ function signalBadgeFromScore(score: number, detected: boolean, threshold: numbe
 }
 
 function buildForgeryRiskSignals(data: EvidenceDetailData | null, threshold: number): UiRiskSignal[] {
-  const modules = (data?.analysisInfo.moduleResults ?? []).filter((module) =>
-    isForgeryKeywordText(module.moduleName)
+  const modelScores = (data?.analysisInfo.modelScores ?? []).filter(
+    (score) => score.moduleName?.toLowerCase() === "forgery_spatial"
+  )
+  const modules = (data?.analysisInfo.moduleResults ?? []).filter(
+    (module) => module.moduleName?.toLowerCase() === "forgery_spatial"
   )
 
-  return modules
-    .map((module) => {
-      const score = normalizeResultValue(module.score)
-      const label = formatForgeryModuleLabel(module.moduleName)
+  const sources =
+    modelScores.length > 0
+      ? modelScores.map((score) => ({
+          moduleName: score.moduleName,
+          score: score.score,
+          detected: Boolean(score.detected),
+          modelName: score.modelName,
+          modelVersion: score.modelVersion,
+          affectedSegments: null as EvidenceDetailData["analysisInfo"]["moduleResults"][number]["affectedSegments"],
+        }))
+      : modules
+
+  if (sources.length === 0) {
+    return (data?.analysisInfo.moduleResults ?? [])
+      .filter((module) => isForgeryKeywordText(module.moduleName))
+      .map((module) => {
+        const score = normalizeResultValue(module.score)
+        const label = formatForgeryModuleLabel(module.moduleName)
+        return {
+          label,
+          modelLabel: formatModuleModelName(module),
+          definition: formatForgeryDefinition(label),
+          badge: signalBadgeFromScore(score, module.detected, threshold),
+          score,
+          thresholdPercent: Math.round(threshold * 100),
+          tone: signalToneFromScore(score, threshold),
+          segments: (module.affectedSegments ?? []).map((segment) => ({
+            label: `${formatDuration(segment.startTime)} ~ ${formatDuration(segment.endTime)}`,
+            startSec: segment.startTime,
+          })),
+        }
+      })
+      .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
+  }
+
+  return sources
+    .map((source) => {
+      const score = normalizeResultValue(source.score)
+      const moduleName = source.moduleName ?? "forgery_spatial"
+      const label =
+        moduleName.toLowerCase() === "forgery_spatial"
+          ? "TruFor (Spatial)"
+          : formatForgeryModuleLabel(moduleName)
+      const modelLabel =
+        source.modelName?.trim()
+          ? source.modelVersion?.trim()
+            ? `${source.modelName.trim()} ${source.modelVersion.trim()}`
+            : source.modelName.trim()
+          : null
       return {
         label,
-        modelLabel: formatModuleModelName(module),
+        modelLabel,
         definition: formatForgeryDefinition(label),
-        badge: signalBadgeFromScore(score, module.detected, threshold),
+        badge: signalBadgeFromScore(score, source.detected, threshold),
         score,
         thresholdPercent: Math.round(threshold * 100),
         tone: signalToneFromScore(score, threshold),
-        segments: (module.affectedSegments ?? []).map((segment) => ({
+        segments: (source.affectedSegments ?? []).map((segment) => ({
           label: `${formatDuration(segment.startTime)} ~ ${formatDuration(segment.endTime)}`,
           startSec: segment.startTime,
         })),

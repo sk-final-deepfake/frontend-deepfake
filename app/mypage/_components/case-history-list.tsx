@@ -83,7 +83,6 @@ export function CaseHistoryList({
                   >
                     {item.caseName}
                   </Link>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.caseId}</p>
                 </td>
                 <td className="px-3 py-3.5">
                   <span className="block truncate text-muted-foreground">

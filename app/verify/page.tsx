@@ -170,10 +170,7 @@ function VerifyPageBody() {
           }
         />
       ) : result ? (
-        <VerifyResult
-          result={result}
-          lookup={token ? { token } : { code: activeCode }}
-        />
+        <VerifyResult result={result} />
       ) : null}
     </VerifyShell>
   )
@@ -275,8 +272,7 @@ function VerifyShell({ children }: { children: ReactNode }) {
         {children}
 
         <p className="px-1 pt-1 text-center text-[11px] font-medium leading-5 text-slate-400">
-          이 페이지는 발행 기록과 사용자가 선택한 PDF의 무결성을 확인하며, 보고서 내용은 제공하지
-          않습니다.
+          이 페이지는 QR 코드로 연결된 보고서의 공식 발행 기록을 확인하며, 보고서 내용은 제공하지 않습니다.
         </p>
       </main>
     </div>
@@ -354,16 +350,10 @@ const CHECK_BADGE_CLASS: Record<CheckTone, string> = {
 
 function VerifyResult({
   result,
-  lookup,
 }: {
   result: ReportVerification
-  lookup: ReportVerificationLookup
 }) {
   const verdict = VERDICT_DISPLAY[result.status] ?? VERDICT_DISPLAY.WARNING
-
-  const signature = getSignatureCheck(result)
-  const blockchain = getBlockchainCheck(result)
-  const storedFileIntact = result.storedFileIntact ?? result.hashMatched
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -375,42 +365,6 @@ function VerifyResult({
         </p>
         <p className="mt-3 font-mono text-xs font-semibold text-slate-400">{result.reportNo}</p>
       </section>
-
-      <ReportFileVerification lookup={lookup} />
-
-      <CheckCard
-        icon={<FileCheck2 className="size-4" aria-hidden="true" />}
-        title="발행 원본 보관 상태"
-        badge={storedFileIntact ? "정상" : "확인 필요"}
-        tone={storedFileIntact ? "ok" : "danger"}
-        note={
-          storedFileIntact
-            ? "서버 보관 원본이 발급 시 등록된 해시와 일치합니다."
-            : "서버 보관 원본 상태를 확인할 수 없습니다. 발급 기관에 문의해 주세요."
-        }
-      >
-        <HashLine label="등록된 최종 PDF 해시 (SHA-256)" value={result.reportHash} />
-      </CheckCard>
-
-      <CheckCard
-        icon={<PenLine className="size-4" aria-hidden="true" />}
-        title="전자서명"
-        badge={signature.badge}
-        tone={signature.tone}
-        note={signature.note}
-      />
-
-      <CheckCard
-        icon={<Link2 className="size-4" aria-hidden="true" />}
-        title="블록체인 기록"
-        badge={blockchain.badge}
-        tone={blockchain.tone}
-        note={blockchain.note}
-      >
-        {result.blockchainTxHash ? (
-          <HashLine label="트랜잭션 해시" value={result.blockchainTxHash} />
-        ) : null}
-      </CheckCard>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-border dark:bg-card">
         <h2 className="text-sm font-bold text-slate-950 dark:text-foreground">보고서 정보</h2>
@@ -428,10 +382,10 @@ function VerifyResult({
 
 function getRecordSummary(result: ReportVerification, fallbackMessage: string) {
   if (result.status === "VALID") {
-    return "공식 발행 기록과 보관 상태를 확인했습니다. 현재 보유한 PDF는 아래에서 별도로 검사할 수 있습니다."
+    return result.message?.trim() || fallbackMessage
   }
   if (result.status === "WARNING") {
-    return "공식 발행 기록은 확인됐지만 일부 상태를 자동으로 확인하지 못했습니다. 현재 PDF는 아래에서 별도로 검사하세요."
+    return result.message?.trim() || fallbackMessage
   }
   return result.message?.trim() || fallbackMessage
 }
@@ -512,7 +466,7 @@ function ReportFileVerification({ lookup }: { lookup: ReportVerificationLookup }
       <div className="flex items-center justify-between gap-3">
         <p className="flex items-center gap-1.5 text-sm font-bold text-slate-950 dark:text-foreground">
           <FileUp className="size-4 text-teal-600 dark:text-teal-300" aria-hidden="true" />
-          내 PDF 파일 검사
+          내 PDF 파일 대조
         </p>
         <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold", CHECK_BADGE_CLASS[tone])}>
           {badge}
@@ -520,7 +474,7 @@ function ReportFileVerification({ lookup }: { lookup: ReportVerificationLookup }
       </div>
 
       <p className="mt-1.5 text-xs font-semibold leading-5 text-slate-500 dark:text-muted-foreground">
-        PDF는 서버로 전송하지 않습니다. 이 브라우저에서 SHA-256을 계산하고 해시값만 확인합니다.
+        PDF는 서버로 전송하지 않습니다. 이 브라우저에서 SHA-256을 계산해 발행 시 등록된 해시와 비교합니다.
       </p>
 
       <input
@@ -590,7 +544,7 @@ function getSignatureCheck(result: ReportVerification): { badge: string; tone: C
   const status = result.signatureStatus?.trim().toUpperCase() ?? ""
 
   if (status === "UNSIGNED" || status === "NONE") {
-    return { badge: "서명 없음", tone: "muted", note: "전자서명이 확인되지 않았습니다." }
+    return { badge: "서명 없음", tone: "muted", note: "증거 원본의 전자서명이 확인되지 않았습니다." }
   }
   if (result.signatureValid == null) {
     return {
@@ -606,13 +560,13 @@ function getSignatureCheck(result: ReportVerification): { badge: string; tone: C
     return {
       badge: "유효",
       tone: "ok",
-      note: parts || "서명이 보고서 내용과 일치합니다.",
+      note: parts || "증거 원본의 서명과 매니페스트가 일치합니다.",
     }
   }
   return {
     badge: "유효하지 않음",
     tone: "danger",
-    note: "서명 이후 보고서가 변경된 것으로 확인됩니다.",
+    note: "증거 원본의 전자서명이 유효하지 않습니다.",
   }
 }
 
@@ -647,9 +601,9 @@ function getBlockchainCheck(result: ReportVerification): { badge: string; tone: 
     }
   }
   return {
-    badge: "기록 불일치",
-    tone: "danger",
-    note: "블록체인에 기록된 해시와 일치하지 않습니다.",
+    badge: "재확인 필요",
+    tone: "warning",
+    note: "블록체인 앵커 상태를 다시 확인하고 있습니다. 사용자 PDF의 변조 판정은 아닙니다.",
   }
 }
 

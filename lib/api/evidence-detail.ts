@@ -78,6 +78,8 @@ export type ModuleResult = {
   details: string
   /** 해당 모듈이 실측으로 보고한 의심 구간. 없으면 UI에 구간을 표시하지 않는다. */
   affectedSegments?: SuspiciousSegment[] | null
+  /** 위변조 모듈별 오버레이 MP4 (연동 시) */
+  overlayVideoUrl?: string | null
 }
 
 export type FrameScore = {
@@ -91,6 +93,22 @@ export type FrameRisk = {
   timestampSec: number
   /** 0.0 ~ 1.0 */
   riskScore: number
+}
+
+export type FaceBBox = {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** Late fusion per-face score (frameRisks is max-collapsed per frame). */
+export type PerFrameFaceScore = {
+  frameIndex: number
+  faceIndex: number
+  /** 0.0 ~ 1.0 */
+  riskScore: number
+  bbox?: FaceBBox | null
 }
 
 /** TimeSformer 클립 단위 위험도 */
@@ -124,8 +142,13 @@ export type SuspiciousSegment = {
   reason: string
 }
 
-/** AI 모듈 종류. cnn=Xception, temporal=TimeSformer, optical=GMFlow */
-export type ModuleTimelineKind = "cnn" | "temporal" | "optical"
+/** AI 모듈 종류. cnn=Xception, temporal=TimeSformer(deepfake), optical=GMFlow, forgery_*=위변조 */
+export type ModuleTimelineKind =
+  | "cnn"
+  | "temporal"
+  | "optical"
+  | "forgery_spatial"
+  | "forgery_temporal"
 
 /** 상세 UI용 모듈별 타임라인 묶음 (BE/FE 계약 확장) */
 export type ModuleTimeline = {
@@ -141,6 +164,8 @@ export type ModuleTimeline = {
   clipRisks?: ClipRisk[] | null
   pairRisks?: PairRisk[] | null
   suspiciousSegments?: SuspiciousSegment[] | null
+  /** 모듈별 오버레이 MP4 (연동 시). 없으면 UI에서 준비중 표시 */
+  overlayVideoUrl?: string | null
 }
 
 export type ModelScore = {
@@ -158,6 +183,9 @@ export type RepresentativeFrame = {
   frameNumber?: number | null
   score?: number | null
   imageUrl?: string | null
+  /** forgery / trufor / spatial 등 모듈 태그 (GPU visualization) */
+  module?: string | null
+  heatmapImageUrl?: string | null
 }
 
 export type AnalysisInfo = {
@@ -193,7 +221,27 @@ export type AnalysisInfo = {
   moduleTimelines?: ModuleTimeline[] | null
   frameScores?: FrameScore[] | null
   representativeFrames?: RepresentativeFrame[] | null
+  /** @deprecated 모듈별 overlayVideoUrl·modelOverlayArtifacts 사용 권장. CNN(Xception) 레거시 */
   overlayVideoUrl?: string | null
+  /** BE flat list (선택). moduleTimelines·moduleResults보다 우선하지 않음 */
+  modelOverlayArtifacts?: ModelOverlayArtifact[] | null
+  /** GPU visualization 산출물 (TruFor spatial MP4) */
+  spatialOverlayVideoUrl?: string | null
+  /** GPU visualization 산출물 (TimeSformer temporal MP4) */
+  temporalOverlayVideoUrl?: string | null
+  /** Face-level late fusion scores for multi-person detail / overlay */
+  perFrameFaceScores?: PerFrameFaceScore[] | null
+}
+
+/** 모델별 시각화 오버레이 산출물 (BE/AI 연동 계약) */
+export type ModelOverlayArtifact = {
+  /** 예: deepfake:cnn, forgery:frame_edit */
+  key: string
+  category: "deepfake" | "forgery"
+  label: string
+  overlayVideoUrl?: string | null
+  status?: "ready" | "pending" | "unsupported" | null
+  description?: string | null
 }
 
 export type CocLog = {
@@ -269,10 +317,12 @@ export type CaseDetailData = {
   status: string
   createdAt: string
   representativeEvidenceId?: number | null
+  organizationId?: string | null
   createdBy?: string | null
   assigneeId?: string | null
   reviewerId?: string | null
   reviewStatus?: ReviewStatus | null
+  reviewRequestedAt?: string | null
   reviewerComment?: string | null
   evidences: CaseEvidenceSummary[]
 }

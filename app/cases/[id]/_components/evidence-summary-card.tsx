@@ -55,6 +55,7 @@ export function EvidenceSummaryCard({
     ? `${technicalMetadata.width} × ${technicalMetadata.height}`
     : "-"
   const duration = formatDuration(technicalMetadata.durationSec)
+  const softAdvisory = resolveSoftCompleteAdvisory(analysisInfo.errorCode, analysisInfo.errorMessage)
 
   return (
     <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -195,6 +196,18 @@ export function EvidenceSummaryCard({
           </div>
         </div>
       ) : null}
+
+      {analysisInfo.status === "COMPLETED" && softAdvisory ? (
+        <div className="mt-4 rounded-lg border border-amber-300/80 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-50">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+            <div>
+              <p className="font-semibold">{softAdvisory.title}</p>
+              <p className="mt-1 text-xs font-medium leading-5 opacity-90">{softAdvisory.message}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -246,6 +259,43 @@ function MetricCard({
       </span>
     </div>
   )
+}
+
+function resolveSoftCompleteAdvisory(
+  errorCode?: string | null,
+  errorMessage?: string | null
+): { title: string; message: string } | null {
+  const message = errorMessage?.trim() || ""
+  switch (errorCode) {
+    case "NO_HUMAN_FACE":
+      return {
+        title: "딥페이크 판별 불가 · 위변조 분석 진행",
+        message:
+          message ||
+          "사람 얼굴이 없어 딥페이크 점수는 보류했습니다. 위변조 탐지는 이어서 확인하세요.",
+      }
+    case "FACE_TOO_SMALL":
+      return {
+        title: "딥페이크 판별 보류 · 위변조 분석 진행",
+        message:
+          message ||
+          "얼굴이 너무 작아 딥페이크 판별을 보류했습니다. 위변조 탐지는 이어서 확인하세요.",
+      }
+    case "INSUFFICIENT_FACE_SAMPLES":
+      return {
+        title: "딥페이크 판별 보류 · 위변조 분석 진행",
+        message:
+          message ||
+          "얼굴 샘플이 부족해 딥페이크 판별을 보류했습니다. 위변조 탐지는 이어서 확인하세요.",
+      }
+    case "TEMPORAL_MODULE_UNAVAILABLE":
+      return {
+        title: "시계열 모듈 제한",
+        message: message || "TimeSformer를 사용할 수 없어 CNN·광학 중심으로 판별했습니다.",
+      }
+    default:
+      return null
+  }
 }
 
 function formatScore(score: number | null) {

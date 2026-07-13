@@ -23,9 +23,13 @@ import type {
   ModuleTimeline,
   ModuleTimelineKind,
   PairRisk,
+  PerFrameFaceScore,
   RepresentativeFrame,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
+import {
+  resolveModelScoreThreshold,
+} from "@/lib/api/analysis-result-ui"
 import { formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -33,8 +37,9 @@ type DeepfakeV2TabProps = {
   data: EvidenceDetailData
 }
 
+type DeepfakeTimelineTabKey = Exclude<ModuleTimelineKind, "forgery_spatial" | "forgery_temporal">
 type ViewMode = "original" | "overlay"
-type TimelineTabKey = ModuleTimelineKind
+type TimelineTabKey = DeepfakeTimelineTabKey
 
 const DEFAULT_THRESHOLD = 0.6
 const MODEL_SCORE_ORDER = ["deepfake", "deepfake_cnn", "deepfake_temporal", "deepfake_optical"] as const
@@ -65,7 +70,7 @@ const MODEL_SCORE_DISPLAY: Record<
   },
 }
 
-const TIMELINE_DISPLAY: Record<TimelineTabKey, { label: string; title: string; description: string }> = {
+const TIMELINE_DISPLAY: Record<DeepfakeTimelineTabKey, { label: string; title: string; description: string }> = {
   cnn: {
     label: "Xception",
     title: "프레임별 위험도",
@@ -98,11 +103,15 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const overlayVideoUrl = analysisInfo.overlayVideoUrl ?? evidenceInfo.overlayVideoUrl ?? null
   const modelScoreCards = buildModelScoreCards(data, threshold)
   const timelineTabs = buildTimelineTabs(data, threshold)
+  const faceRiskSummaries = buildFaceRiskSummaries(analysisInfo.perFrameFaceScores ?? [])
+  const advisory = resolveDeepfakeAdvisory(analysisInfo.errorCode, analysisInfo.errorMessage)
 
   return (
     <div className="space-y-4">
+      {advisory ? <DeepfakeAdvisoryBanner title={advisory.title} message={advisory.message} /> : null}
       <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} threshold={threshold} />
       <ModelScoreGrid cards={modelScoreCards} />
+      {faceRiskSummaries.length > 0 ? <FaceRiskPanel faces={faceRiskSummaries} threshold={threshold} /> : null}
 
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <VideoPlayerCard
@@ -219,6 +228,63 @@ function VideoPlayerCard({
   )
 }
 
+function resolveDeepfakeAdvisory(
+  errorCode?: string | null,
+  errorMessage?: string | null
+): { title: string; message: string } | null {
+  const message = errorMessage?.trim() || ""
+  switch (errorCode) {
+    case "NO_HUMAN_FACE":
+      return {
+        title: "딥페이크 판별 불가 (얼굴 미검출)",
+        message:
+          message ||
+          "사람 얼굴이 검출되지 않아 딥페이크 판별을 수행할 수 없습니다. 위변조 등 후속 분석은 계속 진행합니다.",
+      }
+    case "FACE_TOO_SMALL":
+      return {
+        title: "딥페이크 판별 보류 (얼굴 너무 작음)",
+        message:
+          message ||
+          "검출된 얼굴이 너무 작아 신뢰 가능한 딥페이크 판별을 보류합니다. 위변조 등 후속 분석은 계속 진행합니다.",
+      }
+    case "INSUFFICIENT_FACE_SAMPLES":
+      return {
+        title: "딥페이크 판별 보류 (얼굴 샘플 부족)",
+        message:
+          message ||
+          "분석에 쓸 수 있는 얼굴 프레임이 부족하여 딥페이크 판별을 보류합니다. 위변조 등 후속 분석은 계속 진행합니다.",
+      }
+    case "TEMPORAL_MODULE_UNAVAILABLE":
+      return {
+        title: "시계열 모듈 제한 (CNN·광학 중심 판별)",
+        message:
+          message ||
+          "TimeSformer 모듈을 사용할 수 없어 CNN·광학 흐름 중심으로 판별했습니다.",
+      }
+    default:
+      if (message.includes("사람 얼굴")) {
+        return { title: "딥페이크 판별 불가 (얼굴 미검출)", message }
+      }
+      return null
+  }
+}
+
+function DeepfakeAdvisoryBanner({ title, message }: { title: string; message: string }) {
+  return (
+    <div
+      role="status"
+      className="flex gap-3 rounded-xl border border-amber-300/80 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-50"
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+      <div className="min-w-0 space-y-1">
+        <p className="font-semibold">{title}</p>
+        <p className="text-xs font-medium leading-5 opacity-90">{message}</p>
+      </div>
+    </div>
+  )
+}
+
 function SummaryCards({
   verdict,
   modelScore,
@@ -312,11 +378,11 @@ function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
         <div>
           <h3 className="text-base font-bold text-foreground">모델별 판단 점수</h3>
           <p className="mt-1 text-xs font-semibold text-muted-foreground">
-            Late Fusion은 최종 판단, 나머지 3개 모델은 하단 타임라인 근거와 연결됩니다.
+            각 막대의 점선이 그 모델의 판정 기준입니다. 기준을 넘으면 해당 모듈이 탐지로 표시됩니다.
           </p>
         </div>
         <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-300">
-          임계값 60
+          모듈별 기준선
         </span>
       </div>
 
@@ -324,12 +390,14 @@ function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
         {cards.map((card) => {
           const tone = card.score == null ? "neutral" : toneByScore(card.score, card.threshold)
           const detected = card.detected ?? (card.score != null ? card.score >= card.threshold : false)
+          const scorePercent = card.score == null ? null : Math.round(card.score * 100)
+          const thresholdPercent = Math.round(card.threshold * 100)
 
           return (
             <article
               key={card.key}
               className={cn(
-                "flex min-h-[154px] flex-col rounded-lg border bg-background/35 p-4",
+                "flex min-h-[198px] flex-col rounded-lg border bg-background/35 p-4",
                 detected ? "border-red-200 dark:border-red-900/50" : "border-border"
               )}
             >
@@ -343,17 +411,117 @@ function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
                 </span>
               </div>
 
-              <div className="flex flex-1 items-center">
-                <p className={cn("text-3xl font-black leading-none", TONE_TEXT[tone])}>
-                  {card.score == null ? "-" : Math.round(card.score * 100)}
-                  <span className="ml-1 text-base font-bold text-muted-foreground">/ 100</span>
-                </p>
+              <div className="mt-3 flex flex-1 items-end gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className={cn("text-3xl font-black leading-none", TONE_TEXT[tone])}>
+                    {scorePercent == null ? "-" : scorePercent}
+                    <span className="ml-1 text-base font-bold text-muted-foreground">/ 100</span>
+                  </p>
+                  <p className="mt-2 text-[11px] font-bold text-muted-foreground">
+                    기준 {thresholdPercent} 초과 시 탐지
+                  </p>
+                </div>
+                <div className="flex h-20 shrink-0 items-stretch gap-1">
+                  <div className="relative w-[42px]">
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-x-0 flex items-center justify-end"
+                      style={{ bottom: `${Math.max(0, Math.min(100, thresholdPercent))}%` }}
+                    >
+                      <span className="whitespace-nowrap text-[9px] font-bold leading-none text-slate-500">
+                        기준 {thresholdPercent}
+                      </span>
+                      <span className="ml-0.5 w-2.5 shrink-0 border-t border-dashed border-slate-500/80" />
+                    </div>
+                  </div>
+                  <div className="relative h-full w-10 overflow-hidden rounded-md border border-border bg-muted/40">
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-x-0 border-t border-dashed border-slate-500/80"
+                      style={{ bottom: `${Math.max(0, Math.min(100, thresholdPercent))}%` }}
+                    />
+                    <div
+                      className={cn(
+                        "absolute inset-x-1 bottom-0 rounded-sm",
+                        detected ? "bg-red-600 dark:bg-red-500" : "bg-emerald-600 dark:bg-emerald-500"
+                      )}
+                      style={{ height: `${Math.max(2, scorePercent ?? 0)}%` }}
+                    />
+                  </div>
+                </div>
               </div>
 
-              <p className="line-clamp-2 text-[11px] font-medium leading-4 text-muted-foreground">{card.role}</p>
+              <p className="mt-3 line-clamp-2 text-[11px] font-medium leading-4 text-muted-foreground">{card.role}</p>
               <p className="mt-2 truncate text-[11px] font-bold text-slate-400" title={card.modelVersion ?? undefined}>
                 {card.modelName ?? card.title}
                 {card.modelVersion ? ` · ${cleanModelVersion(card.modelVersion)}` : ""}
+              </p>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+type FaceRiskSummary = {
+  faceIndex: number
+  maxScore: number
+  sampleCount: number
+}
+
+function buildFaceRiskSummaries(scores: PerFrameFaceScore[]): FaceRiskSummary[] {
+  if (scores.length === 0) return []
+  const byFace = new Map<number, FaceRiskSummary>()
+  for (const row of scores) {
+    const score = normalizeProbability(row.riskScore)
+    const current = byFace.get(row.faceIndex)
+    if (!current) {
+      byFace.set(row.faceIndex, {
+        faceIndex: row.faceIndex,
+        maxScore: score,
+        sampleCount: 1,
+      })
+      continue
+    }
+    current.maxScore = Math.max(current.maxScore, score)
+    current.sampleCount += 1
+  }
+  return [...byFace.values()].sort((a, b) => b.maxScore - a.maxScore || a.faceIndex - b.faceIndex)
+}
+
+function FaceRiskPanel({ faces, threshold }: { faces: FaceRiskSummary[]; threshold: number }) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-base font-bold text-foreground">얼굴별 위험도</h3>
+          <p className="mt-1 text-xs font-semibold text-muted-foreground">
+            탐지된 얼굴마다 Late Fusion 점수를 계산합니다. 영상 요약은 이 중 최고점을 사용합니다.
+          </p>
+        </div>
+        <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+          {faces.length}명 탐지
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {faces.map((face) => {
+          const tone = toneByScore(face.maxScore, threshold)
+          return (
+            <article key={face.faceIndex} className="rounded-lg border border-border bg-background/35 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-black text-foreground">얼굴 {face.faceIndex + 1}</h4>
+                  <p className="mt-1 text-[11px] font-bold text-muted-foreground">{face.sampleCount}개 샘플</p>
+                </div>
+                <span className={cn("rounded-full px-2 py-1 text-[11px] font-bold", TONE_BADGE[tone])}>
+                  {face.maxScore >= threshold ? "위험" : face.maxScore >= 0.3 ? "주의" : "정상"}
+                </span>
+              </div>
+              <p className={cn("mt-3 text-3xl font-black leading-none", TONE_TEXT[tone])}>
+                {Math.round(face.maxScore * 100)}
+                <span className="ml-1 text-base font-bold text-muted-foreground">/ 100</span>
               </p>
             </article>
           )
@@ -801,6 +969,7 @@ function buildModelScoreCards(data: EvidenceDetailData, defaultThreshold: number
     const score = findModelScore(scores, key)
     const display = MODEL_SCORE_DISPLAY[key]
     const normalizedScore = score ? normalizeProbability(score.score) : null
+    const threshold = resolveModelScoreThreshold(key, data, defaultThreshold)
 
     return {
       key,
@@ -808,8 +977,8 @@ function buildModelScoreCards(data: EvidenceDetailData, defaultThreshold: number
       role: display.role,
       shortRole: display.shortRole,
       score: normalizedScore,
-      threshold: defaultThreshold,
-      detected: score?.detected ?? (normalizedScore == null ? null : normalizedScore >= defaultThreshold),
+      threshold,
+      detected: score?.detected ?? (normalizedScore == null ? null : normalizedScore >= threshold),
       modelName: score?.modelName?.trim() || display.title,
       modelVersion: score?.modelVersion?.trim() || null,
     }

@@ -201,7 +201,7 @@ export function LoginForm() {
 
 function getLoginRedirectPath(role: string) {
   if (normalizeUserRole(role) === "ORG_ADMIN") return "/admin"
-  if (isReviewerRole(role)) return "/mypage"
+  if (isReviewerRole(role)) return "/main"
   return "/mypage"
 }
 

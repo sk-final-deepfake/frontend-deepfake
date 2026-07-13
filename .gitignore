@@ -34,3 +34,4 @@ blog/
 
 # 임시 업로드 테스트 파일 (커밋 금지)
 tmp-*.mp4
+tsconfig.tsbuildinfo

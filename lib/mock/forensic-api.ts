@@ -1548,10 +1548,40 @@ export async function mockRecordCaseReviewDecision(
   return mockFetchCaseDetail(resolvedCaseId)
 }
 
+export async function mockRequestCaseReview(
+  caseId: string,
+  _memo?: string
+): Promise<CaseDetailData> {
+  await delay(180)
+
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  const store = materializeReviewQueueSeedCase(
+    materializeSampleCase(readStore(), resolvedCaseId),
+    resolvedCaseId
+  )
+  const targetCase = findCaseRecord(store, resolvedCaseId)
+  if (!targetCase) {
+    throw new Error("검토 요청할 사건을 찾을 수 없습니다.")
+  }
+
+  const reviewStatus: ReviewStatus = "REVIEW_REQUESTED"
+  const reviewRequestedAt = new Date().toISOString()
+  const cases = store.cases.some((item) => item.caseId === resolvedCaseId)
+    ? store.cases.map((item) =>
+        item.caseId === resolvedCaseId ? { ...item, reviewStatus, reviewRequestedAt } : item
+      )
+    : [{ ...targetCase, reviewStatus, reviewRequestedAt }, ...store.cases]
+
+  writeStore({ ...store, cases })
+  return mockFetchCaseDetail(resolvedCaseId)
+}
+
 export async function mockFetchMyAnalysisHistory(options?: {
   sort?: "newest" | "status"
   page?: number
   size?: number
+  status?: "ALL" | CaseStatus
+  q?: string
 }) {
   await delay(220)
 
@@ -1654,16 +1684,34 @@ export async function mockFetchMyAnalysisHistory(options?: {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   })
 
+  const statusFilter =
+    options?.status && options.status !== "ALL" ? options.status : null
+  const keyword = options?.q?.trim().toLowerCase() ?? ""
+  const filteredContent = visibleContent.filter((item) => {
+    if (statusFilter && item.status !== statusFilter) return false
+    if (!keyword) return true
+    const caseName = item.caseName.toLowerCase()
+    const label = (item.representativeEvidenceLabel ?? "").toLowerCase()
+    const evidenceId = item.representativeEvidenceId
+      ? `evd-${item.representativeEvidenceId}`
+      : ""
+    return (
+      caseName.includes(keyword) ||
+      label.includes(keyword) ||
+      evidenceId.includes(keyword)
+    )
+  })
+
   const page = options?.page ?? 0
   const size = options?.size ?? 10
   const start = page * size
 
   return {
-    content: visibleContent.slice(start, start + size),
+    content: filteredContent.slice(start, start + size),
     page,
     size,
-    totalElements: visibleContent.length,
-    totalPages: Math.max(1, Math.ceil(visibleContent.length / size)),
+    totalElements: filteredContent.length,
+    totalPages: Math.max(1, Math.ceil(filteredContent.length / size)),
   }
 }
 
