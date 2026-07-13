@@ -50,6 +50,26 @@ export type ModelOverlayOption = {
 
 export type ResultMediaView = "original" | "overlay"
 
+export const NO_HUMAN_FACE_OVERLAY_MESSAGE =
+  "사람 얼굴이 검출되지 않아 딥페이크 오버레이를 생성하지 않았습니다. 원본 영상만 확인할 수 있습니다."
+
+const DEEPFAKE_OVERLAY_ADVISORIES: Record<string, string> = {
+  NO_HUMAN_FACE: NO_HUMAN_FACE_OVERLAY_MESSAGE,
+  FACE_TOO_SMALL:
+    "검출된 얼굴이 너무 작아 딥페이크 오버레이를 생성하지 않았습니다. 원본 영상만 확인할 수 있습니다.",
+  INSUFFICIENT_FACE_SAMPLES:
+    "분석에 쓸 수 있는 얼굴 프레임이 부족해 딥페이크 오버레이를 생성하지 않았습니다. 원본 영상만 확인할 수 있습니다.",
+}
+
+export function resolveDeepfakeOverlayAdvisory(errorCode: string | null | undefined): string | null {
+  if (!errorCode) return null
+  return DEEPFAKE_OVERLAY_ADVISORIES[errorCode] ?? null
+}
+
+export function isDeepfakeOverlayBlocked(data: EvidenceDetailData | null): boolean {
+  return Boolean(resolveDeepfakeOverlayAdvisory(data?.analysisInfo.errorCode))
+}
+
 const DEEPFAKE_OVERLAY_META: Record<
   DeepfakeOverlayModule,
   { label: string; shortLabel: string; badge: string; description: string; pendingMessage: string }
@@ -164,12 +184,14 @@ function buildDeepfakeOverlayOption(
   const clipWindows = extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments)
   const spatialMarkers = extractSpatialMarkers(timeline?.frameRisks)
   const timelineScores = timelineTab?.points ?? []
+  const advisoryMessage = resolveDeepfakeOverlayAdvisory(data.analysisInfo.errorCode)
   const ready =
-    Boolean(overlayVideoUrl) ||
-    artifact?.status === "ready" ||
-    timelineScores.length > 0 ||
-    clipWindows.length > 0 ||
-    spatialMarkers.length > 0
+    !advisoryMessage &&
+    (Boolean(overlayVideoUrl) ||
+      artifact?.status === "ready" ||
+      timelineScores.length > 0 ||
+      clipWindows.length > 0 ||
+      spatialMarkers.length > 0)
 
   return {
     id,
@@ -185,7 +207,7 @@ function buildDeepfakeOverlayOption(
     spatialMarkers,
     detectionThreshold: timelineTab?.threshold ?? 0.6,
     description: artifact?.description?.trim() || meta.description,
-    pendingMessage: meta.pendingMessage,
+    pendingMessage: advisoryMessage ?? meta.pendingMessage,
   }
 }
 
