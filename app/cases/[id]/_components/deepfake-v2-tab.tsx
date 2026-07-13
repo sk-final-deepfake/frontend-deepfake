@@ -26,6 +26,9 @@ import type {
   RepresentativeFrame,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
+import {
+  resolveModelScoreThreshold,
+} from "@/lib/api/analysis-result-ui"
 import { formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -313,11 +316,11 @@ function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
         <div>
           <h3 className="text-base font-bold text-foreground">모델별 판단 점수</h3>
           <p className="mt-1 text-xs font-semibold text-muted-foreground">
-            Late Fusion은 최종 판단, 나머지 3개 모델은 하단 타임라인 근거와 연결됩니다.
+            각 막대의 점선이 그 모델의 판정 기준입니다. 기준을 넘으면 해당 모듈이 탐지로 표시됩니다.
           </p>
         </div>
         <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-300">
-          임계값 60
+          모듈별 기준선
         </span>
       </div>
 
@@ -325,12 +328,14 @@ function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
         {cards.map((card) => {
           const tone = card.score == null ? "neutral" : toneByScore(card.score, card.threshold)
           const detected = card.detected ?? (card.score != null ? card.score >= card.threshold : false)
+          const scorePercent = card.score == null ? null : Math.round(card.score * 100)
+          const thresholdPercent = Math.round(card.threshold * 100)
 
           return (
             <article
               key={card.key}
               className={cn(
-                "flex min-h-[154px] flex-col rounded-lg border bg-background/35 p-4",
+                "flex min-h-[198px] flex-col rounded-lg border bg-background/35 p-4",
                 detected ? "border-red-200 dark:border-red-900/50" : "border-border"
               )}
             >
@@ -344,14 +349,33 @@ function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
                 </span>
               </div>
 
-              <div className="flex flex-1 items-center">
-                <p className={cn("text-3xl font-black leading-none", TONE_TEXT[tone])}>
-                  {card.score == null ? "-" : Math.round(card.score * 100)}
-                  <span className="ml-1 text-base font-bold text-muted-foreground">/ 100</span>
-                </p>
+              <div className="mt-3 flex flex-1 items-end gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className={cn("text-3xl font-black leading-none", TONE_TEXT[tone])}>
+                    {scorePercent == null ? "-" : scorePercent}
+                    <span className="ml-1 text-base font-bold text-muted-foreground">/ 100</span>
+                  </p>
+                  <p className="mt-2 text-[11px] font-bold text-muted-foreground">
+                    기준 {thresholdPercent} 초과 시 탐지
+                  </p>
+                </div>
+                <div className="relative h-20 w-10 shrink-0 overflow-hidden rounded-md border border-border bg-muted/40">
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-x-0 border-t border-dashed border-slate-500/80"
+                    style={{ bottom: `${Math.max(0, Math.min(100, thresholdPercent))}%` }}
+                  />
+                  <div
+                    className={cn(
+                      "absolute inset-x-1 bottom-0 rounded-sm",
+                      detected ? "bg-red-600 dark:bg-red-500" : "bg-emerald-600 dark:bg-emerald-500"
+                    )}
+                    style={{ height: `${Math.max(2, scorePercent ?? 0)}%` }}
+                  />
+                </div>
               </div>
 
-              <p className="line-clamp-2 text-[11px] font-medium leading-4 text-muted-foreground">{card.role}</p>
+              <p className="mt-3 line-clamp-2 text-[11px] font-medium leading-4 text-muted-foreground">{card.role}</p>
               <p className="mt-2 truncate text-[11px] font-bold text-slate-400" title={card.modelVersion ?? undefined}>
                 {card.modelName ?? card.title}
                 {card.modelVersion ? ` · ${cleanModelVersion(card.modelVersion)}` : ""}
@@ -802,6 +826,7 @@ function buildModelScoreCards(data: EvidenceDetailData, defaultThreshold: number
     const score = findModelScore(scores, key)
     const display = MODEL_SCORE_DISPLAY[key]
     const normalizedScore = score ? normalizeProbability(score.score) : null
+    const threshold = resolveModelScoreThreshold(key, data, defaultThreshold)
 
     return {
       key,
@@ -809,8 +834,8 @@ function buildModelScoreCards(data: EvidenceDetailData, defaultThreshold: number
       role: display.role,
       shortRole: display.shortRole,
       score: normalizedScore,
-      threshold: defaultThreshold,
-      detected: score?.detected ?? (normalizedScore == null ? null : normalizedScore >= defaultThreshold),
+      threshold,
+      detected: score?.detected ?? (normalizedScore == null ? null : normalizedScore >= threshold),
       modelName: score?.modelName?.trim() || display.title,
       modelVersion: score?.modelVersion?.trim() || null,
     }

@@ -13,6 +13,23 @@ const REVIEW_THRESHOLD = 0.3
 /** GPU placeholder로 흔히 들어오는 미실행 모듈 점수 상한 (예: frame_edit 0.05) */
 const MIN_EXECUTED_MODULE_SCORE = 0.1
 
+/** fusion_v4_ts_gated.json module_thresholds + fusion T 와 맞춤 */
+export const DEFAULT_MODULE_THRESHOLDS = {
+  deepfake: 0.6051,
+  deepfake_cnn: 0.78,
+  deepfake_temporal: 0.5,
+  deepfake_optical: 0.417,
+} as const
+
+const CANONICAL_MODEL_SCORE_KEYS = [
+  "deepfake",
+  "deepfake_cnn",
+  "deepfake_temporal",
+  "deepfake_optical",
+] as const
+
+type CanonicalModelScoreKey = (typeof CANONICAL_MODEL_SCORE_KEYS)[number]
+
 export type UiSignalSegment = {
   label: string
   startSec: number
@@ -51,6 +68,8 @@ export type UiMethodologyModel = {
   role: string
   /** 이번 분석에서 이 모델이 담당한 신호들의 최고 위험 점수 (0~1) */
   score: number | null
+  /** 이 모델(또는 fusion) 판정 임계값 (0~1) */
+  threshold: number
   /** 판정 임계값 초과 여부 */
   overThreshold: boolean
   /** 모델 개발 시점의 검증 성능. 백엔드 미제공 시 null */
@@ -170,6 +189,40 @@ export function getDetectionThreshold(data: EvidenceDetailData | null) {
     return threshold
   }
   return DEFAULT_HIGH_RISK_THRESHOLD
+}
+
+/** 모델 카드/막대용 모듈별 판정 임계값. timeline.threshold 우선, 없으면 운영 기본값. */
+export function resolveModelScoreThreshold(
+  key: CanonicalModelScoreKey | string,
+  data: EvidenceDetailData | null,
+  fusionThreshold?: number
+): number {
+  const fusionT =
+    fusionThreshold != null && Number.isFinite(fusionThreshold)
+      ? fusionThreshold
+      : getDetectionThreshold(data)
+
+  if (key === "deepfake") return fusionT
+
+  const timelineKey =
+    key === "deepfake_cnn"
+      ? "cnn"
+      : key === "deepfake_temporal"
+        ? "temporal"
+        : key === "deepfake_optical"
+          ? "optical"
+          : null
+
+  if (timelineKey) {
+    const timeline = data?.analysisInfo.moduleTimelines?.find((item) => item.module === timelineKey)
+    const fromTimeline = timeline?.threshold
+    if (fromTimeline != null && Number.isFinite(fromTimeline) && fromTimeline > 0 && fromTimeline <= 1) {
+      return fromTimeline
+    }
+  }
+
+  const fallback = DEFAULT_MODULE_THRESHOLDS[key as keyof typeof DEFAULT_MODULE_THRESHOLDS]
+  return fallback ?? fusionT
 }
 
 function riskTone(score: number, threshold: number): UiRiskSignal["tone"] {
@@ -393,15 +446,6 @@ const MODEL_SCORE_DISPLAY: Record<string, { name: string; role: string }> = {
   deepfake_optical: { name: "GMFlow", role: "광류 기반 움직임 보조 신호" },
 }
 
-const CANONICAL_MODEL_SCORE_KEYS = [
-  "deepfake",
-  "deepfake_cnn",
-  "deepfake_temporal",
-  "deepfake_optical",
-] as const
-
-type CanonicalModelScoreKey = (typeof CANONICAL_MODEL_SCORE_KEYS)[number]
-
 /** 모델 개발 시점의 고정 벤치마크 (분석 데이터가 아닌 모델 카드 참조값) */
 const MODEL_BENCHMARKS: Record<string, string> = {
   Xception: "AUC 0.97 · FaceForensics++ (c23)",
@@ -421,7 +465,7 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
   const visibleModelScores = modelScores.filter((model) => model.moduleName?.toLowerCase() !== TIMELINE_MODULE)
 
   if (visibleModelScores.length > 0) {
-    return buildCanonicalModelScoreMethodologyModels(visibleModelScores, threshold)
+    return buildCanonicalModelScoreMethodologyModels(visibleModelScores, data, threshold)
   }
 
   const modelMap = new Map<
@@ -431,6 +475,7 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
       version: string
       roles: Set<string>
       score: number
+      threshold: number
       overThreshold: boolean
       benchmark: string | null
     }
@@ -442,6 +487,15 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
     const version = cleanModelVersion(detectionModule.modelVersion)
     const key = `${name}::${version}`
     const score = normalizeResultValue(detectionModule.score)
+    const moduleThreshold = resolveModelScoreThreshold(
+      getCanonicalModelScoreKey({
+        moduleName: detectionModule.moduleName ?? "",
+        modelName: detectionModule.modelName ?? name,
+        score: score,
+      }),
+      data,
+      threshold
+    )
     const entry =
       modelMap.get(key) ??
       {
@@ -449,6 +503,7 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
         version,
         roles: new Set<string>(),
         score: 0,
+        threshold: moduleThreshold,
         overThreshold: false,
         benchmark:
           detectionModule.modelBenchmark?.trim() || MODEL_BENCHMARKS[name] || null,
@@ -456,8 +511,9 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
 
     entry.roles.add(formatModuleLabel(detectionModule.moduleName))
     entry.score = Math.max(entry.score, score)
+    entry.threshold = moduleThreshold
     entry.overThreshold =
-      entry.overThreshold || detectionModule.detected || score >= threshold
+      entry.overThreshold || detectionModule.detected || score >= moduleThreshold
     modelMap.set(key, entry)
   }
 
@@ -466,6 +522,7 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
     version: entry.version,
     role: [...entry.roles].join(" · "),
     score: entry.score,
+    threshold: entry.threshold,
     overThreshold: entry.overThreshold,
     benchmark: entry.benchmark,
   }))
@@ -473,6 +530,7 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
 
 function buildCanonicalModelScoreMethodologyModels(
   modelScores: ModelScore[],
+  data: EvidenceDetailData | null,
   threshold: number
 ): UiMethodologyModel[] {
   const grouped = new Map<
@@ -488,6 +546,7 @@ function buildCanonicalModelScoreMethodologyModels(
   for (const model of modelScores) {
     const key = getCanonicalModelScoreKey(model)
     const score = normalizeResultValue(model.score)
+    const moduleThreshold = resolveModelScoreThreshold(key, data, threshold)
     const entry =
       grouped.get(key) ??
       {
@@ -498,7 +557,8 @@ function buildCanonicalModelScoreMethodologyModels(
       }
 
     entry.score = entry.score == null ? score : Math.max(entry.score, score)
-    entry.overThreshold = entry.overThreshold || Boolean(model.detected) || score >= threshold
+    entry.overThreshold =
+      entry.overThreshold || Boolean(model.detected) || score >= moduleThreshold
     entry.roles.add(formatModuleLabel(model.moduleName))
     if (model.modelVersion?.trim()) entry.versions.add(cleanModelVersion(model.modelVersion))
     grouped.set(key, entry)
@@ -508,12 +568,14 @@ function buildCanonicalModelScoreMethodologyModels(
     const display = MODEL_SCORE_DISPLAY[key]
     const entry = grouped.get(key)
     const roles = entry ? [...entry.roles].filter((role) => role !== display.name) : []
+    const moduleThreshold = resolveModelScoreThreshold(key, data, threshold)
 
     return {
       name: display.name,
       version: entry && entry.versions.size > 0 ? [...entry.versions].join(" · ") : "-",
       role: roles.length > 0 ? `${display.role} · ${roles.join(" · ")}` : display.role,
       score: entry?.score ?? null,
+      threshold: moduleThreshold,
       overThreshold: entry?.overThreshold ?? false,
       benchmark: MODEL_BENCHMARKS[display.name] ?? null,
     }
@@ -585,7 +647,14 @@ export function buildMethodologyInfo(
   const settings: UiModelSetting[] = [
     { label: "분석 ID", value: data?.analysisInfo.analysisId?.trim() || "-" },
     { label: "분석 일시", value: analyzedAt ? formatDateTime(analyzedAt) : "-" },
-    { label: "판정 임계값", value: `${Math.round(threshold * 100)} / 100` },
+    { label: "Fusion 판정 임계값", value: `${Math.round(threshold * 100)} / 100` },
+    {
+      label: "모듈별 임계값",
+      value: models
+        .filter((model) => model.name !== "Late Fusion")
+        .map((model) => `${model.name} ${Math.round(model.threshold * 100)}`)
+        .join(" · ") || "-",
+    },
     {
       label: "입력 해상도",
       value: metadata?.width && metadata?.height ? `${metadata.width} x ${metadata.height}` : "-",

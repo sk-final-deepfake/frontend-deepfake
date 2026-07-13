@@ -1305,13 +1305,10 @@ function CaseResultView({
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
                         <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">딥페이크 모델별 판단 점수</h4>
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
-                          판정 기준 {Math.round(detectionThreshold * 100)} / 100
+                          모듈별 기준선 · 초과 시 탐지
                         </span>
                       </div>
-                      <MethodologyModelChart
-                        models={methodology.models}
-                        thresholdPercent={Math.round(detectionThreshold * 100)}
-                      />
+                      <MethodologyModelChart models={methodology.models} />
                     </section>
                   ) : null}
 
@@ -1454,7 +1451,11 @@ function CaseResultView({
                                     : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
                                 )}
                               >
-                                {model.score == null ? "정보 없음" : model.overThreshold ? "기준 초과" : "기준 미만"}
+                                {model.score == null
+                                  ? "정보 없음"
+                                  : model.overThreshold
+                                    ? `기준 ${Math.round(model.threshold * 100)} 초과`
+                                    : `기준 ${Math.round(model.threshold * 100)} 미만`}
                               </span>
                             </div>
                             <p className="mt-1 text-xs font-semibold text-slate-500">분석 목적: {model.role}</p>
@@ -4286,10 +4287,8 @@ const MODEL_BAR_COLORS = [
 
 function MethodologyModelChart({
   models,
-  thresholdPercent,
 }: {
   models: UiMethodologyModel[]
-  thresholdPercent: number
 }) {
   const [animated, setAnimated] = useState(false)
 
@@ -4303,37 +4302,42 @@ function MethodologyModelChart({
 
   return (
     <div className="px-6 pb-3 pt-8">
-      <div className="relative h-36 border-b border-slate-200 dark:border-border">
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 border-t-[1.5px] border-dashed border-slate-400/70 dark:border-slate-500"
-          style={{ bottom: `${thresholdPercent}%` }}
-        >
-          <span className="absolute -top-4 right-0 text-[10px] font-bold text-slate-400">
-            기준 {thresholdPercent}
-          </span>
-        </div>
-        <div className="mx-auto flex h-full max-w-[420px] items-end justify-center gap-3 px-2 sm:gap-4">
+      <div className="relative h-40 border-b border-slate-200 dark:border-border">
+        <div className="mx-auto flex h-full max-w-[480px] items-end justify-center gap-3 px-2 sm:gap-4">
           {models.map((model, index) => {
             const percent = model.score == null ? null : Math.round(model.score * 100)
+            const thresholdPercent = Math.round(model.threshold * 100)
             const color = MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length]
+            const over = model.score != null && model.overThreshold
             return (
               <div
                 key={`bar-${model.name}-${model.version}`}
-                className="flex h-full w-[86px] shrink-0 flex-col items-center justify-end gap-1.5"
+                className="relative flex h-full w-[92px] shrink-0 flex-col items-center justify-end"
               >
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-x-1 border-t-[1.5px] border-dashed border-slate-500/80 dark:border-slate-400"
+                  style={{ bottom: `${Math.max(0, Math.min(100, thresholdPercent))}%` }}
+                >
+                  <span className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-bold text-slate-500">
+                    기준 {thresholdPercent}
+                  </span>
+                </div>
                 <span
                   className={cn(
-                    "text-xs font-bold transition-opacity duration-500",
+                    "mb-1 text-xs font-bold transition-opacity duration-500",
                     animated ? "opacity-100" : "opacity-0",
-                    color.label
+                    over ? "text-red-700 dark:text-red-300" : color.label
                   )}
                   style={{ transitionDelay: `${index * 140 + 350}ms` }}
                 >
                   {percent ?? "-"}
                 </span>
                 <div
-                  className={cn("w-12 rounded-t-[3px] transition-[height] duration-700 ease-out", color.bar)}
+                  className={cn(
+                    "w-12 rounded-t-[3px] transition-[height] duration-700 ease-out",
+                    over ? "bg-red-600 dark:bg-red-500" : color.bar
+                  )}
                   style={{
                     height: animated ? `${Math.max(2, percent ?? 0)}%` : "0%",
                     transitionDelay: `${index * 140}ms`,
@@ -4344,18 +4348,25 @@ function MethodologyModelChart({
           })}
         </div>
       </div>
-      <div className="mx-auto flex max-w-[420px] justify-center gap-3 px-2 pt-2 sm:gap-4">
+      <div className="mx-auto flex max-w-[480px] justify-center gap-3 px-2 pt-2 sm:gap-4">
         {models.map((model, index) => (
-          <span
+          <div
             key={`label-${model.name}-${model.version}`}
-            title={model.name}
-            className={cn(
-              "w-[86px] shrink-0 whitespace-nowrap text-center text-[11px] font-bold leading-tight",
-              MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length].label
-            )}
+            title={`${model.name} · 기준 ${Math.round(model.threshold * 100)} 초과 시 탐지`}
+            className="w-[92px] shrink-0 text-center"
           >
-            {model.name}
-          </span>
+            <span
+              className={cn(
+                "block whitespace-nowrap text-[11px] font-bold leading-tight",
+                MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length].label
+              )}
+            >
+              {model.name}
+            </span>
+            <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
+              {model.overThreshold ? "기준 초과 · 탐지" : "기준 미만"}
+            </span>
+          </div>
         ))}
       </div>
     </div>
