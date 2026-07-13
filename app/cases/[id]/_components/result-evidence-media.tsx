@@ -15,6 +15,8 @@ import {
   buildModelOverlayOptions,
   findOverlayOption,
   getDefaultOverlaySelection,
+  isDeepfakeOverlayBlocked,
+  resolveDeepfakeOverlayAdvisory,
   type ModelOverlayOption,
   type OverlayCategory,
   type ResultMediaView,
@@ -50,6 +52,8 @@ export function ResultEvidenceMedia({
 }: ResultEvidenceMediaProps) {
   const overlayOptions = useMemo(() => buildModelOverlayOptions(evidenceDetail), [evidenceDetail])
   const defaultSelection = useMemo(() => getDefaultOverlaySelection(overlayOptions), [overlayOptions])
+  const deepfakeOverlayBlocked = isDeepfakeOverlayBlocked(evidenceDetail)
+  const deepfakeAdvisoryMessage = resolveDeepfakeOverlayAdvisory(evidenceDetail.analysisInfo.errorCode)
 
   const [mediaView, setMediaView] = useState<ResultMediaView>("original")
   const [overlayCategory, setOverlayCategory] = useState<OverlayCategory>(defaultSelection.category)
@@ -79,7 +83,11 @@ export function ResultEvidenceMedia({
   const useOverlaySrc = mediaView === "overlay"
   const activeOverlayUrl = useOverlaySrc ? activeOverlay?.overlayVideoUrl ?? null : null
   const useOverlayMp4 = useOverlaySrc && Boolean(activeOverlayUrl)
-  const useOverlayPreview = useOverlaySrc && !activeOverlayUrl && Boolean(activeOverlay?.ready)
+  const useOverlayPreview =
+    useOverlaySrc &&
+    !activeOverlayUrl &&
+    Boolean(activeOverlay?.ready) &&
+    !(activeOverlay?.category === "deepfake" && deepfakeOverlayBlocked)
   const hasHlsOriginal =
     hlsPlayback?.hlsStatus === "READY" &&
     Boolean(hlsPlayback.streamToken) &&
@@ -97,6 +105,9 @@ export function ResultEvidenceMedia({
   const heatCaption = useOverlaySrc
     ? activeOverlay?.timelineCaption ?? "타임라인 위험도"
     : "Xception 타임라인 위험도"
+
+  const showDeepfakeAdvisory =
+    useOverlaySrc && activeOverlay?.category === "deepfake" && Boolean(deepfakeAdvisoryMessage)
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:sticky lg:top-4 lg:self-start dark:border-border dark:bg-card">
@@ -136,6 +147,7 @@ export function ResultEvidenceMedia({
             selectedOverlayId={activeOverlay?.id ?? selectedOverlayId}
             options={overlayOptions}
             categoryOptions={categoryOptions}
+            deepfakeOverlayBlocked={deepfakeOverlayBlocked}
             onCategoryChange={(category) => {
               setOverlayCategory(category)
               const firstInCategory = overlayOptions.find((item) => item.category === category)
@@ -179,11 +191,20 @@ export function ResultEvidenceMedia({
       </div>
 
       {useOverlaySrc && activeOverlay && !activeOverlay.ready ? (
-        <p className="mt-2 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
-          {activeOverlay.pendingMessage}
-          <span className="mt-1 block text-[11px] font-medium text-amber-700/80 dark:text-amber-300/80">
-            모듈 타임라인(`frameRisks` / `clipRisks`)이 제공되면 원본 영상 위 미리보기 오버레이가 표시됩니다.
-          </span>
+        <p
+          className={cn(
+            "mt-2 rounded-lg border px-3 py-2 text-xs font-semibold leading-5",
+            showDeepfakeAdvisory
+              ? "border-slate-200 bg-slate-50 text-slate-700 dark:border-border dark:bg-background dark:text-muted-foreground"
+              : "border-dashed border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200"
+          )}
+        >
+          {showDeepfakeAdvisory ? deepfakeAdvisoryMessage : activeOverlay.pendingMessage}
+          {!showDeepfakeAdvisory ? (
+            <span className="mt-1 block text-[11px] font-medium text-amber-700/80 dark:text-amber-300/80">
+              모듈 타임라인(`frameRisks` / `clipRisks`)이 제공되면 원본 영상 위 미리보기 오버레이가 표시됩니다.
+            </span>
+          ) : null}
         </p>
       ) : useOverlayPreview ? (
         <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-600 dark:border-border dark:bg-background dark:text-muted-foreground">
@@ -220,6 +241,7 @@ function ModelOverlayPicker({
   selectedOverlayId,
   options,
   categoryOptions,
+  deepfakeOverlayBlocked,
   onCategoryChange,
   onSelectOverlay,
 }: {
@@ -227,6 +249,7 @@ function ModelOverlayPicker({
   selectedOverlayId: string
   options: ModelOverlayOption[]
   categoryOptions: ModelOverlayOption[]
+  deepfakeOverlayBlocked: boolean
   onCategoryChange: (category: OverlayCategory) => void
   onSelectOverlay: (overlayId: string) => void
 }) {
@@ -283,7 +306,13 @@ function ModelOverlayPicker({
                   "size-1.5 shrink-0 rounded-full",
                   option.ready ? "bg-teal-500" : "bg-slate-300 dark:bg-slate-600"
                 )}
-                title={option.ready ? "오버레이 제공됨" : "연동 대기"}
+                title={
+                  option.ready
+                    ? "오버레이 제공됨"
+                    : option.category === "deepfake" && deepfakeOverlayBlocked
+                      ? "오버레이 없음"
+                      : "연동 대기"
+                }
               />
             </span>
             <span className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-4 text-slate-500">
