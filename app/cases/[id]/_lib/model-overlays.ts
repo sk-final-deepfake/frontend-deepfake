@@ -8,7 +8,6 @@ import type {
 import {
   buildDeepfakeTimelineTabs,
   buildForgeryTimelineTabs,
-  type DeepfakeTimelineTab,
   type ForgeryTimelineTab,
 } from "./module-timelines"
 
@@ -114,12 +113,7 @@ function buildDeepfakeOverlayOption(
 ): ModelOverlayOption {
   const meta = DEEPFAKE_OVERLAY_META[module]
   const id = `deepfake:${module}`
-  const timeline =
-    buildDeepfakeTimelineTabs(data).find((tab) => tab.key === module) ??
-    ({
-      key: module,
-      points: [],
-    } as DeepfakeTimelineTab)
+  const timelineTab = buildDeepfakeTimelineTabs(data).find((tab) => tab.key === module)
 
   const artifact = artifactMap.get(id)
   const timelineUrl = data.analysisInfo.moduleTimelines?.find((item) => item.module === module)?.overlayVideoUrl
@@ -139,7 +133,7 @@ function buildDeepfakeOverlayOption(
     ready,
     overlayBadge: meta.badge,
     timelineCaption: `${meta.label} 타임라인 위험도`,
-    timelineScores: timeline.points,
+    timelineScores: timelineTab?.points ?? [],
     description: artifact?.description?.trim() || meta.description,
     pendingMessage: meta.pendingMessage,
   }
