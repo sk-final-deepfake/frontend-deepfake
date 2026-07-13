@@ -168,6 +168,7 @@ function normalizeModuleResults(modules: ModuleResult[]): ModuleResult[] {
       modelName: normalizeText(module.modelName, null),
       modelVersion: normalizeText(module.modelVersion, null),
       details: typeof module.details === "string" ? module.details : "",
+      overlayVideoUrl: normalizeText(module.overlayVideoUrl, null),
     }
   })
 }
@@ -263,6 +264,7 @@ function normalizeModuleTimelines(timelines: ModuleTimeline[] | null | undefined
         clipRisks: normalizeClipRisks(timeline.clipRisks),
         pairRisks: normalizePairRisks(timeline.pairRisks),
         suspiciousSegments: normalizeSuspiciousSegments(timeline.suspiciousSegments ?? []),
+        overlayVideoUrl: normalizeText(timeline.overlayVideoUrl, null),
       }
     })
     .filter((timeline): timeline is ModuleTimeline => timeline != null)

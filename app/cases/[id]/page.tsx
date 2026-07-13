@@ -69,6 +69,8 @@ import { useAnalyzeWithReadiness } from "@/hooks/use-analyze-with-readiness"
 import { isStepUpCancelledError, useStepUpGate } from "@/hooks/use-step-up-gate"
 import { CaseHero } from "./_components/case-hero"
 import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
+import { ResultEvidenceMedia } from "./_components/result-evidence-media"
+import { ResultFrameAnalysis } from "./_components/result-frame-analysis"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
 import { MetadataReportTab } from "./_components/metadata-report-tab"
@@ -80,6 +82,7 @@ import {
   getCaseRiskTone,
   getDisplayRiskLabel,
 } from "./_lib/evidence-display"
+import { getXceptionFrameScores } from "./_lib/module-timelines"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -90,7 +93,6 @@ import {
   buildMethodologyInfo,
   buildRiskSignals,
   buildSummaryActions,
-  buildTopRiskFrames,
   formatModuleLabel,
   formatScoreOutOf100,
   getDetectionModules,
@@ -973,7 +975,7 @@ function CaseResultView({
   currentSession: AuthSession | null
   onBack: () => void
 }) {
-  const [mediaMode, setMediaMode] = useState<ResultMediaMode>("original")
+  const [mediaContext, setMediaContext] = useState("original")
   const [resultTab, setResultTab] = useState<ResultTab>("summary")
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -991,20 +993,7 @@ function CaseResultView({
   const resultEvidenceIdLabel = selectedEvidence ? `EVD-${selectedEvidence.evidenceId}` : caseData.caseId
   const analyzedAt = evidenceDetail?.analysisInfo.completedAt ?? evidenceDetail?.analysisInfo.requestedAt ?? caseData.createdAt
   const hlsPlayback = evidenceDetail?.hlsPlayback ?? null
-  const hasHlsOriginal =
-    hlsPlayback?.hlsStatus === "READY" &&
-    Boolean(hlsPlayback.streamToken) &&
-    Boolean(hlsPlayback.manifestPath)
-  const overlayVideoUrl =
-    evidenceDetail?.analysisInfo.overlayVideoUrl ??
-    evidenceDetail?.evidenceInfo.overlayVideoUrl ??
-    null
-  const useOverlaySrc = mediaMode === "overlay" && Boolean(overlayVideoUrl)
-  const showResultPlayer = useOverlaySrc || hasHlsOriginal || Boolean(hlsPlayback)
-  const playerSurfaceKey = useOverlaySrc
-    ? `direct-${overlayVideoUrl ?? "none"}`
-    : `hls-${hlsPlayback?.streamToken ?? hlsPlayback?.hlsStatus ?? "pending"}`
-  const frameScores = evidenceDetail?.analysisInfo.frameScores ?? []
+  const frameScores = getXceptionFrameScores(evidenceDetail)
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
   const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
@@ -1017,25 +1006,14 @@ function CaseResultView({
   const overThresholdSignalCount = detectionModules.filter(
     (module) => normalizeResultValue(module.score) >= detectionThreshold
   ).length
-  const topRiskFrames = buildTopRiskFrames(evidenceDetail, frameScores)
   const priorityReviewRange = getPriorityReviewRange(evidenceDetail, frameScores)
   const representativeFrames = evidenceDetail?.analysisInfo.representativeFrames ?? []
-  const peakFrame = frameScores.reduce<FrameScore | null>(
-    (peak, frame) => (peak == null || frame.score > peak.score ? frame : peak),
-    null
-  )
-  const peakFrameTimeLabel =
-    peakFrame?.timeSec != null ? formatDuration(peakFrame.timeSec) : peakFrame?.timestamp ?? "-"
-  const avgFrameScore =
-    frameScores.length > 0
-      ? frameScores.reduce((sum, frame) => sum + normalizeResultValue(frame.score), 0) / frameScores.length
-      : null
 
   const reportSecurityEvent = useCallback((event: ProtectedSecurityEvent) => {
     if (!selectedEvidenceId) return
 
     const now = Date.now()
-    const eventKey = `${selectedEvidenceId}:${mediaMode}:${event.eventType}`
+    const eventKey = `${selectedEvidenceId}:${mediaContext}:${event.eventType}`
     const lastEvent = lastSecurityEventRef.current
     if (lastEvent?.key === eventKey && now - lastEvent.recordedAt < 5000) {
       return
@@ -1045,14 +1023,11 @@ function CaseResultView({
     void recordEvidenceSecurityEvent(selectedEvidenceId, {
       eventType: event.eventType,
       detail: event.detail,
-      mediaMode,
+      mediaMode: mediaContext,
       pagePath: `${window.location.pathname}${window.location.search}`,
       clientTimestamp: new Date().toISOString(),
     }).catch(() => undefined)
-  }, [mediaMode, selectedEvidenceId])
-  const highRiskFrameCount = frameScores.filter(
-    (frame) => normalizeResultValue(frame.score) >= detectionThreshold
-  ).length
+  }, [mediaContext, selectedEvidenceId])
   const forgeryHighestScore = forgeryRiskSignals.reduce(
     (highest, signal) => Math.max(highest, normalizeResultValue(signal.score)),
     0
@@ -1063,8 +1038,7 @@ function CaseResultView({
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
   const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
 
-  function seekResultVideo(seconds: number, mode: ResultMediaMode = mediaMode) {
-    setMediaMode(mode)
+  function seekResultVideo(seconds: number) {
     requestAnimationFrame(() => {
       const video = videoRef.current
       if (!video) return
@@ -1131,85 +1105,29 @@ function CaseResultView({
         </Alert>
       ) : evidenceDetail ? (
         <>
-          <div className="grid gap-6 lg:h-[calc(100vh-14.5rem)] lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:overflow-y-auto dark:border-border dark:bg-card">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-bold text-slate-950 dark:text-foreground">증거 영상</h2>
-                  <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                    원본과 오버레이를 같은 위치에서 비교합니다.
-                  </p>
-                </div>
-                <div className="flex rounded-full bg-slate-950/80 p-1 backdrop-blur-sm">
-                  {([
-                    ["original", "원본"],
-                    ["overlay", "오버레이"],
-                  ] as const).map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs font-bold transition-colors",
-                        mediaMode === mode ? "bg-teal-500 text-white" : "text-white/80 hover:text-white"
-                      )}
-                      onClick={() => setMediaMode(mode)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-                {showResultPlayer ? (
-                  <ProtectedEvidencePlayer
-                    key={`result-player-${selectedEvidenceId ?? "none"}-${playerSurfaceKey}`}
-                    src={useOverlaySrc ? overlayVideoUrl : null}
-                    playback={useOverlaySrc ? null : hlsPlayback}
-                    fallbackOpenUrl={mediaMode === "overlay" ? overlayVideoUrl : null}
-                    videoRef={videoRef}
-                    objectFit="cover"
-                    onSecurityEvent={reportSecurityEvent}
-                  >
-                    {mediaMode === "overlay" && !overlayVideoUrl ? <MockAnalysisOverlay /> : null}
-                    {mediaMode === "original" ? (
-                      <EvidenceWatermarkOverlay
-                        caseId={caseData.caseId}
-                        evidenceId={selectedEvidence?.evidenceId ?? selectedEvidenceId}
-                        viewerName={currentSession?.name ?? null}
-                        viewerLoginId={currentSession?.loginId ?? null}
-                      />
-                    ) : null}
-                    {mediaMode === "overlay" ? (
-                      <div className="absolute left-4 top-4 z-20 rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
-                        탐지 오버레이
-                      </div>
-                    ) : null}
-                  </ProtectedEvidencePlayer>
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
-                    <FileVideo className="mb-3 size-8" aria-hidden="true" />
-                    미리보기 가능한 영상이 없습니다.
-                  </div>
-                )}
-              </div>
-              {frameScores.length > 0 ? (
-                <FrameRiskHeatStrip scores={frameScores} onSeek={seekResultVideo} />
-              ) : (
-                <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-500 dark:bg-background">
-                  위험 신호가 높은 구간은 분석 탭에서 시간과 대표 프레임으로 확인할 수 있습니다.
-                </p>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
+            <ResultEvidenceMedia
+              evidenceDetail={evidenceDetail}
+              selectedEvidenceId={selectedEvidenceId}
+              hlsPlayback={hlsPlayback}
+              videoRef={videoRef}
+              onSecurityEvent={reportSecurityEvent}
+              onSeek={seekResultVideo}
+              onMediaContextChange={setMediaContext}
+              renderHeatStrip={({ scores, caption, onSeek: seek }) => (
+                <FrameRiskHeatStrip scores={scores} onSeek={seek} caption={caption} />
               )}
-              <div className="mt-4 border-t border-slate-100 pt-3 dark:border-border">
-                <p className="text-[11px] font-bold text-slate-400">분석 유의사항</p>
-                <ul className="mt-1.5 space-y-1 text-xs font-medium leading-5 text-slate-500">
-                  <li>본 결과는 AI 기반 조작 의심 신호 분석이며, 조작 여부를 확정하지 않습니다.</li>
-                  <li>해상도, 압축률, 조명, 얼굴 가림, 빠른 움직임에 따라 분석 신뢰도가 달라질 수 있습니다.</li>
-                  <li>최종 판단은 원본 자료, 사건 맥락, 전문가 검토 결과와 함께 이루어져야 합니다.</li>
-                </ul>
-              </div>
-            </section>
+              renderWatermark={
+                <EvidenceWatermarkOverlay
+                  caseId={caseData.caseId}
+                  evidenceId={selectedEvidence?.evidenceId ?? selectedEvidenceId}
+                  viewerName={currentSession?.name ?? null}
+                  viewerLoginId={currentSession?.loginId ?? null}
+                />
+              }
+            />
 
-            <section className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none lg:h-full dark:border-border dark:bg-card">
+            <section className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-border">
               <div className="flex min-w-0 items-start gap-3">
                 {riskTone === "red" ? (
@@ -1285,7 +1203,7 @@ function CaseResultView({
                 }}
               />
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+            <div className="p-5">
               {resultTab === "summary" ? (
                 <div className="space-y-5">
                   <div className="grid gap-3 sm:grid-cols-3">
@@ -1480,121 +1398,12 @@ function CaseResultView({
                   ) : null}
                 </section>
               ) : resultTab === "frames" ? (
-                <section>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">프레임 분석</h3>
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
-                        영상 구간별 딥페이크 위험도 흐름입니다.
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-secondary">
-                      {frameScores.length}프레임
-                    </span>
-                  </div>
-
-                  {frameScores.length > 0 ? (
-                    <>
-                      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                        <FrameMetricCard
-                          label="최고 위험"
-                          value={formatScoreOutOf100(peakFrame?.score)}
-                          sub={`${peakFrameTimeLabel} 지점`}
-                          tone={
-                            peakFrame != null && normalizeResultValue(peakFrame.score) >= detectionThreshold
-                              ? "danger"
-                              : "neutral"
-                          }
-                        />
-                        <FrameMetricCard
-                          label="의심 구간"
-                          value={
-                            priorityReviewRange
-                              ? `${priorityReviewRange.startSec.toFixed(1)}초 ~ ${priorityReviewRange.endSec.toFixed(1)}초`
-                              : "-"
-                          }
-                          sub={
-                            priorityReviewRange
-                              ? priorityReviewRange.label
-                              : highRiskFrameCount > 0
-                                ? `${highRiskFrameCount}개 프레임 연속 감지`
-                                : "임계값 초과 구간 없음"
-                          }
-                        />
-                        <FrameMetricCard
-                          label="평균 위험도"
-                          value={formatScoreOutOf100(avgFrameScore)}
-                          sub="전체 프레임 평균"
-                        />
-                        <FrameMetricCard
-                          label="임계값 초과"
-                          value={`${highRiskFrameCount} / ${frameScores.length} 프레임`}
-                          sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
-                          tone={highRiskFrameCount > 0 ? "danger" : "neutral"}
-                        />
-                      </div>
-
-                      <div className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-                        <MiniFrameRiskChart scores={frameScores} />
-                      </div>
-
-                      <div className="mt-4 rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">상위 위험 프레임</h4>
-                          <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                            행을 선택하면 영상이 해당 지점으로 이동합니다.
-                          </p>
-                        </div>
-                        <div className="mt-2 divide-y divide-slate-100 dark:divide-border">
-                          {topRiskFrames.map((frame, index) => {
-                            const representative = representativeFrames.find(
-                              (item) =>
-                                (item.timeSec != null && Math.abs(item.timeSec - frame.seconds) < 0.35) ||
-                                item.timestamp === frame.time
-                            )
-                            return (
-                              <button
-                                key={frame.time}
-                                type="button"
-                                onClick={() => seekResultVideo(frame.seconds)}
-                                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-secondary/40"
-                              >
-                                  <span className="w-4 shrink-0 text-xs font-bold text-slate-400">{index + 1}</span>
-                                  <span className="h-11 w-[74px] shrink-0 overflow-hidden rounded-md bg-slate-100 dark:bg-secondary">
-                                    {representative?.imageUrl ? (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img
-                                        src={representative.imageUrl}
-                                        alt={`${frame.time} 프레임 미리보기`}
-                                        className="size-full object-cover"
-                                      />
-                                    ) : (
-                                      <span className="flex size-full items-center justify-center">
-                                        <FileVideo className="size-4 text-slate-300" aria-hidden="true" />
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="font-mono text-sm font-semibold text-slate-950 dark:text-foreground">
-                                    {frame.time}
-                                  </span>
-                                  <span className="shrink-0 text-sm font-bold text-red-700">{frame.score} / 100</span>
-                                  <span className="truncate text-sm font-semibold text-slate-600 dark:text-muted-foreground">
-                                    {frame.signal}
-                                  </span>
-                                </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                      프레임 점수 데이터가 없습니다.
-                      <br />
-                      분석 서버가 프레임 데이터를 제공한 뒤 다시 분석하면 표시됩니다.
-                    </p>
-                  )}
-                </section>
+                <ResultFrameAnalysis
+                  evidenceDetail={evidenceDetail}
+                  detectionThreshold={detectionThreshold}
+                  representativeFrames={representativeFrames}
+                  onSeek={seekResultVideo}
+                />
               ) : (
                 <section>
                   <div className="flex items-center justify-between gap-3">
@@ -4658,16 +4467,20 @@ function FrameMetricCard({
 function FrameRiskHeatStrip({
   scores,
   onSeek,
+  caption = "타임라인 위험도",
 }: {
   scores: FrameScore[]
   onSeek?: (seconds: number) => void
+  caption?: string
 }) {
   const items = scores.slice(0, 60)
 
   return (
     <div className="mt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-slate-400">타임라인 위험도 · 구간을 누르면 해당 지점으로 이동합니다</p>
+        <p className="text-xs font-semibold text-slate-400">
+          {caption} · 구간을 누르면 해당 지점으로 이동합니다
+        </p>
         <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-400">
           <span className="flex items-center gap-1">
             <span className="size-2 rounded-[3px] bg-slate-200 dark:bg-secondary" />
