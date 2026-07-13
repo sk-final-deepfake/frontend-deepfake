@@ -23,6 +23,7 @@ import type {
   ModuleTimeline,
   ModuleTimelineKind,
   PairRisk,
+  PerFrameFaceScore,
   RepresentativeFrame,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
@@ -102,11 +103,15 @@ export function DeepfakeV2Tab({ data }: DeepfakeV2TabProps) {
   const overlayVideoUrl = analysisInfo.overlayVideoUrl ?? evidenceInfo.overlayVideoUrl ?? null
   const modelScoreCards = buildModelScoreCards(data, threshold)
   const timelineTabs = buildTimelineTabs(data, threshold)
+  const faceRiskSummaries = buildFaceRiskSummaries(analysisInfo.perFrameFaceScores ?? [])
+  const advisory = resolveDeepfakeAdvisory(analysisInfo.errorCode, analysisInfo.errorMessage)
 
   return (
     <div className="space-y-4">
+      {advisory ? <DeepfakeAdvisoryBanner title={advisory.title} message={advisory.message} /> : null}
       <SummaryCards verdict={verdict} modelScore={modelScore} confidence={confidence} threshold={threshold} />
       <ModelScoreGrid cards={modelScoreCards} />
+      {faceRiskSummaries.length > 0 ? <FaceRiskPanel faces={faceRiskSummaries} threshold={threshold} /> : null}
 
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <VideoPlayerCard
@@ -220,6 +225,63 @@ function VideoPlayerCard({
         </p>
       ) : null}
     </section>
+  )
+}
+
+function resolveDeepfakeAdvisory(
+  errorCode?: string | null,
+  errorMessage?: string | null
+): { title: string; message: string } | null {
+  const message = errorMessage?.trim() || ""
+  switch (errorCode) {
+    case "NO_HUMAN_FACE":
+      return {
+        title: "딥페이크 판별 불가 (얼굴 미검출)",
+        message:
+          message ||
+          "사람 얼굴이 검출되지 않아 딥페이크 판별을 수행할 수 없습니다. 위변조 등 후속 분석은 계속 진행합니다.",
+      }
+    case "FACE_TOO_SMALL":
+      return {
+        title: "딥페이크 판별 보류 (얼굴 너무 작음)",
+        message:
+          message ||
+          "검출된 얼굴이 너무 작아 신뢰 가능한 딥페이크 판별을 보류합니다. 위변조 등 후속 분석은 계속 진행합니다.",
+      }
+    case "INSUFFICIENT_FACE_SAMPLES":
+      return {
+        title: "딥페이크 판별 보류 (얼굴 샘플 부족)",
+        message:
+          message ||
+          "분석에 쓸 수 있는 얼굴 프레임이 부족하여 딥페이크 판별을 보류합니다. 위변조 등 후속 분석은 계속 진행합니다.",
+      }
+    case "TEMPORAL_MODULE_UNAVAILABLE":
+      return {
+        title: "시계열 모듈 제한 (CNN·광학 중심 판별)",
+        message:
+          message ||
+          "TimeSformer 모듈을 사용할 수 없어 CNN·광학 흐름 중심으로 판별했습니다.",
+      }
+    default:
+      if (message.includes("사람 얼굴")) {
+        return { title: "딥페이크 판별 불가 (얼굴 미검출)", message }
+      }
+      return null
+  }
+}
+
+function DeepfakeAdvisoryBanner({ title, message }: { title: string; message: string }) {
+  return (
+    <div
+      role="status"
+      className="flex gap-3 rounded-xl border border-amber-300/80 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-50"
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+      <div className="min-w-0 space-y-1">
+        <p className="font-semibold">{title}</p>
+        <p className="text-xs font-medium leading-5 opacity-90">{message}</p>
+      </div>
+    </div>
   )
 }
 
@@ -393,6 +455,73 @@ function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
               <p className="mt-2 truncate text-[11px] font-bold text-slate-400" title={card.modelVersion ?? undefined}>
                 {card.modelName ?? card.title}
                 {card.modelVersion ? ` · ${cleanModelVersion(card.modelVersion)}` : ""}
+              </p>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+type FaceRiskSummary = {
+  faceIndex: number
+  maxScore: number
+  sampleCount: number
+}
+
+function buildFaceRiskSummaries(scores: PerFrameFaceScore[]): FaceRiskSummary[] {
+  if (scores.length === 0) return []
+  const byFace = new Map<number, FaceRiskSummary>()
+  for (const row of scores) {
+    const score = normalizeProbability(row.riskScore)
+    const current = byFace.get(row.faceIndex)
+    if (!current) {
+      byFace.set(row.faceIndex, {
+        faceIndex: row.faceIndex,
+        maxScore: score,
+        sampleCount: 1,
+      })
+      continue
+    }
+    current.maxScore = Math.max(current.maxScore, score)
+    current.sampleCount += 1
+  }
+  return [...byFace.values()].sort((a, b) => b.maxScore - a.maxScore || a.faceIndex - b.faceIndex)
+}
+
+function FaceRiskPanel({ faces, threshold }: { faces: FaceRiskSummary[]; threshold: number }) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-base font-bold text-foreground">얼굴별 위험도</h3>
+          <p className="mt-1 text-xs font-semibold text-muted-foreground">
+            탐지된 얼굴마다 Late Fusion 점수를 계산합니다. 영상 요약은 이 중 최고점을 사용합니다.
+          </p>
+        </div>
+        <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+          {faces.length}명 탐지
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {faces.map((face) => {
+          const tone = toneByScore(face.maxScore, threshold)
+          return (
+            <article key={face.faceIndex} className="rounded-lg border border-border bg-background/35 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-black text-foreground">얼굴 {face.faceIndex + 1}</h4>
+                  <p className="mt-1 text-[11px] font-bold text-muted-foreground">{face.sampleCount}개 샘플</p>
+                </div>
+                <span className={cn("rounded-full px-2 py-1 text-[11px] font-bold", TONE_BADGE[tone])}>
+                  {face.maxScore >= threshold ? "위험" : face.maxScore >= 0.3 ? "주의" : "정상"}
+                </span>
+              </div>
+              <p className={cn("mt-3 text-3xl font-black leading-none", TONE_TEXT[tone])}>
+                {Math.round(face.maxScore * 100)}
+                <span className="ml-1 text-base font-bold text-muted-foreground">/ 100</span>
               </p>
             </article>
           )
