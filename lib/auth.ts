@@ -150,14 +150,17 @@ function setSessionExpiry(accessTokenExpiresIn?: number) {
   writeSessionExpiresAt(Date.now() + sessionIdleTimeoutMs(accessTokenExpiresIn))
 }
 
-/** 인증 API 성공 등 활동 시 유휴 만료 시각을 지금 + N분으로 연장한다. */
+/**
+ * 인증 API 성공 등 활동 시 유휴 만료 시각을 지금 + N분으로 연장한다.
+ * auth-change는 쏘지 않는다 — 매 API마다 헤더 알림/프로필 재조회로 무한 루프가 난다.
+ * AuthProvider 타이머는 만료 시점에 expiresAt을 다시 읽어 연장을 반영한다.
+ */
 export function touchSessionExpiry() {
   if (typeof window === "undefined") return
   if (!memorySession || isMockAuthSession(memorySession)) return
   if (isSessionExpired()) return
 
   writeSessionExpiresAt(Date.now() + sessionIdleTimeoutMs())
-  notifyAuthChange()
 }
 
 function notifyAuthChange() {

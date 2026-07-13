@@ -57,6 +57,7 @@ export function SiteHeaderAuth() {
 
   useEffect(() => {
     let cancelled = false
+    let lastProfileKey: string | null = null
 
     async function loadProfile(currentSession: AuthSession | null) {
       if (!currentSession) {
@@ -83,6 +84,12 @@ export function SiteHeaderAuth() {
     function syncAuthState() {
       const currentSession = getSession()
       setSession(currentSession)
+
+      const profileKey = currentSession
+        ? `${currentSession.userId}:${currentSession.token}`
+        : ""
+      if (profileKey === lastProfileKey) return
+      lastProfileKey = profileKey
       void loadProfile(currentSession)
     }
 
@@ -156,14 +163,14 @@ export function SiteHeaderAuth() {
 
     void syncNotifications()
 
+    // 알림은 전용 이벤트·storage·마운트 시에만 동기화한다.
+    // auth-change마다 재조회하면 API 성공 → touch/auth 순환이 생길 수 있다.
     window.addEventListener(APP_NOTIFICATION_EVENT, syncNotifications)
-    window.addEventListener("auth-change", syncNotifications)
     window.addEventListener("storage", syncNotifications)
 
     return () => {
       cancelled = true
       window.removeEventListener(APP_NOTIFICATION_EVENT, syncNotifications)
-      window.removeEventListener("auth-change", syncNotifications)
       window.removeEventListener("storage", syncNotifications)
     }
   }, [])
