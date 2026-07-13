@@ -95,6 +95,22 @@ export type FrameRisk = {
   riskScore: number
 }
 
+export type FaceBBox = {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** Late fusion per-face score (frameRisks is max-collapsed per frame). */
+export type PerFrameFaceScore = {
+  frameIndex: number
+  faceIndex: number
+  /** 0.0 ~ 1.0 */
+  riskScore: number
+  bbox?: FaceBBox | null
+}
+
 /** TimeSformer 클립 단위 위험도 */
 export type ClipRisk = {
   clipIndex: number
@@ -213,6 +229,8 @@ export type AnalysisInfo = {
   spatialOverlayVideoUrl?: string | null
   /** GPU visualization 산출물 (TimeSformer temporal MP4) */
   temporalOverlayVideoUrl?: string | null
+  /** Face-level late fusion scores for multi-person detail / overlay */
+  perFrameFaceScores?: PerFrameFaceScore[] | null
 }
 
 /** 모델별 시각화 오버레이 산출물 (BE/AI 연동 계약) */
