@@ -12,6 +12,7 @@ import type { EvidenceDetailData, FrameScore, RepresentativeFrame } from "@/lib/
 import { formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
+import { buildForgeryRepresentativeFrames, formatForgeryThresholdLabel } from "../_lib/forgery-ui"
 import {
   buildDeepfakeTimelineTabs,
   buildForgeryTimelineTabs,
@@ -39,6 +40,7 @@ export function ResultFrameAnalysis({
   const [category, setCategory] = useState<AnalysisCategory>("deepfake")
   const deepfakeTabs = buildDeepfakeTimelineTabs(evidenceDetail, detectionThreshold)
   const forgeryTabs = buildForgeryTimelineTabs(evidenceDetail, detectionThreshold)
+  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail)
   const [deepfakeKey, setDeepfakeKey] = useState(deepfakeTabs[0]?.key ?? "cnn")
   const [forgeryKey, setForgeryKey] = useState(forgeryTabs[0]?.key ?? "")
 
@@ -96,8 +98,7 @@ export function ResultFrameAnalysis({
           activeTab={activeForgeryTab}
           activeKey={activeForgeryTab?.key ?? ""}
           onSelectTab={setForgeryKey}
-          detectionThreshold={detectionThreshold}
-          representativeFrames={representativeFrames}
+          representativeFrames={forgeryRepresentativeFrames}
           onSeek={onSeek}
         />
       )}
@@ -200,7 +201,6 @@ function ForgeryFrameAnalysis({
   activeTab,
   activeKey,
   onSelectTab,
-  detectionThreshold,
   representativeFrames,
   onSeek,
 }: {
@@ -208,7 +208,6 @@ function ForgeryFrameAnalysis({
   activeTab?: ForgeryTimelineTab
   activeKey: string
   onSelectTab: (key: string) => void
-  detectionThreshold: number
   representativeFrames: RepresentativeFrame[]
   onSeek: (seconds: number) => void
 }) {
@@ -216,13 +215,14 @@ function ForgeryFrameAnalysis({
     return (
       <EmptyTimelineMessage
         title="위변조 프레임 분석 데이터가 없습니다."
-        description="AI 서버가 frameEdit, splicing, reEncoding 등 위변조 모듈 점수와 affectedSegments를 내면 모델별로 표시됩니다."
+        description="GPU worker가 forgery_spatial(TruFor) 또는 forgery_temporal(TimeSformer) moduleTimelines를 내면 모델별로 표시됩니다."
       />
     )
   }
 
+  const moduleThreshold = activeTab?.threshold ?? 0.515
   const scores = activeTab?.points ?? []
-  const summary = summarizeFrameScores(scores, detectionThreshold)
+  const summary = summarizeFrameScores(scores, moduleThreshold)
 
   return (
     <div className="mt-5 space-y-4">
@@ -257,8 +257,8 @@ function ForgeryFrameAnalysis({
             <MetricCard
               label="모듈 점수"
               value={formatScoreOutOf100(activeTab.videoScore)}
-              sub={activeTab.detected ? "기준 초과" : "기준 이하"}
-              tone={activeTab.videoScore >= detectionThreshold ? "danger" : "neutral"}
+              sub={activeTab.detected ? "기준 초과" : formatForgeryThresholdLabel(moduleThreshold)}
+              tone={activeTab.videoScore >= moduleThreshold ? "danger" : "neutral"}
             />
             <MetricCard
               label="의심 구간"
@@ -272,30 +272,30 @@ function ForgeryFrameAnalysis({
               <MetricGrid
                 summary={summary}
                 scores={scores}
-                detectionThreshold={detectionThreshold}
-                unitLabel="구간"
+                detectionThreshold={moduleThreshold}
+                unitLabel={activeTab.key === "forgery_temporal" ? "클립" : "프레임"}
               />
               <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
                 <FrameRiskChart
                   scores={scores}
-                  threshold={detectionThreshold}
-                  title={`${activeTab.label} 구간별 위험도`}
+                  threshold={moduleThreshold}
+                  title={`${activeTab.label} ${activeTab.key === "forgery_temporal" ? "클립별" : "프레임별"} 위험도`}
                 />
               </div>
               <SegmentList segments={activeTab.segments} onSeek={onSeek} />
             </>
           ) : (
             <EmptyTimelineMessage
-              title={`${activeTab.label} 구간 데이터가 없습니다.`}
-              description="해당 위변조 모듈이 affectedSegments를 보고하면 시간축 차트가 표시됩니다."
+              title={`${activeTab.label} 프레임 데이터가 없습니다.`}
+              description="해당 모듈이 frameRisks 또는 clipRisks를 보고하면 시간축 차트가 표시됩니다."
             />
           )}
 
           {representativeFrames.length > 0 ? (
             <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-              <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">대표 프레임 근거</h4>
+              <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">고위험 프레임</h4>
               <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                위변조 탐지 탭과 동일한 대표 프레임입니다.
+                TruFor frameRisks 상위 시점입니다.
               </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {representativeFrames.slice(0, 2).map((frame, index) => (

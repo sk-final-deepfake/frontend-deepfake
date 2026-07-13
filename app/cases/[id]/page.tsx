@@ -83,6 +83,13 @@ import {
   getDisplayRiskLabel,
 } from "./_lib/evidence-display"
 import { getXceptionFrameScores } from "./_lib/module-timelines"
+import {
+  buildForgeryRepresentativeFrames,
+  buildForgeryResultTabSignals,
+  formatForgeryThresholdLabel,
+  getForgeryPriorityReviewRange,
+  getForgerySpatialTimeline,
+} from "./_lib/forgery-ui"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -1001,7 +1008,11 @@ function CaseResultView({
   const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
   const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
   const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
-  const forgeryRiskSignals = buildForgeryRiskSignals(evidenceDetail, detectionThreshold)
+  const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
+  const forgerySpatialTab = getForgerySpatialTimeline(evidenceDetail)
+  const forgerySpatialThreshold = forgerySpatialTab?.threshold ?? 0.515
+  const forgeryPriorityRange = getForgeryPriorityReviewRange(evidenceDetail)
+  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
@@ -1035,7 +1046,7 @@ function CaseResultView({
     0
   )
   const forgeryOverThresholdCount = forgeryRiskSignals.filter(
-    (signal) => normalizeResultValue(signal.score) >= detectionThreshold
+    (signal) => normalizeResultValue(signal.score) >= forgerySpatialThreshold
   ).length
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
   const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
@@ -1327,7 +1338,7 @@ function CaseResultView({
                     <div>
                       <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위변조 탐지</h3>
                       <p className="mt-1 text-sm font-semibold text-slate-500">
-                        프레임 편집, 구간 이어붙이기, 재인코딩, 국소 변조 신호를 따로 확인합니다.
+                        TruFor 국소 위변조 신호를 확인합니다. 시간축(TimeSformer) 분석은 프레임 분석 탭에서 확인하세요.
                       </p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-secondary">
@@ -1339,24 +1350,24 @@ function CaseResultView({
                     <FrameMetricCard
                       label="위변조 최고 점수"
                       value={forgeryRiskSignals.length > 0 ? formatScoreOutOf100(forgeryHighestScore) : "-"}
-                      sub="Frame Edit / Splicing / Re-encoding 기준"
-                      tone={forgeryHighestScore >= detectionThreshold ? "danger" : "neutral"}
+                      sub={`TruFor · ${formatForgeryThresholdLabel(forgerySpatialThreshold)}`}
+                      tone={forgeryHighestScore >= forgerySpatialThreshold ? "danger" : "neutral"}
                     />
                     <FrameMetricCard
                       label="기준 초과 항목"
                       value={`${forgeryOverThresholdCount} / ${forgeryRiskSignals.length}개`}
-                      sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
+                      sub={formatForgeryThresholdLabel(forgerySpatialThreshold)}
                       tone={forgeryOverThresholdCount > 0 ? "danger" : "neutral"}
                     />
                     <FrameMetricCard
                       label="의심 구간"
-                      value={priorityReviewRange ? priorityReviewRange.label : "-"}
-                      sub={priorityReviewRange ? "프레임 분석에서 시간축 확인" : "임계값 초과 구간 없음"}
+                      value={forgeryPriorityRange ? forgeryPriorityRange.label : "-"}
+                      sub={forgeryPriorityRange ? "TruFor spatial 의심 구간" : "임계값 초과 구간 없음"}
                     />
                     <FrameMetricCard
                       label="시각 증거"
-                      value={representativeFrames.length > 0 ? "제공됨" : "대기"}
-                      sub="대표 프레임/마스크 수신 시 표시"
+                      value={forgeryRepresentativeFrames.length > 0 ? "제공됨" : "대기"}
+                      sub="고위험 프레임 시점 · 마스크 연동 시 표시"
                     />
                   </div>
 
@@ -1373,22 +1384,22 @@ function CaseResultView({
                     </ul>
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                      위변조 세부 모델 결과가 아직 제공되지 않았습니다.
+                      위변조(TruFor) 결과가 아직 제공되지 않았습니다.
                       <br />
-                      AI 서버가 frameEdit, splicing, reEncoding 또는 forgery 계열 점수를 보내면 이 영역에 표시됩니다.
+                      GPU worker가 forgery_spatial 점수와 frameRisks를 내면 이 영역에 표시됩니다.
                     </p>
                   )}
 
-                  {representativeFrames.length > 0 ? (
+                  {forgeryRepresentativeFrames.length > 0 ? (
                     <section className="mt-5">
                       <div>
-                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">대표 프레임 근거</h4>
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">고위험 프레임</h4>
                         <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                          원본과 히트맵을 전환하며 국소 위변조 의심 영역을 확인합니다.
+                          TruFor frameRisks 상위 시점입니다. 시간축·클립 분석은 프레임 분석 &gt; 위변조를 확인하세요.
                         </p>
                       </div>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        {representativeFrames.slice(0, 2).map((frame, index) => (
+                        {forgeryRepresentativeFrames.slice(0, 2).map((frame, index) => (
                           <RepresentativeFrameDetailCard
                             key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
                             frame={frame}
@@ -4826,23 +4837,71 @@ function signalBadgeFromScore(score: number, detected: boolean, threshold: numbe
 }
 
 function buildForgeryRiskSignals(data: EvidenceDetailData | null, threshold: number): UiRiskSignal[] {
-  const modules = (data?.analysisInfo.moduleResults ?? []).filter((module) =>
-    isForgeryKeywordText(module.moduleName)
+  const modelScores = (data?.analysisInfo.modelScores ?? []).filter(
+    (score) => score.moduleName?.toLowerCase() === "forgery_spatial"
+  )
+  const modules = (data?.analysisInfo.moduleResults ?? []).filter(
+    (module) => module.moduleName?.toLowerCase() === "forgery_spatial"
   )
 
-  return modules
-    .map((module) => {
-      const score = normalizeResultValue(module.score)
-      const label = formatForgeryModuleLabel(module.moduleName)
+  const sources =
+    modelScores.length > 0
+      ? modelScores.map((score) => ({
+          moduleName: score.moduleName,
+          score: score.score,
+          detected: Boolean(score.detected),
+          modelName: score.modelName,
+          modelVersion: score.modelVersion,
+          affectedSegments: null as EvidenceDetailData["analysisInfo"]["moduleResults"][number]["affectedSegments"],
+        }))
+      : modules
+
+  if (sources.length === 0) {
+    return (data?.analysisInfo.moduleResults ?? [])
+      .filter((module) => isForgeryKeywordText(module.moduleName))
+      .map((module) => {
+        const score = normalizeResultValue(module.score)
+        const label = formatForgeryModuleLabel(module.moduleName)
+        return {
+          label,
+          modelLabel: formatModuleModelName(module),
+          definition: formatForgeryDefinition(label),
+          badge: signalBadgeFromScore(score, module.detected, threshold),
+          score,
+          thresholdPercent: Math.round(threshold * 100),
+          tone: signalToneFromScore(score, threshold),
+          segments: (module.affectedSegments ?? []).map((segment) => ({
+            label: `${formatDuration(segment.startTime)} ~ ${formatDuration(segment.endTime)}`,
+            startSec: segment.startTime,
+          })),
+        }
+      })
+      .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
+  }
+
+  return sources
+    .map((source) => {
+      const score = normalizeResultValue(source.score)
+      const moduleName = source.moduleName ?? "forgery_spatial"
+      const label =
+        moduleName.toLowerCase() === "forgery_spatial"
+          ? "TruFor (Spatial)"
+          : formatForgeryModuleLabel(moduleName)
+      const modelLabel =
+        source.modelName?.trim()
+          ? source.modelVersion?.trim()
+            ? `${source.modelName.trim()} ${source.modelVersion.trim()}`
+            : source.modelName.trim()
+          : null
       return {
         label,
-        modelLabel: formatModuleModelName(module),
+        modelLabel,
         definition: formatForgeryDefinition(label),
-        badge: signalBadgeFromScore(score, module.detected, threshold),
+        badge: signalBadgeFromScore(score, source.detected, threshold),
         score,
         thresholdPercent: Math.round(threshold * 100),
         tone: signalToneFromScore(score, threshold),
-        segments: (module.affectedSegments ?? []).map((segment) => ({
+        segments: (source.affectedSegments ?? []).map((segment) => ({
           label: `${formatDuration(segment.startTime)} ~ ${formatDuration(segment.endTime)}`,
           startSec: segment.startTime,
         })),

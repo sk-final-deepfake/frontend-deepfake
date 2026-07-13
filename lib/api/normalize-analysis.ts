@@ -3,6 +3,7 @@ import type {
   ClipRisk,
   EvidenceDetailData,
   FrameScore,
+  ModelOverlayArtifact,
   ModelScore,
   ModuleResult,
   ModuleTimeline,
@@ -229,15 +230,54 @@ function normalizePairRisks(pairs: PairRisk[] | null | undefined): PairRisk[] {
   }))
 }
 
-const MODULE_TIMELINE_KINDS: ModuleTimelineKind[] = ["cnn", "temporal", "optical"]
+const MODULE_TIMELINE_KINDS: ModuleTimelineKind[] = [
+  "cnn",
+  "temporal",
+  "optical",
+  "forgery_spatial",
+  "forgery_temporal",
+]
 
 function normalizeModuleKind(value: unknown): ModuleTimelineKind | null {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : ""
-  if (MODULE_TIMELINE_KINDS.includes(normalized as ModuleTimelineKind)) return normalized as ModuleTimelineKind
+  if (MODULE_TIMELINE_KINDS.includes(normalized as ModuleTimelineKind)) {
+    return normalized as ModuleTimelineKind
+  }
   if (["deepfake_cnn", "xception"].includes(normalized)) return "cnn"
   if (["deepfake_temporal", "timesformer"].includes(normalized)) return "temporal"
   if (["deepfake_optical", "gmflow"].includes(normalized)) return "optical"
+  if (normalized === "trufor" || normalized === "spatial") return "forgery_spatial"
+  if (normalized === "forgery_temporal" || normalized === "forgery-temporal") return "forgery_temporal"
   return null
+}
+
+/** BE/GPU 0~1 또는 0~100 스케일을 0~1로 통일 */
+function normalizeUnitScore(value: unknown, fallback = 0): number {
+  if (value == null || !Number.isFinite(Number(value))) return fallback
+  const parsed = Number(value)
+  if (parsed >= 0 && parsed <= 1) return parsed
+  return Math.max(0, Math.min(1, parsed / 100))
+}
+
+function normalizeModelOverlayArtifacts(
+  artifacts: ModelOverlayArtifact[] | null | undefined
+): ModelOverlayArtifact[] {
+  if (!Array.isArray(artifacts)) return []
+  return artifacts
+    .map((artifact, index) => {
+      const key = normalizeText(artifact.key, `overlay_${index + 1}`)
+      const category: "deepfake" | "forgery" =
+        artifact.category === "forgery" ? "forgery" : "deepfake"
+      return {
+        key,
+        category,
+        label: normalizeText(artifact.label, key),
+        overlayVideoUrl: normalizeText(artifact.overlayVideoUrl, null),
+        status: artifact.status ?? (artifact.overlayVideoUrl ? "ready" : "pending"),
+        description: normalizeText(artifact.description, null),
+      }
+    })
+    .filter((artifact) => Boolean(artifact.key))
 }
 
 function normalizeModuleTimelines(timelines: ModuleTimeline[] | null | undefined): ModuleTimeline[] {
@@ -250,16 +290,13 @@ function normalizeModuleTimelines(timelines: ModuleTimeline[] | null | undefined
         module: moduleKind,
         modelName: normalizeText(timeline.modelName, moduleKind),
         modelVersion: normalizeText(timeline.modelVersion, null),
-        videoScore: scoreOrZero(timeline.videoScore) / 100,
-        threshold:
-          timeline.threshold != null && Number.isFinite(Number(timeline.threshold))
-            ? clamp01(Number(timeline.threshold))
-            : 0.5,
+        videoScore: normalizeUnitScore(timeline.videoScore),
+        threshold: normalizeUnitScore(timeline.threshold, 0.5),
         detected: Boolean(timeline.detected),
         frameRisks: (timeline.frameRisks ?? []).map((risk, index) => ({
           frameIndex: Math.max(0, Math.round(Number(risk.frameIndex) || index)),
           timestampSec: normalizeTimeSec(risk.timestampSec, index) ?? index,
-          riskScore: scoreOrZero(risk.riskScore) / 100,
+          riskScore: normalizeUnitScore(risk.riskScore),
         })),
         clipRisks: normalizeClipRisks(timeline.clipRisks),
         pairRisks: normalizePairRisks(timeline.pairRisks),
@@ -282,7 +319,7 @@ function normalizeSuspiciousSegments(segments: SuspiciousSegment[]): SuspiciousS
       return {
         startTime,
         endTime: Math.max(endTime, startTime),
-        maxRiskScore: scoreOrZero(segment.maxRiskScore),
+        maxRiskScore: normalizeUnitScore(segment.maxRiskScore),
         reason: normalizeText(segment.reason, "의심 구간으로 표시되었습니다."),
       }
     })
@@ -300,6 +337,8 @@ function normalizeRepresentativeFrames(frames: RepresentativeFrame[]): Represent
         : index + 1,
     score: frame.score == null ? null : normalizeScore(frame.score),
     imageUrl: normalizeText(frame.imageUrl, null),
+    module: normalizeText(frame.module, null),
+    heatmapImageUrl: normalizeText(frame.heatmapImageUrl, null),
   }))
 }
 
@@ -330,6 +369,9 @@ export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): Normal
     detail.analysisInfo.opticalSuspiciousSegments ?? []
   )
   const moduleTimelines = normalizeModuleTimelines(detail.analysisInfo.moduleTimelines)
+  const modelOverlayArtifacts = normalizeModelOverlayArtifacts(detail.analysisInfo.modelOverlayArtifacts)
+  const spatialOverlayVideoUrl = normalizeText(detail.analysisInfo.spatialOverlayVideoUrl, null)
+  const temporalOverlayVideoUrl = normalizeText(detail.analysisInfo.temporalOverlayVideoUrl, null)
 
   const useMockFrames = frameScores.length === 0
   const useMockDetectionSignals = moduleResults.length === 0
@@ -356,6 +398,9 @@ export function normalizeEvidenceDetailForUi(detail: EvidenceDetailData): Normal
       moduleTimelines,
       frameScores,
       representativeFrames,
+      modelOverlayArtifacts,
+      spatialOverlayVideoUrl,
+      temporalOverlayVideoUrl,
     },
     ui: {
       useMockFrames,
