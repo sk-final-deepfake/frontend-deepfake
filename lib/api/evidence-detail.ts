@@ -287,10 +287,12 @@ export type CaseDetailData = {
   status: string
   createdAt: string
   representativeEvidenceId?: number | null
+  organizationId?: string | null
   createdBy?: string | null
   assigneeId?: string | null
   reviewerId?: string | null
   reviewStatus?: ReviewStatus | null
+  reviewRequestedAt?: string | null
   reviewerComment?: string | null
   evidences: CaseEvidenceSummary[]
 }
