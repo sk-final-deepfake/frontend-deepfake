@@ -340,8 +340,18 @@ export function isReviewer(user: AppUser) {
   return user.role === "REVIEWER"
 }
 
+function normalizeOrganizationId(organizationId?: string | null) {
+  const normalized = organizationId?.trim().toLowerCase()
+  if (!normalized) return null
+  // FE mock seed uses org-police-seoul while BE returns org-police (OrgType).
+  return normalized.replace(/-seoul$/, "")
+}
+
 export function isSameOrganization(user: AppUser, caseItem: CaseAccessItem) {
-  return (caseItem.organizationId ?? user.organizationId) === user.organizationId
+  const caseOrg = normalizeOrganizationId(caseItem.organizationId ?? user.organizationId)
+  const userOrg = normalizeOrganizationId(user.organizationId)
+  if (!caseOrg || !userOrg) return true
+  return caseOrg === userOrg
 }
 
 export function isCaseOwner(user: AppUser, caseItem: CaseAccessItem) {
