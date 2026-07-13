@@ -1,0 +1,197 @@
+import type {
+  EvidenceDetailData,
+  FrameScore,
+  ModelOverlayArtifact,
+  ModuleTimelineKind,
+} from "@/lib/api/evidence-detail"
+
+import {
+  buildDeepfakeTimelineTabs,
+  buildForgeryTimelineTabs,
+  type DeepfakeTimelineTab,
+  type ForgeryTimelineTab,
+} from "./module-timelines"
+
+export type OverlayCategory = "deepfake" | "forgery"
+
+export type ModelOverlayOption = {
+  id: string
+  category: OverlayCategory
+  label: string
+  shortLabel: string
+  overlayVideoUrl: string | null
+  ready: boolean
+  overlayBadge: string
+  timelineCaption: string
+  timelineScores: FrameScore[]
+  description: string
+  pendingMessage: string
+}
+
+export type ResultMediaView = "original" | "overlay"
+
+const DEEPFAKE_OVERLAY_META: Record<
+  ModuleTimelineKind,
+  { label: string; shortLabel: string; badge: string; description: string; pendingMessage: string }
+> = {
+  cnn: {
+    label: "Xception",
+    shortLabel: "Xception",
+    badge: "얼굴 bbox · 위험도 컬러",
+    description: "프레임별 얼굴 경계와 위험 점수를 영상 위에 표시합니다.",
+    pendingMessage: "Xception 오버레이 MP4가 제공되면 재생됩니다.",
+  },
+  temporal: {
+    label: "TimeSformer",
+    shortLabel: "TimeSformer",
+    badge: "클립 구간 하이라이트",
+    description: "시계열 이상이 감지된 클립 구간을 영상 위에 표시합니다.",
+    pendingMessage: "TimeSformer 클립 오버레이 연동 예정입니다.",
+  },
+  optical: {
+    label: "GMFlow",
+    shortLabel: "GMFlow",
+    badge: "움직임 벡터 · 이상 프레임쌍",
+    description: "연속 프레임쌍의 optical flow 이상을 영상 위에 표시합니다.",
+    pendingMessage: "GMFlow motion 오버레이 연동 예정입니다.",
+  },
+}
+
+export function buildModelOverlayOptions(data: EvidenceDetailData | null): ModelOverlayOption[] {
+  if (!data) return []
+
+  const artifactMap = indexOverlayArtifacts(data.analysisInfo.modelOverlayArtifacts)
+  const legacyCnnUrl =
+    data.analysisInfo.overlayVideoUrl?.trim() ||
+    data.evidenceInfo.overlayVideoUrl?.trim() ||
+    null
+
+  const deepfakeOptions = (["cnn", "temporal", "optical"] as const).map((module) =>
+    buildDeepfakeOverlayOption(module, data, artifactMap, legacyCnnUrl)
+  )
+
+  const forgeryOptions = buildForgeryTimelineTabs(data).map((tab) =>
+    buildForgeryOverlayOption(tab, data, artifactMap)
+  )
+
+  return [...deepfakeOptions, ...forgeryOptions]
+}
+
+export function getDefaultOverlaySelection(options: ModelOverlayOption[]): {
+  category: OverlayCategory
+  overlayId: string
+} {
+  const deepfakeReady = options.find((item) => item.category === "deepfake" && item.ready)
+  if (deepfakeReady) {
+    return { category: "deepfake", overlayId: deepfakeReady.id }
+  }
+
+  const forgeryReady = options.find((item) => item.category === "forgery" && item.ready)
+  if (forgeryReady) {
+    return { category: "forgery", overlayId: forgeryReady.id }
+  }
+
+  const firstDeepfake = options.find((item) => item.category === "deepfake")
+  return {
+    category: "deepfake",
+    overlayId: firstDeepfake?.id ?? "deepfake:cnn",
+  }
+}
+
+export function findOverlayOption(
+  options: ModelOverlayOption[],
+  overlayId: string | null | undefined
+): ModelOverlayOption | null {
+  if (!overlayId) return null
+  return options.find((item) => item.id === overlayId) ?? null
+}
+
+function buildDeepfakeOverlayOption(
+  module: ModuleTimelineKind,
+  data: EvidenceDetailData,
+  artifactMap: Map<string, ModelOverlayArtifact>,
+  legacyCnnUrl: string | null
+): ModelOverlayOption {
+  const meta = DEEPFAKE_OVERLAY_META[module]
+  const id = `deepfake:${module}`
+  const timeline =
+    buildDeepfakeTimelineTabs(data).find((tab) => tab.key === module) ??
+    ({
+      key: module,
+      points: [],
+    } as DeepfakeTimelineTab)
+
+  const artifact = artifactMap.get(id)
+  const timelineUrl = data.analysisInfo.moduleTimelines?.find((item) => item.module === module)?.overlayVideoUrl
+  const overlayVideoUrl =
+    normalizeUrl(artifact?.overlayVideoUrl) ??
+    normalizeUrl(timelineUrl) ??
+    (module === "cnn" ? legacyCnnUrl : null)
+
+  const ready = Boolean(overlayVideoUrl) || artifact?.status === "ready"
+
+  return {
+    id,
+    category: "deepfake",
+    label: meta.label,
+    shortLabel: meta.shortLabel,
+    overlayVideoUrl,
+    ready,
+    overlayBadge: meta.badge,
+    timelineCaption: `${meta.label} 타임라인 위험도`,
+    timelineScores: timeline.points,
+    description: artifact?.description?.trim() || meta.description,
+    pendingMessage: meta.pendingMessage,
+  }
+}
+
+function buildForgeryOverlayOption(
+  tab: ForgeryTimelineTab,
+  data: EvidenceDetailData,
+  artifactMap: Map<string, ModelOverlayArtifact>
+): ModelOverlayOption {
+  const moduleKey = normalizeForgeryKey(tab.key)
+  const id = `forgery:${moduleKey}`
+  const artifact = artifactMap.get(id)
+  const moduleResult = (data.analysisInfo.moduleResults ?? []).find(
+    (module) => normalizeForgeryKey(module.moduleName) === moduleKey
+  )
+  const overlayVideoUrl =
+    normalizeUrl(artifact?.overlayVideoUrl) ?? normalizeUrl(moduleResult?.overlayVideoUrl)
+
+  const ready = Boolean(overlayVideoUrl) || artifact?.status === "ready"
+
+  return {
+    id,
+    category: "forgery",
+    label: tab.label,
+    shortLabel: tab.label,
+    overlayVideoUrl,
+    ready,
+    overlayBadge: "위변조 의심 구간 · 마스크",
+    timelineCaption: `${tab.label} 구간 위험도`,
+    timelineScores: tab.points,
+    description:
+      artifact?.description?.trim() ||
+      `${tab.label} 모듈이 보고한 편집·이어붙이기·재인코딩 의심 구간을 영상 위에 표시합니다.`,
+    pendingMessage: `${tab.label} 오버레이 MP4 연동 예정입니다.`,
+  }
+}
+
+function indexOverlayArtifacts(artifacts: ModelOverlayArtifact[] | null | undefined) {
+  const map = new Map<string, ModelOverlayArtifact>()
+  for (const artifact of artifacts ?? []) {
+    const key = artifact.key?.trim()
+    if (key) map.set(key, artifact)
+  }
+  return map
+}
+
+function normalizeUrl(value: string | null | undefined) {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
+function normalizeForgeryKey(moduleName: string) {
+  return moduleName.trim().toLowerCase().replace(/[\s-]+/g, "_")
+}

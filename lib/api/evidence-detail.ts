@@ -78,6 +78,8 @@ export type ModuleResult = {
   details: string
   /** 해당 모듈이 실측으로 보고한 의심 구간. 없으면 UI에 구간을 표시하지 않는다. */
   affectedSegments?: SuspiciousSegment[] | null
+  /** 위변조 모듈별 오버레이 MP4 (연동 시) */
+  overlayVideoUrl?: string | null
 }
 
 export type FrameScore = {
@@ -141,6 +143,8 @@ export type ModuleTimeline = {
   clipRisks?: ClipRisk[] | null
   pairRisks?: PairRisk[] | null
   suspiciousSegments?: SuspiciousSegment[] | null
+  /** 모듈별 오버레이 MP4 (연동 시). 없으면 UI에서 준비중 표시 */
+  overlayVideoUrl?: string | null
 }
 
 export type ModelScore = {
@@ -193,7 +197,21 @@ export type AnalysisInfo = {
   moduleTimelines?: ModuleTimeline[] | null
   frameScores?: FrameScore[] | null
   representativeFrames?: RepresentativeFrame[] | null
+  /** @deprecated 모듈별 overlayVideoUrl·modelOverlayArtifacts 사용 권장. CNN(Xception) 레거시 */
   overlayVideoUrl?: string | null
+  /** BE flat list (선택). moduleTimelines·moduleResults보다 우선하지 않음 */
+  modelOverlayArtifacts?: ModelOverlayArtifact[] | null
+}
+
+/** 모델별 시각화 오버레이 산출물 (BE/AI 연동 계약) */
+export type ModelOverlayArtifact = {
+  /** 예: deepfake:cnn, forgery:frame_edit */
+  key: string
+  category: "deepfake" | "forgery"
+  label: string
+  overlayVideoUrl?: string | null
+  status?: "ready" | "pending" | "unsupported" | null
+  description?: string | null
 }
 
 export type CocLog = {
