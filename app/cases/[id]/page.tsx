@@ -127,6 +127,7 @@ import {
   cancelCaseAnalysis,
   markEvidenceExcluded,
   recordCaseReviewDecision,
+  requestCaseReview,
   setRepresentativeEvidence,
   startCaseAnalysis,
   updateCaseName,
@@ -147,7 +148,7 @@ import {
   saveCompareResultSummary,
   type StoredCompareResultSummary,
 } from "@/lib/compare-history"
-import { getAppUserFromSession, mockUsers, roleLabelMap } from "@/lib/permissions"
+import { getAppUserFromSession, mockUsers, roleLabelMap, canRequestReview, reviewStatusLabelMap, type AppUser } from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
@@ -817,6 +818,7 @@ export default function CaseDetailPage() {
                     setAnalysisProgressOverrides={setAnalysisProgressOverrides}
                     analysisPollingMessage={analysisPollingMessage}
                     currentUserName={getAppUserFromSession(session)?.name ?? null}
+                    currentUser={getAppUserFromSession(session)}
                     readOnly={isReviewer}
                   />
                 )}
@@ -2346,6 +2348,7 @@ function CaseWorkflowPanel({
   setAnalysisProgressOverrides,
   analysisPollingMessage,
   currentUserName,
+  currentUser = null,
   readOnly = false,
 }: {
   caseData: CaseDetailData
@@ -2367,6 +2370,7 @@ function CaseWorkflowPanel({
   setAnalysisProgressOverrides: Dispatch<SetStateAction<AnalysisProgressOverrides>>
   analysisPollingMessage: WorkflowMessage | null
   currentUserName?: string | null
+  currentUser?: AppUser | null
   readOnly?: boolean
 }) {
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -2388,6 +2392,8 @@ function CaseWorkflowPanel({
   const [reviewerCommentDraft, setReviewerCommentDraft] = useState(caseData.reviewerComment ?? "")
   const [message, setMessage] = useState<WorkflowMessage | null>(null)
   const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
+  const [reviewRequestOpen, setReviewRequestOpen] = useState(false)
+  const [reviewRequestMemo, setReviewRequestMemo] = useState("")
   const [isWorking, setIsWorking] = useState(false)
   const [readinessByEvidenceId, setReadinessByEvidenceId] = useState<
     Record<number, EvidenceReadinessResponse>
@@ -2527,6 +2533,12 @@ function CaseWorkflowPanel({
         ? "text-red-700 dark:text-red-400"
         : "text-amber-600"
   const isReviewerMode = readOnly
+  const showReviewRequestButton = !readOnly && canRequestReview(currentUser, caseData)
+  const caseReviewStatus = caseData.reviewStatus ?? "NONE"
+  const showCaseReviewStatus =
+    !readOnly && !showReviewRequestButton && caseReviewStatus !== "NONE"
+  const caseReviewStatusLabel =
+    reviewStatusLabelMap[caseReviewStatus as keyof typeof reviewStatusLabelMap] ?? caseReviewStatus
 
   useEffect(() => {
     if (!selectedEvidence) {
@@ -2893,6 +2905,30 @@ function CaseWorkflowPanel({
     }
   }
 
+  async function handleRequestReview() {
+    if (isWorking || !showReviewRequestButton) return
+
+    setIsWorking(true)
+    setMessage(null)
+    try {
+      await requestCaseReview(caseData.caseId, reviewRequestMemo)
+      setReviewRequestOpen(false)
+      setReviewRequestMemo("")
+      setMessage({
+        type: "success",
+        text: "검토 요청이 접수되었습니다. 기관 관리자가 검토자를 배정합니다.",
+      })
+      onRefresh()
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: getApiErrorMessage(error, "검토 요청에 실패했습니다."),
+      })
+    } finally {
+      setIsWorking(false)
+    }
+  }
+
   const visibleMessage = analysisPollingMessage ?? message
 
   return (
@@ -2924,6 +2960,33 @@ function CaseWorkflowPanel({
             <AlertCircle className="size-4" aria-hidden="true" />
           )}
           {visibleMessage.text}
+        </div>
+      ) : null}
+
+      {!readOnly && (showReviewRequestButton || showCaseReviewStatus) ? (
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-foreground">사건 검토</p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-muted-foreground">
+              {showReviewRequestButton
+                ? "분석이 완료되었습니다. 검토자 배정을 요청하면 관리자 페이지에서 검토자를 지정합니다."
+                : "검토 요청이 접수되었습니다. 기관 관리자의 검토자 배정을 기다리는 중입니다."}
+            </p>
+          </div>
+          {showReviewRequestButton ? (
+            <Button
+              type="button"
+              className="h-10 shrink-0 bg-teal-600 px-5 font-bold text-white hover:bg-teal-700"
+              disabled={isWorking}
+              onClick={() => setReviewRequestOpen(true)}
+            >
+              검토 요청
+            </Button>
+          ) : (
+            <span className="inline-flex h-10 shrink-0 items-center rounded-full bg-slate-100 px-4 text-sm font-bold text-slate-700">
+              {caseReviewStatusLabel}
+            </span>
+          )}
         </div>
       ) : null}
 
@@ -3421,6 +3484,71 @@ function CaseWorkflowPanel({
                 </Button>
               ) : null}
             </div>
+        </div>
+      ) : null}
+
+      {!readOnly && reviewRequestOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reviewRequestTitle"
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 id="reviewRequestTitle" className="text-lg font-bold text-foreground">
+                  검토 요청
+                </h3>
+                <p className="mt-2 text-sm font-bold leading-6 text-muted-foreground">
+                  이 사건의 분석 결과를 검토자에게 전달합니다. 검토자 배정은 기관 관리자가 관리자
+                  페이지에서 진행합니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                aria-label="검토 요청 닫기"
+                disabled={isWorking}
+                onClick={() => setReviewRequestOpen(false)}
+              >
+                <X className="size-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            <label htmlFor="reviewRequestMemo" className="mt-5 block text-sm font-bold text-foreground">
+              요청 메모
+              <span className="ml-1 text-xs font-semibold text-muted-foreground">(선택)</span>
+            </label>
+            <textarea
+              id="reviewRequestMemo"
+              value={reviewRequestMemo}
+              onChange={(event) => setReviewRequestMemo(event.target.value)}
+              placeholder="검토 시 참고할 내용을 입력하세요."
+              className="mt-2 h-24 w-full resize-none rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-slate-300"
+            />
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 font-bold"
+                disabled={isWorking}
+                onClick={() => setReviewRequestOpen(false)}
+              >
+                취소
+              </Button>
+              <Button
+                type="button"
+                className="h-10 bg-teal-600 px-5 font-bold text-white hover:bg-teal-700"
+                disabled={isWorking}
+                onClick={() => void handleRequestReview()}
+              >
+                {isWorking ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                검토 요청
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
 
