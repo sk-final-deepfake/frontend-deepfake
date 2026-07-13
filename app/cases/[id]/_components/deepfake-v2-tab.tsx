@@ -359,19 +359,33 @@ function ModelScoreGrid({ cards }: { cards: ModelScoreCard[] }) {
                     기준 {thresholdPercent} 초과 시 탐지
                   </p>
                 </div>
-                <div className="relative h-20 w-10 shrink-0 overflow-hidden rounded-md border border-border bg-muted/40">
-                  <div
-                    aria-hidden="true"
-                    className="absolute inset-x-0 border-t border-dashed border-slate-500/80"
-                    style={{ bottom: `${Math.max(0, Math.min(100, thresholdPercent))}%` }}
-                  />
-                  <div
-                    className={cn(
-                      "absolute inset-x-1 bottom-0 rounded-sm",
-                      detected ? "bg-red-600 dark:bg-red-500" : "bg-emerald-600 dark:bg-emerald-500"
-                    )}
-                    style={{ height: `${Math.max(2, scorePercent ?? 0)}%` }}
-                  />
+                <div className="flex h-20 shrink-0 items-stretch gap-1">
+                  <div className="relative w-[42px]">
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-x-0 flex items-center justify-end"
+                      style={{ bottom: `${Math.max(0, Math.min(100, thresholdPercent))}%` }}
+                    >
+                      <span className="whitespace-nowrap text-[9px] font-bold leading-none text-slate-500">
+                        기준 {thresholdPercent}
+                      </span>
+                      <span className="ml-0.5 w-2.5 shrink-0 border-t border-dashed border-slate-500/80" />
+                    </div>
+                  </div>
+                  <div className="relative h-full w-10 overflow-hidden rounded-md border border-border bg-muted/40">
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-x-0 border-t border-dashed border-slate-500/80"
+                      style={{ bottom: `${Math.max(0, Math.min(100, thresholdPercent))}%` }}
+                    />
+                    <div
+                      className={cn(
+                        "absolute inset-x-1 bottom-0 rounded-sm",
+                        detected ? "bg-red-600 dark:bg-red-500" : "bg-emerald-600 dark:bg-emerald-500"
+                      )}
+                      style={{ height: `${Math.max(2, scorePercent ?? 0)}%` }}
+                    />
+                  </div>
                 </div>
               </div>
 
