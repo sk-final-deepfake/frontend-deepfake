@@ -95,6 +95,8 @@ import {
   buildForgeryResultTabSignals,
   DEFAULT_FORGERY_THRESHOLDS,
   formatForgeryDualScoreSub,
+  forgeryHighRiskGalleryCopy,
+  FORGERY_SPATIAL_MODULE,
   getForgeryPriorityReviewRange,
   getForgeryScoreSummary,
 } from "./_lib/forgery-ui"
@@ -1034,7 +1036,10 @@ function CaseResultView({
   const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
   const forgeryScoreSummary = getForgeryScoreSummary(evidenceDetail)
   const forgeryPriorityRange = getForgeryPriorityReviewRange(evidenceDetail)
-  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail)
+  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail, {
+    moduleKey: FORGERY_SPATIAL_MODULE,
+  })
+  const forgeryGalleryCopy = forgeryHighRiskGalleryCopy(FORGERY_SPATIAL_MODULE)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
@@ -1436,9 +1441,11 @@ function CaseResultView({
                   {forgeryRepresentativeFrames.length > 0 ? (
                     <section className="mt-5">
                       <div>
-                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">고위험 프레임</h4>
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">
+                          {forgeryGalleryCopy.title}
+                        </h4>
                         <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                          TruFor frameRisks 상위 시점입니다. 서버 이미지가 없으면 영상에서 해당 시각을 캡처합니다.
+                          {forgeryGalleryCopy.description}
                         </p>
                       </div>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">

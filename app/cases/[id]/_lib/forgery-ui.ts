@@ -354,15 +354,23 @@ function estimateMediaDurationSec(
   return max > 0 ? max + 0.5 : null
 }
 
-/** TruFor 고위험 프레임 — API 이미지·히트맵 우선, 없으면 시점만 (UI에서 영상 캡처) */
+/** 고위험 프레임/클립 — 선택 모듈(TruFor spatial / TimeSformer temporal) 상위 시점 */
 export function buildForgeryRepresentativeFrames(
   data: EvidenceDetailData | null,
-  maxFrames = 2
+  options?: { moduleKey?: ForgeryModuleKey | string | null; maxFrames?: number }
 ): RepresentativeFrame[] {
-  const spatialTab = getForgerySpatialTimeline(data)
-  if (!spatialTab || spatialTab.points.length === 0) return []
+  const maxFrames = options?.maxFrames ?? 2
+  const moduleKey =
+    options?.moduleKey === FORGERY_TEMPORAL_MODULE
+      ? FORGERY_TEMPORAL_MODULE
+      : FORGERY_SPATIAL_MODULE
+  const tab =
+    moduleKey === FORGERY_TEMPORAL_MODULE
+      ? getForgeryTemporalTimeline(data)
+      : getForgerySpatialTimeline(data)
+  if (!tab || tab.points.length === 0) return []
 
-  const topPoints = [...spatialTab.points]
+  const topPoints = [...tab.points]
     .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
     .slice(0, maxFrames)
 
@@ -370,7 +378,8 @@ export function buildForgeryRepresentativeFrames(
 
   return topPoints.map((point, index) => {
     const timeSec = point.timeSec ?? 0
-    const matched = findClosestApiFrame(apiFrames, timeSec)
+    const matched =
+      moduleKey === FORGERY_SPATIAL_MODULE ? findClosestApiFrame(apiFrames, timeSec) : null
     const imageUrl =
       matched?.imageUrl?.trim() ||
       matched?.heatmapImageUrl?.trim() ||
@@ -384,9 +393,22 @@ export function buildForgeryRepresentativeFrames(
       score: normalizeResultValue(point.score),
       imageUrl,
       heatmapImageUrl,
-      module: matched?.module ?? "forgery_spatial",
+      module: matched?.module ?? moduleKey,
     }
   })
+}
+
+export function forgeryHighRiskGalleryCopy(moduleKey: ForgeryModuleKey | string | null | undefined) {
+  if (moduleKey === FORGERY_TEMPORAL_MODULE) {
+    return {
+      title: "고위험 클립",
+      description: "TimeSformer clipRisks 상위 시점입니다. 서버 이미지가 없으면 영상에서 해당 시각을 캡처합니다.",
+    }
+  }
+  return {
+    title: "고위험 프레임",
+    description: "TruFor frameRisks 상위 시점입니다. 서버 이미지가 없으면 영상에서 해당 시각을 캡처합니다.",
+  }
 }
 
 function findClosestApiFrame(frames: RepresentativeFrame[], timeSec: number) {
