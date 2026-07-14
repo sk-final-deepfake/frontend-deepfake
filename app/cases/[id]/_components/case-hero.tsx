@@ -13,6 +13,7 @@ type CaseHeroProps = {
   reviewerName?: string | null
   requesterName?: string | null
   viewerIsReviewer?: boolean
+  onRequestReview?: () => void
   reviewOpen: boolean
   onReviewOpenChange: (open: boolean) => void
 }
@@ -25,6 +26,7 @@ export function CaseHero({
   reviewerName,
   requesterName,
   viewerIsReviewer = false,
+  onRequestReview,
   reviewOpen,
   onReviewOpenChange,
 }: CaseHeroProps) {
@@ -63,6 +65,15 @@ export function CaseHero({
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
         {!hasReview ? <HeroChip value={analysisLabel} className={analysisTone} /> : null}
+        {!hasReview && onRequestReview ? (
+          <button
+            type="button"
+            className="h-8 rounded-md border border-slate-300 px-3 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+            onClick={onRequestReview}
+          >
+            검토 요청
+          </button>
+        ) : null}
         {showReviewChip ? (
           <ReviewStatusChip
             data={data}

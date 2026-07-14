@@ -225,6 +225,21 @@ function clampAnalysisProgress(progress: number | null | undefined) {
   return Math.max(0, Math.min(100, Math.round(progress ?? 0)))
 }
 
+function isDeepfakeAnalysisReady(evidences: CaseEvidenceSummary[]) {
+  const activeEvidences = evidences.filter((evidence) => (evidence.lifecycleStatus ?? "ACTIVE") === "ACTIVE")
+  return (
+    activeEvidences.length > 0 &&
+    activeEvidences.some(
+      (evidence) => normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED"
+    ) &&
+    activeEvidences.every((evidence) =>
+      ["COMPLETED", "FAILED"].includes(
+        normalizeStatus(evidence.analysisStatus ?? "PENDING")
+      )
+    )
+  )
+}
+
 function getFileExtension(fileName: string, mediaType?: string) {
   const extension = fileName.split(".").pop()
   if (extension) return extension.toUpperCase()
@@ -338,6 +353,7 @@ export default function CaseDetailPage() {
   const [analysisProgressOverrides, setAnalysisProgressOverrides] = useState<AnalysisProgressOverrides>({})
   const [analysisPollingMessage, setAnalysisPollingMessage] = useState<WorkflowMessage | null>(null)
   const [reviewPopoverOpen, setReviewPopoverOpen] = useState(false)
+  const [reviewRequestDialogOpen, setReviewRequestDialogOpen] = useState(false)
   const isReviewer = isReviewerSession(session)
   const currentUser = getAppUserFromSession(session)
   const refreshCase = useCallback(() => {
@@ -760,6 +776,13 @@ export default function CaseDetailPage() {
     }
   }
 
+  const canRequestReviewFromHeader =
+    caseData != null &&
+    currentUser?.role === "INVESTIGATOR" &&
+    isCaseOwner(currentUser, caseData) &&
+    (caseData.reviewStatus ?? "NONE") === "NONE" &&
+    isDeepfakeAnalysisReady(caseData.evidences)
+
   return (
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
       <SiteHeader />
@@ -785,6 +808,11 @@ export default function CaseDetailPage() {
                   reviewerName={getCaseActorName(caseData.reviewerId)}
                   requesterName={getCaseActorName(caseData.createdBy)}
                   viewerIsReviewer={isReviewer}
+                  onRequestReview={
+                    canRequestReviewFromHeader
+                      ? () => setReviewRequestDialogOpen(true)
+                      : undefined
+                  }
                   reviewOpen={reviewPopoverOpen}
                   onReviewOpenChange={setReviewPopoverOpen}
                 />
@@ -833,6 +861,8 @@ export default function CaseDetailPage() {
                     analysisProgressOverrides={analysisProgressOverrides}
                     setAnalysisProgressOverrides={setAnalysisProgressOverrides}
                     analysisPollingMessage={analysisPollingMessage}
+                    reviewRequestOpen={reviewRequestDialogOpen}
+                    onReviewRequestOpenChange={setReviewRequestDialogOpen}
                     currentUserName={currentUser?.name ?? null}
                     currentUser={currentUser}
                     readOnly={isReviewer}
@@ -2421,6 +2451,8 @@ function CaseWorkflowPanel({
   analysisProgressOverrides,
   setAnalysisProgressOverrides,
   analysisPollingMessage,
+  reviewRequestOpen,
+  onReviewRequestOpenChange,
   currentUserName,
   currentUser = null,
   readOnly = false,
@@ -2444,6 +2476,8 @@ function CaseWorkflowPanel({
   analysisProgressOverrides: AnalysisProgressOverrides
   setAnalysisProgressOverrides: Dispatch<SetStateAction<AnalysisProgressOverrides>>
   analysisPollingMessage: WorkflowMessage | null
+  reviewRequestOpen: boolean
+  onReviewRequestOpenChange: (open: boolean) => void
   currentUserName?: string | null
   currentUser?: AppUser | null
   readOnly?: boolean
@@ -2467,7 +2501,6 @@ function CaseWorkflowPanel({
   const [analystCommentsByEvidence, setAnalystCommentsByEvidence] = useState<Record<number, string>>({})
   const [reviewerCommentsByEvidence, setReviewerCommentsByEvidence] = useState<Record<number, string>>({})
   const [message, setMessage] = useState<WorkflowMessage | null>(null)
-  const [reviewRequestOpen, setReviewRequestOpen] = useState(false)
   const [assignmentOpen, setAssignmentOpen] = useState(false)
   const [decisionDialog, setDecisionDialog] = useState<"APPROVED" | "REVISION" | null>(null)
   const [reviewers, setReviewers] = useState<AdminReviewer[]>([])
@@ -2594,16 +2627,7 @@ function CaseWorkflowPanel({
   const isAdminMode = currentUser?.role === "ORG_ADMIN"
   const caseReviewStatus = caseData.reviewStatus ?? "NONE"
   const supplementRequested = isSupplementReviewStatus(caseReviewStatus)
-  const deepfakeAnalysisReady =
-    activeEvidences.length > 0 &&
-    activeEvidences.some(
-      (evidence) => normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED"
-    ) &&
-    activeEvidences.every((evidence) =>
-      ["COMPLETED", "FAILED"].includes(
-        normalizeStatus(evidence.analysisStatus ?? "PENDING")
-      )
-    )
+  const deepfakeAnalysisReady = isDeepfakeAnalysisReady(evidences)
   const showReviewRequestAction =
     currentUser?.role === "INVESTIGATOR" &&
     isCaseOwner(currentUser, caseData) &&
@@ -3054,7 +3078,7 @@ function CaseWorkflowPanel({
     setMessage(null)
     try {
       await requestCaseReview(caseData.caseId)
-      setReviewRequestOpen(false)
+      onReviewRequestOpenChange(false)
       setMessage({
         type: "success",
         text: canRequestRereview ? "재검토 요청" : "검토 요청",
@@ -3122,7 +3146,7 @@ function CaseWorkflowPanel({
             variant="outline"
             className="h-9 shrink-0 border-red-200 bg-white px-3 text-sm font-bold text-red-700 hover:bg-red-50"
             disabled={isWorking}
-            onClick={() => setReviewRequestOpen(true)}
+            onClick={() => onReviewRequestOpenChange(true)}
           >
             보완 완료 · 재검토 요청
           </Button>
@@ -3614,31 +3638,6 @@ function CaseWorkflowPanel({
                   ) : null}
                 </>
               ) : null}
-              {showReviewRequestAction ? (
-                <span
-                  className="group/review-request relative inline-flex"
-                >
-                  <Button
-                    type="button"
-                    variant="outline"
-                    aria-describedby={!reviewRequestAllowed ? "review-request-tooltip" : undefined}
-                    className="h-11 w-full rounded-full border-slate-300 px-5 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-                    disabled={isWorking || !reviewRequestAllowed}
-                    onClick={() => setReviewRequestOpen(true)}
-                  >
-                    검토 요청
-                  </Button>
-                  {!reviewRequestAllowed ? (
-                    <span
-                      id="review-request-tooltip"
-                      role="tooltip"
-                      className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-30 hidden w-max max-w-[260px] -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-xs font-semibold text-white shadow-lg group-hover/review-request:block group-focus-within/review-request:block"
-                    >
-                      딥페이크 분석 완료 후 요청할 수 있습니다
-                    </span>
-                  ) : null}
-                </span>
-              ) : null}
               {showAssignmentAction ? (
                 <Button
                   type="button"
@@ -3725,7 +3724,7 @@ function CaseWorkflowPanel({
         <ReviewRequestDialog
           processing={isWorking}
           rereview={canRequestRereview}
-          onClose={() => setReviewRequestOpen(false)}
+          onClose={() => onReviewRequestOpenChange(false)}
           onConfirm={() => void handleRequestReview()}
         />
       ) : null}
