@@ -139,9 +139,10 @@ export function buildForgeryTimelineTabs(
 ): ForgeryTimelineTab[] {
   if (!data) return []
 
+  const metaDuration = data.evidenceInfo.technicalMetadata?.durationSec
   const fromTimelines = (data.analysisInfo.moduleTimelines ?? [])
     .filter((timeline) => isForgeryTimelineModule(String(timeline.module ?? "")))
-    .map((timeline) => timelineToForgeryTab(timeline, threshold))
+    .map((timeline) => timelineToForgeryTab(timeline, threshold, metaDuration))
 
   if (fromTimelines.length > 0) {
     return fromTimelines.sort((a, b) => b.videoScore - a.videoScore)
@@ -239,7 +240,11 @@ function isForgeryTimelineModule(module: string) {
   return normalized === "forgery_spatial" || normalized === "forgery_temporal"
 }
 
-function timelineToForgeryTab(timeline: ModuleTimeline, threshold: number): ForgeryTimelineTab {
+function timelineToForgeryTab(
+  timeline: ModuleTimeline,
+  threshold: number,
+  metaDurationSec?: number | null
+): ForgeryTimelineTab {
   const moduleKey = String(timeline.module ?? "")
   const defaultThreshold =
     moduleKey === "forgery_temporal"
@@ -254,14 +259,20 @@ function timelineToForgeryTab(timeline: ModuleTimeline, threshold: number): Forg
       : moduleKey === "forgery_temporal"
         ? "TimeSformer (Temporal)"
         : formatForgeryModuleLabel(moduleKey)
-  const points =
+  let points =
     moduleKey === "forgery_temporal"
       ? clipRisksToFrameScores(timeline.clipRisks ?? [])
       : frameRisksToFrameScores(timeline.frameRisks ?? [])
-  const segments =
+  if (moduleKey === "forgery_spatial") {
+    points = rescaleTruncatedSpatialTimestamps(points, metaDurationSec)
+  }
+  let segments =
     timeline.suspiciousSegments && timeline.suspiciousSegments.length > 0
       ? timeline.suspiciousSegments
       : segmentsToSuspiciousFromPoints(points, moduleThreshold)
+  if (moduleKey === "forgery_spatial" && segments.length > 0) {
+    segments = rescaleTruncatedSpatialSegments(segments, metaDurationSec)
+  }
   const score = normalizeResultValue(timeline.videoScore)
 
   return {
@@ -336,6 +347,49 @@ function frameRisksToFrameScores(risks: FrameRisk[]): FrameScore[] {
   return risks.map((risk) => ({
     timeSec: risk.timestampSec,
     score: risk.riskScore,
+  }))
+}
+
+/** Worker가 KakaoTalk mp4 길이를 ~0.6s로 잘못 잡을 때 메타데이터 길이로 spread 복원. */
+function rescaleTruncatedSpatialTimestamps(
+  points: FrameScore[],
+  metaDurationSec?: number | null
+): FrameScore[] {
+  if (points.length < 2) return points
+  const fullDuration =
+    typeof metaDurationSec === "number" && Number.isFinite(metaDurationSec) && metaDurationSec > 2
+      ? metaDurationSec
+      : null
+  if (!fullDuration) return points
+
+  const maxTs = Math.max(...points.map((point) => point.timeSec ?? 0))
+  if (maxTs <= 0 || maxTs >= fullDuration * 0.4) return points
+
+  const scale = fullDuration / maxTs
+  return points.map((point) => ({
+    ...point,
+    timeSec: Number(((point.timeSec ?? 0) * scale).toFixed(4)),
+  }))
+}
+
+function rescaleTruncatedSpatialSegments(
+  segments: SuspiciousSegment[],
+  metaDurationSec?: number | null
+): SuspiciousSegment[] {
+  const fullDuration =
+    typeof metaDurationSec === "number" && Number.isFinite(metaDurationSec) && metaDurationSec > 2
+      ? metaDurationSec
+      : null
+  if (!fullDuration || segments.length === 0) return segments
+
+  const maxEnd = Math.max(...segments.map((segment) => segment.endTime))
+  if (maxEnd <= 0 || maxEnd >= fullDuration * 0.4) return segments
+
+  const scale = fullDuration / maxEnd
+  return segments.map((segment) => ({
+    ...segment,
+    startTime: Number((segment.startTime * scale).toFixed(4)),
+    endTime: Number((segment.endTime * scale).toFixed(4)),
   }))
 }
 
