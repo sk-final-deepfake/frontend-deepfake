@@ -7,6 +7,7 @@ import { ShieldCheck, Lock } from "lucide-react"
 import { login } from "@/lib/auth-api"
 import { getLoginErrorMessage } from "@/lib/api/errors"
 import { applyLoginResponse, getSession, isReviewerRole } from "@/lib/auth"
+import { BootSequence } from "@/components/boot-sequence"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -28,6 +29,12 @@ const inputClassName = cn(
   "disabled:cursor-not-allowed disabled:opacity-50"
 )
 
+type BootTarget = {
+  path: string
+  name: string
+  roleLabel: string
+}
+
 export function LoginForm() {
   const router = useRouter()
   const [employeeId, setEmployeeId] = useState("")
@@ -35,6 +42,7 @@ export function LoginForm() {
   const [showContactMessage, setShowContactMessage] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [bootTarget, setBootTarget] = useState<BootTarget | null>(null)
 
   useEffect(() => {
     const session = getSession()
@@ -58,7 +66,11 @@ export function LoginForm() {
           role: mockLogin.role,
           token: mockLogin.token,
         })
-        router.replace(getLoginRedirectPath(mockLogin.role))
+        setBootTarget({
+          path: getLoginRedirectPath(mockLogin.role),
+          name: mockLogin.name,
+          roleLabel: getRoleLabel(mockLogin.role),
+        })
         return
       }
 
@@ -69,7 +81,11 @@ export function LoginForm() {
 
       applyLoginResponse(response)
 
-      router.replace(getLoginRedirectPath(response.role))
+      setBootTarget({
+        path: getLoginRedirectPath(response.role),
+        name: response.name || loginId,
+        roleLabel: getRoleLabel(response.role),
+      })
     } catch (error) {
       setErrorMessage(getLoginErrorMessage(error))
     } finally {
@@ -82,121 +98,142 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md shadow-sm">
-      <CardHeader className="items-center text-center">
-        <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-lg bg-primary/15 text-primary ring-1 ring-primary/30">
-          <ShieldCheck className="size-6" aria-hidden="true" />
-        </div>
-        <Badge
-          variant="outline"
-          className="mb-1 w-fit gap-1.5 border-primary/30 bg-primary/10 text-primary"
-        >
-          <Lock className="size-3" aria-hidden="true" />
-          내부망 전용
-        </Badge>
-        <CardTitle className="text-xl">ForenShield AI 로그인</CardTitle>
-        <CardDescription>
-          수사관 계정으로 로그인하여 포렌식 분석 시스템에 접속합니다.
-        </CardDescription>
-      </CardHeader>
+    <>
+      {bootTarget ? (
+        <BootSequence
+          userName={bootTarget.name}
+          roleLabel={bootTarget.roleLabel}
+          onDone={() => router.replace(bootTarget.path)}
+        />
+      ) : null}
 
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <label
-              htmlFor="employeeId"
-              className="text-sm font-medium text-foreground"
-            >
-              사번
-            </label>
-            <input
-              id="employeeId"
-              type="text"
-              placeholder="예: 1111"
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
-              className={inputClassName}
-              autoComplete="username"
-              required
-              disabled={isSubmitting}
-            />
+      <Card className="w-full max-w-md shadow-sm">
+        <CardHeader className="items-center text-center">
+          <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-lg bg-primary/15 text-primary ring-1 ring-primary/30">
+            <ShieldCheck className="size-6" aria-hidden="true" />
           </div>
+          <Badge
+            variant="outline"
+            className="mb-1 w-fit gap-1.5 border-primary/30 bg-primary/10 text-primary"
+          >
+            <Lock className="size-3" aria-hidden="true" />
+            내부망 전용
+          </Badge>
+          <CardTitle className="text-xl">ForenShield AI 로그인</CardTitle>
+          <CardDescription>
+            수사관 계정으로 로그인하여 포렌식 분석 시스템에 접속합니다.
+          </CardDescription>
+        </CardHeader>
 
-          <div className="space-y-2">
-            <label
-              htmlFor="password"
-              className="text-sm font-medium text-foreground"
-            >
-              비밀번호
-            </label>
-            <input
-              id="password"
-              type="password"
-              placeholder="비밀번호를 입력하세요"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClassName}
-              autoComplete="current-password"
-              required
-              disabled={isSubmitting}
-            />
-          </div>
+        <form onSubmit={handleSubmit}>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label
+                htmlFor="employeeId"
+                className="text-sm font-medium text-foreground"
+              >
+                사번
+              </label>
+              <input
+                id="employeeId"
+                type="text"
+                placeholder="예: 1111"
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value)}
+                className={inputClassName}
+                autoComplete="username"
+                required
+                disabled={isSubmitting}
+              />
+            </div>
 
-          {errorMessage && (
-            <p
-              role="alert"
-              className="w-full rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive"
-            >
-              {errorMessage}
-            </p>
-          )}
-        </CardContent>
+            <div className="space-y-2">
+              <label
+                htmlFor="password"
+                className="text-sm font-medium text-foreground"
+              >
+                비밀번호
+              </label>
+              <input
+                id="password"
+                type="password"
+                placeholder="비밀번호를 입력하세요"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={inputClassName}
+                autoComplete="current-password"
+                required
+                disabled={isSubmitting}
+              />
+            </div>
 
-        <CardFooter className="flex-col gap-3 border-t-0 bg-transparent">
-          <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-            {isSubmitting ? "로그인 중..." : "로그인"}
-          </Button>
+            {errorMessage && (
+              <p
+                role="alert"
+                className="w-full rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive"
+              >
+                {errorMessage}
+              </p>
+            )}
+          </CardContent>
 
-          <div className="flex w-full gap-2">
+          <CardFooter className="flex-col gap-3 border-t-0 bg-transparent">
             <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              onClick={handleFindAccount}
+              type="submit"
+              className="w-full"
+              size="lg"
               disabled={isSubmitting}
             >
-              아이디/비밀번호 찾기
+              {isSubmitting ? "로그인 중..." : "로그인"}
             </Button>
-            <Link href="/signup" className="flex-1">
+
+            <div className="flex w-full gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="w-full"
+                className="flex-1"
+                onClick={handleFindAccount}
                 disabled={isSubmitting}
               >
-                회원가입
+                아이디/비밀번호 찾기
               </Button>
-            </Link>
-          </div>
+              <Link href="/signup" className="flex-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={isSubmitting}
+                >
+                  회원가입
+                </Button>
+              </Link>
+            </div>
 
-          {showContactMessage && (
-            <p
-              role="status"
-              className="w-full rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-center text-sm text-primary"
-            >
-              관리자 연락처 : 010-1234-5678 로 문의 주세요.
+            {showContactMessage && (
+              <p
+                role="status"
+                className="w-full rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-center text-sm text-primary"
+              >
+                관리자 연락처 : 010-1234-5678 로 문의 주세요.
+              </p>
+            )}
+
+            <p className="text-center text-xs text-muted-foreground">
+              접속 기록은 보안 감사 목적으로 저장됩니다.
             </p>
-          )}
-
-          <p className="text-center text-xs text-muted-foreground">
-            접속 기록은 보안 감사 목적으로 저장됩니다.
-          </p>
-        </CardFooter>
-      </form>
-    </Card>
+          </CardFooter>
+        </form>
+      </Card>
+    </>
   )
+}
+
+function getRoleLabel(role: string) {
+  if (normalizeUserRole(role) === "ORG_ADMIN") return "관리자"
+  if (isReviewerRole(role)) return "검토자"
+  return "수사관"
 }
 
 function getLoginRedirectPath(role: string) {
