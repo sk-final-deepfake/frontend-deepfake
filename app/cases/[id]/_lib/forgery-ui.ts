@@ -354,7 +354,7 @@ function estimateMediaDurationSec(
   return max > 0 ? max + 0.5 : null
 }
 
-/** 고위험 프레임/클립 — 선택 모듈(TruFor spatial / TimeSformer temporal) 상위 시점 */
+/** 고위험 프레임/클립 — 선택 모듈의 임계값 초과 시점만(최대 maxFrames). 없으면 빈 배열. */
 export function buildForgeryRepresentativeFrames(
   data: EvidenceDetailData | null,
   options?: { moduleKey?: ForgeryModuleKey | string | null; maxFrames?: number }
@@ -370,7 +370,13 @@ export function buildForgeryRepresentativeFrames(
       : getForgerySpatialTimeline(data)
   if (!tab || tab.points.length === 0) return []
 
-  const topPoints = [...tab.points]
+  const threshold = tab.threshold
+  const overThreshold = tab.points.filter(
+    (point) => normalizeResultValue(point.score) >= threshold
+  )
+  if (overThreshold.length === 0) return []
+
+  const topPoints = [...overThreshold]
     .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
     .slice(0, maxFrames)
 
@@ -402,12 +408,14 @@ export function forgeryHighRiskGalleryCopy(moduleKey: ForgeryModuleKey | string 
   if (moduleKey === FORGERY_TEMPORAL_MODULE) {
     return {
       title: "고위험 클립",
-      description: "TimeSformer clipRisks 상위 시점입니다. 서버 이미지가 없으면 영상에서 해당 시각을 캡처합니다.",
+      description: "TimeSformer clipRisks 중 임계값 초과 상위 시점입니다(최대 2개). 서버 이미지가 없으면 영상에서 캡처합니다.",
+      empty: "임계값을 넘긴 고위험 클립이 없습니다.",
     }
   }
   return {
     title: "고위험 프레임",
-    description: "TruFor frameRisks 상위 시점입니다. 서버 이미지가 없으면 영상에서 해당 시각을 캡처합니다.",
+    description: "TruFor frameRisks 중 임계값 초과 상위 시점입니다(최대 2개). 서버 이미지가 없으면 영상에서 캡처합니다.",
+    empty: "임계값을 넘긴 고위험 프레임이 없습니다.",
   }
 }
 

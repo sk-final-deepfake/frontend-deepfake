@@ -1261,7 +1261,7 @@ function CaseResultView({
                   <ModelConsensusCard
                     models={methodology.models}
                     thresholdPercent={Math.round(detectionThreshold * 100)}
-                    summary={evidenceDetail.analysisInfo.summary}
+                    summary={sanitizeAnalysisSummaryForUi(evidenceDetail.analysisInfo.summary)}
                   />
 
                   <TrustChecklistCard data={evidenceDetail} />
@@ -1430,8 +1430,7 @@ function CaseResultView({
                     </p>
                   )}
 
-                  {forgeryRepresentativeFrames.length > 0 ? (
-                    <section className="mt-5">
+                  <section className="mt-5">
                       <div>
                         <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">
                           {forgeryGalleryCopy.title}
@@ -1440,24 +1439,30 @@ function CaseResultView({
                           {forgeryGalleryCopy.description}
                         </p>
                       </div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        {forgeryRepresentativeFrames.slice(0, 2).map((frame, index) => (
-                          <RepresentativeFrameDetailCard
-                            key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
-                            frame={frame}
-                            index={index}
-                            videoRef={videoRef}
-                          />
-                        ))}
-                      </div>
+                      {forgeryRepresentativeFrames.length > 0 ? (
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {forgeryRepresentativeFrames.slice(0, 2).map((frame, index) => (
+                            <RepresentativeFrameDetailCard
+                              key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
+                              frame={frame}
+                              index={index}
+                              videoRef={videoRef}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
+                          {forgeryGalleryCopy.empty}
+                        </p>
+                      )}
                     </section>
-                  ) : null}
                 </section>
               ) : resultTab === "frames" ? (
                 <ResultFrameAnalysis
                   evidenceDetail={evidenceDetail}
                   detectionThreshold={detectionThreshold}
                   representativeFrames={representativeFrames}
+                  videoRef={videoRef}
                   onSeek={seekResultVideo}
                 />
               ) : (
@@ -5302,11 +5307,17 @@ function findModuleByKeywords(modules: EvidenceDetailData["analysisInfo"]["modul
   })
 }
 
-function splitSummary(summary: string) {
+function sanitizeAnalysisSummaryForUi(summary: string | null | undefined) {
+  if (!summary?.trim()) return ""
+
+  // Deepfake late-fusion narrative only — drop forgery lane / TruFor skip notes from 종합 소견.
   return summary
-    .split(/[.!?。]\s*/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+    .replace(/\s*위변조\(TruFor\)[\s\S]*$/i, "")
+    .replace(/\s*Forgery\s+spatial[\s\S]*$/i, "")
+    .replace(/\s*Forgery\s+temporal[\s\S]*$/i, "")
+    .replace(/\s*\(TruFor produced no finite frame scores\)/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
 }
 
 function getDetectionTone(value: number): { level: string; badgeClass: string; barClass: string } {
