@@ -4803,8 +4803,7 @@ type DetailModuleResult = EvidenceDetailData["analysisInfo"]["moduleResults"][nu
 const FORGERY_METHOD_BASELINES = [
   {
     id: "trufor" as const,
-    name: "Frame Edit",
-    modelName: "TruFor",
+    name: "TruFor",
     fallbackVersion: "videocof-v2",
     role: "국소 삭제·객체 삽입·영역 변조 등 공간(픽셀) 위변조 카테고리를 봅니다.",
     output: "국소 위변조 점수, 의심 구간, 히트맵·마스크",
@@ -4815,8 +4814,7 @@ const FORGERY_METHOD_BASELINES = [
   },
   {
     id: "timesformer" as const,
-    name: "Splicing",
-    modelName: "timesformer-forgery",
+    name: "timesformer-forgery",
     fallbackVersion: "forgery-v1.9-hardneg",
     role: "Cut splicing·frame drop/dup/insert 등 시간축 편집 카테고리를 봅니다.",
     output: "시간축 위변조 점수, 의심 구간",
@@ -5013,7 +5011,7 @@ function buildForgeryMethodologyItems(signals: UiRiskSignal[]) {
 
     return {
       name: method.name,
-      version: `${method.modelName} · ${shortVersion}`,
+      version: shortVersion,
       role: method.role,
       output: signal != null ? `${method.output}, 이번 분석 점수` : method.output,
       available: signal != null,
