@@ -770,6 +770,9 @@ export default function CaseDetailPage() {
                     detailError={detailError}
                     currentSession={session}
                     onBack={() => setShowResultDashboard(false)}
+                    onRefreshEvidenceDetail={(evidenceId) =>
+                      void refreshEvidenceDetail(evidenceId, { silent: true })
+                    }
                   />
                 ) : showIntegrityDashboard ? (
                   <CaseIntegrityView
@@ -949,6 +952,7 @@ function CaseResultView({
   detailError,
   currentSession,
   onBack,
+  onRefreshEvidenceDetail,
 }: {
   caseData: CaseDetailData
   evidenceDetail: EvidenceDetailData | null
@@ -957,6 +961,7 @@ function CaseResultView({
   detailError: string | null
   currentSession: AuthSession | null
   onBack: () => void
+  onRefreshEvidenceDetail?: (evidenceId: number) => void
 }) {
   const [mediaContext, setMediaContext] = useState("original")
   const [resultTab, setResultTab] = useState<ResultTab>("summary")
@@ -1097,7 +1102,7 @@ function CaseResultView({
               onMediaContextChange={setMediaContext}
               onOverlayReady={() => {
                 if (selectedEvidenceId) {
-                  void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
+                  onRefreshEvidenceDetail?.(selectedEvidenceId)
                 }
               }}
               renderHeatStrip={({ scores, caption, onSeek: seek }) => (
