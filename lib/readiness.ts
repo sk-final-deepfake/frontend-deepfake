@@ -177,11 +177,11 @@ function buildBlurVerdictExplanation(verdict: ReadinessMetricVerdict, evaluatedV
   const threshold = READINESS_THRESHOLDS.blurRecommendGte
   switch (verdict) {
     case "good":
-      return `최저 선명도가 권장 기준 ${threshold} 이상이라 분석에 적합합니다.`
+      return `평균 선명도가 권장 기준 ${threshold} 이상이라 분석에 적합합니다.`
     case "caution":
-      return `최저 선명도가 ${threshold} 미만입니다. 일부 구간이 흐려 분석 신뢰도가 제한될 수 있습니다.`
+      return `평균 선명도가 ${threshold} 미만입니다. 전반적으로 흐려 분석 신뢰도가 제한될 수 있습니다.`
     case "poor":
-      return `최저 선명도가 ${READINESS_THRESHOLDS.blurPoorLt} 미만입니다. 화질이 분석에 충분히 적합하지 않을 수 있습니다.`
+      return `평균 선명도가 ${READINESS_THRESHOLDS.blurPoorLt} 미만입니다. 화질이 분석에 충분히 적합하지 않을 수 있습니다.`
     default:
       return evaluatedValue == null
         ? "선명도 측정값이 없습니다."
@@ -223,7 +223,7 @@ function buildMetricItem(
   let verdictExplanation = ""
 
   if (key === "blur") {
-    const evaluatedValue = aggregate?.min ?? mean ?? null
+    const evaluatedValue = mean ?? null
     verdict = evaluateBlurVerdict(evaluatedValue)
     thresholdLabel = `권장 ${READINESS_THRESHOLDS.blurRecommendGte} 이상`
     verdictExplanation = buildBlurVerdictExplanation(verdict, evaluatedValue)
