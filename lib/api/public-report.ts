@@ -11,6 +11,12 @@ export type ReportVerification = {
   message: string
   reportNo: string
   verificationCode?: string | null
+  reportType?: "ANALYSIS" | "COMPARE" | string | null
+  revision?: number | null
+  publicationStatus?: string | null
+  issuedAt?: string | null
+  queriedAt?: string | null
+  pdfSignatureApplied?: boolean | null
   evidenceId: number
   reportFileName: string
   createdAt: string
@@ -198,9 +204,15 @@ function buildMockVerification(token: string): ReportVerification {
   const base: ReportVerification = {
     status: "VALID",
     valid: true,
-    message: "이 보고서는 발급 이후 변조되지 않았습니다.",
+    message: "발행 등록정보를 조회했습니다. PDF 파일 자체는 아직 검사하지 않았습니다.",
     reportNo: "RPT-2026-0703-0012",
     verificationCode: "VF-8F3K-29QX",
+    reportType: "ANALYSIS",
+    revision: 1,
+    publicationStatus: "ISSUED",
+    issuedAt: "2026-07-03T13:28:00+09:00",
+    queriedAt: new Date().toISOString(),
+    pdfSignatureApplied: false,
     evidenceId: 2024062716,
     reportFileName: "ForenShield_Report_EVD-2024062716.pdf",
     createdAt: "2026-07-03T13:28:00+09:00",

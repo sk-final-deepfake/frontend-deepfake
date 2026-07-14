@@ -505,11 +505,11 @@ function SummaryReportPage({ preview }: { preview: ReportPreview }) {
         </div>
       </ReportSection>
 
-      <ReportSection number={4} title="진위 확인" last>
+      <ReportSection number={4} title="발행 등록 조회" last>
         <VerificationBlock preview={preview} />
       </ReportSection>
 
-      <SignatureBlock generatedAt={preview.generatedAt} />
+      <ApprovalBlock preview={preview} />
     </ReportPage>
   )
 }
@@ -528,25 +528,25 @@ function IntegrityReportPage({
       <ReportSection number={1} title="무결성 검증 결과">
         <InfoGrid
           rows={[
-            ["원본 해시", preview.originalHash],
-            ["PDF 해시", preview.reportHash],
+            ["분석대상 SHA-256", preview.originalHash],
+            ["최종 PDF SHA-256", "QR 검증 페이지에서 확인"],
             ["해시 알고리즘", preview.hashAlgorithm],
-            ["검증 결과", preview.integrityLabel, "success"],
-            ["전자서명", preview.signatureLabel, preview.signatureOk ? "success" : "warning"],
-            ["서명 기관", preview.signer],
+            ["QR 검증 범위", "발행 등록정보 조회"],
+            ["PDF 전자서명", "미적용", "warning"],
+            ["PDF 동일성 확인", "검증 페이지에서 파일 해시 대조"],
           ]}
         />
       </ReportSection>
 
-      <ReportSection number={2} title="블록체인 기록">
+      <ReportSection number={2} title="외부 해시 앵커 기록">
         <InfoGrid
           rows={[
-            ["기록 상태", preview.blockchainLabel, preview.blockchainOk ? "success" : "warning"],
-            ["네트워크", preview.blockchainNetwork],
-            ["트랜잭션", preview.transactionHash],
-            ["앵커 시각", preview.anchoredAt],
-            ["블록 번호", preview.blockNo],
-            ["상태", preview.blockchainOk ? "검증 가능" : "확인 필요", preview.blockchainOk ? "success" : "warning"],
+            ["앵커 상태", "검증 페이지에서 확인"],
+            ["역할", "발행 시점과 해시 존재 사실의 보조 기록"],
+            ["네트워크", "등록된 경우 검증 페이지에 표시"],
+            ["트랜잭션", "등록된 경우 검증 페이지에 표시"],
+            ["법적 효력", "자동으로 보장하지 않음"],
+            ["상세 확인", "QR 검증 페이지"],
           ]}
         />
       </ReportSection>
@@ -555,15 +555,19 @@ function IntegrityReportPage({
         <ReportTable headers={["시각", "이벤트", "담당", "상태", "해시"]} rows={preview.cocRows} colorColumns={[3]} />
       </ReportSection>
 
-      <ReportSection number={4} title="검증 방법 및 유의사항" last={compact}>
+      <ReportSection number={4} title="발행 등록 조회 및 유의사항" last={compact}>
         <VerificationBlock preview={preview} />
+        <p className="mt-4 text-[12px] font-semibold leading-6 text-slate-600">
+          QR 조회는 보고서 번호와 발행 등록정보를 확인하는 절차입니다. 실제 PDF 파일의 동일성은 검증 페이지에서
+          PDF를 선택하여 발행 시 등록된 SHA-256과 대조해야 합니다.
+        </p>
         <p className="mt-5 text-[13px] leading-7 text-slate-950">
-          본 보고서의 AI 분석 결과는 조작 여부를 확정하지 않는 참고 소견이며, 최종 판단은 원본 자료, 사건 맥락,
-          전문가 검토와 함께 이루어져야 합니다.
+          본 보고서의 AI 분석 결과는 조작 여부를 확정하지 않는 확률적 참고분석이며, 원본 자료, 사건 맥락,
+          파일 비교 및 전문가 검토와 함께 해석해야 합니다.
         </p>
       </ReportSection>
 
-      <SignatureBlock generatedAt={preview.generatedAt} />
+      <ApprovalBlock preview={preview} />
     </ReportPage>
   )
 }
@@ -739,28 +743,40 @@ function ReportTable({
   )
 }
 
-function SignatureBlock({ generatedAt }: { generatedAt: string }) {
+function ApprovalBlock({ preview }: { preview: ReportPreview }) {
   return (
     <div className="mt-10">
-      <p className="text-center text-[14px] leading-7 text-slate-950">
-        위와 같이 분석 결과를 보고합니다.
-      </p>
-      <p className="mt-4 text-center text-[13px] text-slate-950">{generatedAt.split(" ")[0].replaceAll(".", ". ")}.</p>
+      <p className="text-[14px] font-bold leading-7 text-slate-950">작성·검토·발행 정보</p>
       <table className="mx-auto mt-6 w-full max-w-[440px] border-collapse border border-slate-500 text-[13px]">
         <tbody>
           <tr>
             <th className="w-[72px] border border-slate-500 bg-slate-100 px-3 py-2.5 text-center font-semibold text-slate-800">
               작성자
             </th>
-            <td className="border border-slate-500 px-3 py-2.5 text-slate-950">분석관</td>
-            <td className="w-[110px] border border-slate-500 px-3 py-2.5 text-center text-slate-400">(서명)</td>
+            <td className="border border-slate-500 px-3 py-2.5 text-slate-950">{preview.creator}</td>
+            <td className="w-[110px] border border-slate-500 px-3 py-2.5 text-center text-slate-500">시스템 기록</td>
           </tr>
           <tr>
             <th className="border border-slate-500 bg-slate-100 px-3 py-2.5 text-center font-semibold text-slate-800">
               검토자
             </th>
-            <td className="border border-slate-500 px-3 py-2.5 text-slate-950">책임 검토관</td>
-            <td className="border border-slate-500 px-3 py-2.5 text-center text-slate-400">(서명)</td>
+            <td className="border border-slate-500 px-3 py-2.5 text-slate-950">
+              {preview.reviewApproved ? "책임 검토관" : "미배정"}
+            </td>
+            <td className="border border-slate-500 px-3 py-2.5 text-center text-slate-500">
+              {preview.reviewApproved ? "내부 전자승인" : "검토 전"}
+            </td>
+          </tr>
+          <tr>
+            <th className="border border-slate-500 bg-slate-100 px-3 py-2.5 text-center font-semibold text-slate-800">
+              발행상태
+            </th>
+            <td className="border border-slate-500 px-3 py-2.5 text-slate-950">
+              {preview.reviewApproved ? "기관 발행 등록 완료" : "초안"}
+            </td>
+            <td className="border border-slate-500 px-3 py-2.5 text-center text-slate-500">
+              {preview.reviewApproved ? "QR 조회 가능" : "제출용 아님"}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -773,10 +789,10 @@ function VerificationBlock({ preview }: { preview: ReportPreview }) {
     <div className="grid gap-6 sm:grid-cols-[112px_minmax(0,1fr)]">
       <QrPreview />
       <div className="space-y-4 text-sm">
-        <VerificationRow label="모바일" value="QR 코드를 스캔하여 공개 진위 확인 페이지에 접속합니다." />
-        <VerificationRow label="PC" value="검증 URL 접속 후 검증코드를 입력합니다." />
+        <VerificationRow label="발행 상태" value={preview.reviewApproved ? "기관 발행 등록 완료" : "검토 승인 대기"} />
+        <VerificationRow label="조회 방법" value="QR 코드를 스캔하거나 아래 URL을 엽니다." />
         <VerificationRow label="검증 URL" value={preview.verifyUrl} tone="teal" />
-        <VerificationRow label="검증코드" value={preview.verifyCode} />
+        <VerificationRow label="검증 범위" value="발행 등록정보 조회 (PDF 파일 자체는 미검사)" />
       </div>
     </div>
   )
@@ -842,7 +858,6 @@ type ReportPreview = {
   blockNo: string
   cocRows: string[][]
   verifyUrl: string
-  verifyCode: string
 }
 
 function buildReportPreview(data: EvidenceDetailData, fileName: string, reviewApproved: boolean): ReportPreview {
@@ -850,7 +865,6 @@ function buildReportPreview(data: EvidenceDetailData, fileName: string, reviewAp
   const riskScore = toPercentScore(analysisInfo.riskScore)
   const confidence = toPercentScore(analysisInfo.confidenceScore)
   const reportHash = makeReportHash(`${fileName}:${evidenceInfo.evidenceId}`)
-  const verifyCode = `VF-${String(evidenceInfo.evidenceId).padStart(8, "0")}`
   const originalFileName = evidenceInfo.originalFileName ?? evidenceInfo.fileName
   const modelRows = buildModelRows(analysisInfo.modelScores, analysisInfo.moduleResults)
   const timelineRows = modelRows.map((model, index) => [
@@ -899,8 +913,9 @@ function buildReportPreview(data: EvidenceDetailData, fileName: string, reviewAp
     anchoredAt: formatDateTime(blockchainInfo?.anchoredAt ?? new Date().toISOString()),
     blockNo: "-",
     cocRows: buildCocRows(cocLogs),
-    verifyUrl: "https://forenshield.ai/verify",
-    verifyCode,
+    verifyUrl: reviewApproved
+      ? "https://forensheildjangdochi.com/verify?token=발행시자동생성"
+      : "검토 승인 후 자동 생성",
   }
 }
 

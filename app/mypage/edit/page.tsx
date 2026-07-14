@@ -97,7 +97,6 @@ export default function EditProfilePage() {
   const validate = () => {
     const newErrors: Record<string, string> = {}
     if (!formData.username.trim()) newErrors.username = "사용자 이름을 입력해 주세요."
-    if (!formData.department.trim()) newErrors.department = "소속 부서를 입력해 주세요."
     if (!formData.currentPassword) newErrors.currentPassword = "현재 비밀번호를 입력해 주세요."
 
     if (formData.newPassword) {
@@ -121,7 +120,6 @@ export default function EditProfilePage() {
     try {
       const updatedProfile = await updateMyProfile({
         loginId: formData.username.trim(),
-        department: formData.department.trim(),
         currentPassword: formData.currentPassword,
         newPassword: formData.newPassword || undefined,
       })
@@ -233,14 +231,21 @@ export default function EditProfilePage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="department">소속 부서</Label>
-                  <Input
-                    id="department"
-                    value={formData.department}
-                    onChange={handleChange}
-                    className={errors.department ? "border-destructive focus-visible:ring-destructive" : ""}
-                  />
-                  {errors.department && <p className="text-xs text-destructive">{errors.department}</p>}
+                  <Label htmlFor="department" className="opacity-70">
+                    소속 부서 (수정 불가)
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="department"
+                      value={formData.department}
+                      disabled
+                      className="bg-muted/50 pr-10"
+                    />
+                    <Lock className="absolute right-3 top-2.5 size-4 text-muted-foreground" />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    소속 부서 변경은 관리자에게 요청해 주세요.
+                  </p>
                 </div>
               </div>
 

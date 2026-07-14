@@ -2580,14 +2580,16 @@ function mapRecordToCaseEvidence(record: MockEvidenceRecord, index: number): Cas
 
 function defaultProfile(): UserProfile {
   const session = getSession()
+  const appUser = getAppUserFromSession(session)
+  const loginId = session?.loginId ?? "hong_gildong"
 
   return {
     userId: Number(session?.userId) || 1001,
-    loginId: session?.loginId ?? "hong_gildong",
-    email: "hong@forenshield.go.kr",
-    name: session?.name ?? "홍길동",
-    department: "디지털포렌식센터",
-    role: "USER",
+    loginId,
+    email: `${loginId}@local.dev`,
+    name: appUser?.name ?? session?.name ?? "홍길동",
+    department: appUser?.department ?? "디지털포렌식센터",
+    role: appUser?.role ?? "INVESTIGATOR",
     status: "APPROVED",
     darkMode: false,
     createdAt: "2026-01-02T09:00:00",
@@ -2601,7 +2603,14 @@ function readProfile(): UserProfile {
   if (!raw) return defaultProfile()
 
   try {
-    return { ...defaultProfile(), ...(JSON.parse(raw) as Partial<UserProfile>) }
+    const defaults = defaultProfile()
+    const saved = JSON.parse(raw) as Partial<UserProfile>
+    return {
+      ...defaults,
+      ...saved,
+      email: saved.email?.trim() || defaults.email,
+      department: saved.department?.trim() || defaults.department,
+    }
   } catch {
     return defaultProfile()
   }
@@ -2625,7 +2634,6 @@ export async function mockUpdateMyProfile(
   const next: UserProfile = {
     ...readProfile(),
     loginId: payload.loginId,
-    department: payload.department,
   }
 
   writeProfile(next)
