@@ -770,6 +770,9 @@ export default function CaseDetailPage() {
                     detailError={detailError}
                     currentSession={session}
                     onBack={() => setShowResultDashboard(false)}
+                    onRefreshEvidenceDetail={(evidenceId) =>
+                      void refreshEvidenceDetail(evidenceId, { silent: true })
+                    }
                   />
                 ) : showIntegrityDashboard ? (
                   <CaseIntegrityView
@@ -949,6 +952,7 @@ function CaseResultView({
   detailError,
   currentSession,
   onBack,
+  onRefreshEvidenceDetail,
 }: {
   caseData: CaseDetailData
   evidenceDetail: EvidenceDetailData | null
@@ -957,6 +961,7 @@ function CaseResultView({
   detailError: string | null
   currentSession: AuthSession | null
   onBack: () => void
+  onRefreshEvidenceDetail?: (evidenceId: number) => void
 }) {
   const [mediaContext, setMediaContext] = useState("original")
   const [resultTab, setResultTab] = useState<ResultTab>("summary")
@@ -1097,7 +1102,7 @@ function CaseResultView({
               onMediaContextChange={setMediaContext}
               onOverlayReady={() => {
                 if (selectedEvidenceId) {
-                  void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
+                  onRefreshEvidenceDetail?.(selectedEvidenceId)
                 }
               }}
               renderHeatStrip={({ scores, caption, onSeek: seek }) => (
@@ -4800,6 +4805,7 @@ const FORGERY_METHOD_BASELINES = [
     id: "trufor" as const,
     name: "Frame Edit",
     modelName: "TruFor",
+    fallbackVersion: "videocof-v2",
     role: "국소 삭제·객체 삽입·영역 변조 등 공간(픽셀) 위변조 카테고리를 봅니다.",
     output: "국소 위변조 점수, 의심 구간, 히트맵·마스크",
     match: (signal: UiRiskSignal) => {
@@ -4810,7 +4816,8 @@ const FORGERY_METHOD_BASELINES = [
   {
     id: "timesformer" as const,
     name: "Splicing",
-    modelName: "TimeSformer",
+    modelName: "timesformer-forgery",
+    fallbackVersion: "forgery-v1.9-hardneg",
     role: "Cut splicing·frame drop/dup/insert 등 시간축 편집 카테고리를 봅니다.",
     output: "시간축 위변조 점수, 의심 구간",
     match: (signal: UiRiskSignal) => {
@@ -4956,6 +4963,35 @@ function buildForgeryRiskSignals(data: EvidenceDetailData | null, threshold: num
     .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
 }
 
+function extractForgeryRawVersion(modelLabel: string | null | undefined) {
+  const trimmed = modelLabel?.trim()
+  if (!trimmed) return null
+  const parts = trimmed.split(/\s+/).filter(Boolean)
+  // "TruFor trufor-videocof-v2-..." → last token is the checkpoint/version id
+  return parts.length > 1 ? parts[parts.length - 1] : parts[0]
+}
+
+/** 긴 체크포인트 id를 방법론 카드용 짧은 버전으로 축약 */
+function shortenForgeryMethodologyVersion(
+  methodId: "trufor" | "timesformer",
+  modelLabel: string | null | undefined,
+  fallback: string
+) {
+  let raw = extractForgeryRawVersion(modelLabel)
+  if (!raw) return fallback
+
+  raw = raw.replace(/-\d{8}-\d{4}$/, "")
+
+  if (methodId === "trufor") {
+    const videocof = raw.match(/videocof-v[\w.]+/i)
+    if (videocof) return videocof[0]
+    return raw.replace(/^trufor-/i, "") || fallback
+  }
+
+  // timesformer-forgery-v1.9-hardneg → forgery-v1.9-hardneg
+  return raw.replace(/^timesformer-/i, "") || fallback
+}
+
 function buildForgeryMethodologyItems(signals: UiRiskSignal[]) {
   return FORGERY_METHOD_BASELINES.map((method) => {
     const signal = signals.find((item) => method.match(item)) ?? null
@@ -4969,13 +5005,15 @@ function buildForgeryMethodologyItems(signals: UiRiskSignal[]) {
         : defaultThreshold
     const score = signal != null ? normalizeResultValue(signal.score) : null
     const overThreshold = score != null && score >= threshold
-    const versionLabel = signal?.modelLabel?.trim()
-      ? signal.modelLabel.trim()
-      : method.modelName
+    const shortVersion = shortenForgeryMethodologyVersion(
+      method.id,
+      signal?.modelLabel,
+      method.fallbackVersion
+    )
 
     return {
       name: method.name,
-      version: versionLabel,
+      version: `${method.modelName} · ${shortVersion}`,
       role: method.role,
       output: signal != null ? `${method.output}, 이번 분석 점수` : method.output,
       available: signal != null,
