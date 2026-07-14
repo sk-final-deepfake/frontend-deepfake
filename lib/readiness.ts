@@ -10,7 +10,7 @@ import {
 
 export type { EvidenceReadinessResponse, ReadinessTier }
 
-export type ReadinessCheckPhase = "metadata" | "frameSampling" | null
+export type ReadinessCheckPhase = "metadata" | "frameSampling" | "aiAnalysis" | null
 
 export type ReadinessCheckTarget = {
   evidenceId: number
