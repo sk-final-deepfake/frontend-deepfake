@@ -16,7 +16,7 @@ export const FORGERY_TEMPORAL_MODULE = "forgery_temporal"
 
 export const DEFAULT_FORGERY_THRESHOLDS = {
   spatial: 0.515,
-  temporal: 0.12,
+  temporal: 0.173386,
 } as const
 
 export const MIN_SUSPICIOUS_SEGMENT_SEC = 1
