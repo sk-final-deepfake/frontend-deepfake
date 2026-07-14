@@ -23,10 +23,14 @@ export type ReportVerification = {
   reportHash: string
   hashMatched: boolean
   storedFileIntact?: boolean
-  signatureValid: boolean | null
-  signatureStatus: string
+  signatureValid?: boolean | null
+  signatureStatus?: string | null
   signatureAlgorithm?: string | null
   signerCertificateSubject?: string | null
+  evidenceManifestSignatureValid?: boolean | null
+  evidenceManifestSignatureStatus?: string | null
+  evidenceManifestSignatureAlgorithm?: string | null
+  evidenceManifestSignerCertificateSubject?: string | null
   blockchainMatched: boolean | null
   blockchainStatus: string
   blockchainTxHash?: string | null
@@ -226,6 +230,10 @@ function buildMockVerification(token: string): ReportVerification {
     signatureStatus: "SIGNED",
     signatureAlgorithm: "SHA256withRSA",
     signerCertificateSubject: "CN=ForenShield Evidence Authority, O=ForenShield, C=KR",
+    evidenceManifestSignatureValid: true,
+    evidenceManifestSignatureStatus: "VALID",
+    evidenceManifestSignatureAlgorithm: "SHA256withRSA",
+    evidenceManifestSignerCertificateSubject: "CN=ForenShield Evidence Authority, O=ForenShield, C=KR",
     blockchainMatched: true,
     blockchainStatus: "ANCHORED",
     blockchainTxHash: "0x8f3a2c91b7d4e60a5c18f2b9e73d40c6a1f58b02d9e47c3a6b80f15d2e9c74a3",
@@ -243,6 +251,8 @@ function buildMockVerification(token: string): ReportVerification {
       reportHash: "7b02ff41c8a9d3e6b5f21c08a7d94e3f612c8b0a5d7e94f1c3a6b8d20e5f13c9",
       signatureValid: false,
       signatureStatus: "TAMPERED",
+      evidenceManifestSignatureValid: false,
+      evidenceManifestSignatureStatus: "INVALID",
     }
   }
 
@@ -290,6 +300,10 @@ function buildPendingVerification(): ReportVerification {
     signatureStatus: "NOT_ISSUED",
     signatureAlgorithm: null,
     signerCertificateSubject: null,
+    evidenceManifestSignatureValid: null,
+    evidenceManifestSignatureStatus: "NOT_ISSUED",
+    evidenceManifestSignatureAlgorithm: null,
+    evidenceManifestSignerCertificateSubject: null,
     blockchainMatched: null,
     blockchainStatus: "NOT_ISSUED",
     blockchainTxHash: null,

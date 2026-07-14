@@ -263,7 +263,7 @@ function VerifyResult({
   const verdict = VERDICT_DISPLAY[verdictStatus]
   const reportType = result.reportType === "COMPARE" ? "비교검증 보고서" : "AI 기술분석 보고서"
   const publicationStatus = getPublicationStatusLabel(result.publicationStatus)
-  const signatureApplied = result.pdfSignatureApplied === true
+  const blockchainDisplay = getBlockchainDisplay(result)
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -314,16 +314,22 @@ function VerifyResult({
       </CheckCard>
 
       <CheckCard
-        icon={<PenLine className="size-4" aria-hidden="true" />}
-        title="PDF 전자서명"
-        badge={signatureApplied ? "적용" : "미적용"}
-        tone={signatureApplied ? "ok" : "muted"}
-        note={
-          signatureApplied
-            ? "발행 PDF에 암호학적 전자서명이 적용되어 있습니다."
-            : "현재 발행 PDF에는 PAdES 전자서명이 적용되지 않았습니다. PDF 동일성은 SHA-256 대조로 확인합니다."
-        }
-      />
+        icon={<ShieldCheck className="size-4" aria-hidden="true" />}
+        title="보고서 PDF 해시 블록체인 등록"
+        badge={blockchainDisplay.badge}
+        tone={blockchainDisplay.tone}
+        note={blockchainDisplay.note}
+      >
+        <div className="mt-3 space-y-2">
+          {result.blockchainNetwork ? <InfoRow label="네트워크" value={blockchainDisplay.networkLabel} /> : null}
+          {result.blockchainAnchoredAt ? (
+            <InfoRow label="등록 시각" value={formatDateTime(result.blockchainAnchoredAt)} />
+          ) : null}
+          {result.blockchainTxHash ? (
+            <HashLine label="블록체인 트랜잭션 ID" value={result.blockchainTxHash} />
+          ) : null}
+        </div>
+      </CheckCard>
 
       <ReportFileVerification lookup={lookup} />
 
@@ -332,6 +338,65 @@ function VerifyResult({
       </p>
     </div>
   )
+}
+
+function getBlockchainDisplay(result: ReportVerification): {
+  badge: string
+  tone: CheckTone
+  note: string
+  networkLabel: string
+} {
+  const status = result.blockchainStatus?.trim().toUpperCase() ?? "NOT_ANCHORED"
+  const network = result.blockchainNetwork?.trim() ?? ""
+  const simulated = network.toLowerCase().includes("simulated")
+  const networkLabel = simulated ? `${network} (개발 검증용)` : network
+
+  if (status === "ANCHORED" && result.blockchainMatched === false) {
+    return {
+      badge: "등록 해시 불일치",
+      tone: "danger",
+      note: "블록체인에 등록된 해시와 현재 발행 보고서 해시가 일치하지 않습니다. 발급 기관의 확인이 필요합니다.",
+      networkLabel,
+    }
+  }
+  if (status === "ANCHORED" && simulated) {
+    return {
+      badge: "개발 검증용 기록",
+      tone: "warning",
+      note: "로컬 시뮬레이션 네트워크의 기록입니다. 실제 외부 원장 등록으로 해석하지 않습니다.",
+      networkLabel,
+    }
+  }
+  if (status === "ANCHORED") {
+    return {
+      badge: "등록 확인",
+      tone: "ok",
+      note: "발행된 최종 PDF의 SHA-256 해시가 표시된 블록체인 네트워크에 등록되어 있습니다.",
+      networkLabel,
+    }
+  }
+  if (status === "PENDING") {
+    return {
+      badge: "등록 대기",
+      tone: "warning",
+      note: "보고서 PDF 해시의 블록체인 등록이 아직 완료되지 않았습니다.",
+      networkLabel,
+    }
+  }
+  if (status === "FAILED") {
+    return {
+      badge: "등록 실패",
+      tone: "danger",
+      note: "보고서 PDF 해시의 블록체인 등록에 실패했습니다. PDF 동일성은 아래 SHA-256 파일 대조로 별도 확인할 수 있습니다.",
+      networkLabel,
+    }
+  }
+  return {
+    badge: "미등록",
+    tone: "muted",
+    note: "보고서 PDF 해시의 블록체인 등록 기록이 없습니다. PDF 동일성은 아래 SHA-256 파일 대조로 확인할 수 있습니다.",
+    networkLabel,
+  }
 }
 
 function getPublicationStatusLabel(status?: string | null) {
