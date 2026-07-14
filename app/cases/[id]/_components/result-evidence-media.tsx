@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react"
 import { FileVideo, Loader2 } from "lucide-react"
 
 import {
@@ -27,7 +27,6 @@ import {
   type OverlayCategory,
   type ResultMediaView,
 } from "../_lib/model-overlays"
-import { ModelOverlayLayer } from "./model-overlay-layer"
 
 type ResultEvidenceMediaProps = {
   evidenceDetail: EvidenceDetailData
@@ -77,8 +76,14 @@ export function ResultEvidenceMedia({
   const [jobByModule, setJobByModule] = useState<Record<string, OverlayJobUiState>>({})
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [isRequesting, setIsRequesting] = useState(false)
+  const autoRequestKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
+    setMediaView("original")
+    setJobByModule({})
+    setGenerateError(null)
+    setIsRequesting(false)
+    autoRequestKeyRef.current = null
     setOverlayCategory(defaultSelection.category)
     setSelectedOverlayId(defaultSelection.overlayId)
   }, [selectedEvidenceId, defaultSelection.category, defaultSelection.overlayId])
@@ -94,6 +99,8 @@ export function ResultEvidenceMedia({
   const isGenerating =
     Boolean(activeJob) &&
     (activeJob?.status === "QUEUED" || activeJob?.status === "PROCESSING")
+  const isJobFailed = activeJob?.status === "FAILED"
+  const isFailed = isJobFailed || Boolean(generateError)
 
   useEffect(() => {
     if (!onMediaContextChange) return
@@ -103,6 +110,69 @@ export function ResultEvidenceMedia({
     }
     onMediaContextChange(`overlay:${activeOverlay?.id ?? selectedOverlayId}`)
   }, [mediaView, activeOverlay?.id, selectedOverlayId, onMediaContextChange])
+
+  // Clear prior module request errors when the selected overlay module changes.
+  useEffect(() => {
+    setGenerateError(null)
+    setIsRequesting(false)
+  }, [activeModulePath])
+
+  const applyJobStatus = useCallback((status: OverlayJobStatusResponse) => {
+    setJobByModule((current) => ({
+      ...current,
+      [status.module]: {
+        jobId: status.overlayJobId,
+        module: status.module,
+        status: status.status,
+        progress: status.progressPercent ?? 0,
+        errorMessage: status.errorMessage,
+      },
+    }))
+  }, [])
+
+  const handleGenerateOverlay = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
+      if (activeOverlay.overlayVideoUrl) return
+      if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
+
+      const modulePath = activeModulePath
+      const requestKey = `${selectedEvidenceId}:${modulePath}`
+      if (!options?.force && autoRequestKeyRef.current === requestKey && !isFailed) {
+        return
+      }
+
+      setGenerateError(null)
+      setIsRequesting(true)
+      autoRequestKeyRef.current = requestKey
+      try {
+        const status = await requestOverlayGeneration(selectedEvidenceId, modulePath)
+        applyJobStatus(status)
+        if (status.status === "COMPLETED") {
+          onOverlayReady?.()
+        }
+      } catch (error) {
+        if (autoRequestKeyRef.current === requestKey) {
+          autoRequestKeyRef.current = null
+        }
+        setGenerateError(error instanceof Error ? error.message : "오버레이 생성 요청에 실패했습니다.")
+      } finally {
+        // Only clear spinner if this request is still the latest for its module key.
+        if (autoRequestKeyRef.current === requestKey || autoRequestKeyRef.current == null) {
+          setIsRequesting(false)
+        }
+      }
+    },
+    [
+      activeModulePath,
+      activeOverlay,
+      applyJobStatus,
+      deepfakeOverlayBlocked,
+      isFailed,
+      onOverlayReady,
+      selectedEvidenceId,
+    ]
+  )
 
   useEffect(() => {
     const evidenceId = selectedEvidenceId
@@ -139,56 +209,45 @@ export function ResultEvidenceMedia({
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [jobByModule, onOverlayReady, selectedEvidenceId])
+  }, [applyJobStatus, jobByModule, onOverlayReady, selectedEvidenceId])
 
-  function applyJobStatus(status: OverlayJobStatusResponse) {
-    setJobByModule((current) => ({
-      ...current,
-      [status.module]: {
-        jobId: status.overlayJobId,
-        module: status.module,
-        status: status.status,
-        progress: status.progressPercent ?? 0,
-        errorMessage: status.errorMessage,
-      },
-    }))
-  }
-
-  async function handleGenerateOverlay() {
+  // Overlay tab / model selection: request baked MP4 when missing (no CSS preview).
+  useEffect(() => {
+    if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
     if (activeOverlay.overlayVideoUrl) return
-    setGenerateError(null)
-    setIsRequesting(true)
-    try {
-      const status = await requestOverlayGeneration(selectedEvidenceId, activeModulePath)
-      applyJobStatus(status)
-      if (status.status === "COMPLETED") {
-        onOverlayReady?.()
-      }
-    } catch (error) {
-      setGenerateError(error instanceof Error ? error.message : "오버레이 생성 요청에 실패했습니다.")
-    } finally {
-      setIsRequesting(false)
-    }
-  }
+    if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
+    if (isRequesting || isGenerating) return
+    if (activeJob?.status === "FAILED") return
+    if (activeJob?.status === "COMPLETED") return
+    if (generateError) return
+
+    void handleGenerateOverlay()
+  }, [
+    activeJob?.status,
+    activeModulePath,
+    activeOverlay,
+    deepfakeOverlayBlocked,
+    generateError,
+    handleGenerateOverlay,
+    isGenerating,
+    isRequesting,
+    mediaView,
+    selectedEvidenceId,
+  ])
 
   const categoryOptions = overlayOptions.filter((item) => item.category === overlayCategory)
   const useOverlaySrc = mediaView === "overlay"
   const activeOverlayUrl = useOverlaySrc ? activeOverlay?.overlayVideoUrl ?? null : null
   const useOverlayMp4 = useOverlaySrc && Boolean(activeOverlayUrl)
-  const useOverlayPreview =
-    useOverlaySrc &&
-    !activeOverlayUrl &&
-    Boolean(activeOverlay?.ready) &&
-    !(activeOverlay?.category === "deepfake" && deepfakeOverlayBlocked)
   const hasHlsOriginal =
     hlsPlayback?.hlsStatus === "READY" &&
     Boolean(hlsPlayback.streamToken) &&
     Boolean(hlsPlayback.manifestPath)
-  const showResultPlayer =
-    useOverlaySrc ? useOverlayMp4 || useOverlayPreview || hasHlsOriginal || Boolean(hlsPlayback) : hasHlsOriginal || Boolean(hlsPlayback)
-  const playerSurfaceKey = useOverlaySrc
-    ? `overlay-${activeOverlay?.id ?? "none"}-${activeOverlayUrl ?? (useOverlayPreview ? "preview" : "pending")}`
+  // Until baked MP4 exists, keep playing the original HLS (including while generating).
+  const showResultPlayer = useOverlayMp4 || hasHlsOriginal || Boolean(hlsPlayback)
+  const playerSurfaceKey = useOverlayMp4
+    ? `overlay-${activeOverlay?.id ?? "none"}-${activeOverlayUrl}`
     : `hls-${hlsPlayback?.streamToken ?? hlsPlayback?.hlsStatus ?? "pending"}`
 
   const heatScores = useOverlaySrc
@@ -202,12 +261,22 @@ export function ResultEvidenceMedia({
   const showDeepfakeAdvisory =
     useOverlaySrc && activeOverlay?.category === "deepfake" && Boolean(deepfakeAdvisoryMessage)
 
-  const canRequestOverlay =
+  const showRetryPanel =
     useOverlaySrc &&
     Boolean(activeModulePath) &&
     !activeOverlayUrl &&
     !showDeepfakeAdvisory &&
-    Boolean(activeOverlay?.ready || activeOverlay)
+    isFailed &&
+    !isGenerating &&
+    !isRequesting
+
+  const showWaitingCopy =
+    useOverlaySrc &&
+    Boolean(activeOverlay) &&
+    !activeOverlayUrl &&
+    !showDeepfakeAdvisory &&
+    !isFailed &&
+    (isRequesting || isGenerating)
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:sticky lg:top-4 lg:self-start dark:border-border dark:bg-card">
@@ -270,9 +339,8 @@ export function ResultEvidenceMedia({
             objectFit="cover"
             onSecurityEvent={onSecurityEvent}
           >
-            {useOverlayPreview ? <ModelOverlayLayer option={activeOverlay} videoRef={videoRef} /> : null}
-            {mediaView === "original" ? renderWatermark : null}
-            {useOverlaySrc && activeOverlay ? (
+            {!useOverlayMp4 ? renderWatermark : null}
+            {useOverlayMp4 && activeOverlay ? (
               <div className="absolute left-4 top-4 z-20 max-w-[70%] space-y-1">
                 <div className="rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
                   {activeOverlay.label} 오버레이
@@ -282,7 +350,7 @@ export function ResultEvidenceMedia({
                 </div>
               </div>
             ) : null}
-            {isGenerating ? (
+            {isGenerating || isRequesting ? (
               <div className="absolute inset-x-0 bottom-0 z-30 bg-black/70 px-4 py-3">
                 <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-white/90">
                   <span className="inline-flex items-center gap-1.5">
@@ -308,12 +376,10 @@ export function ResultEvidenceMedia({
         )}
       </div>
 
-      {canRequestOverlay ? (
+      {showRetryPanel ? (
         <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-border dark:bg-background">
           <p className="text-xs font-semibold leading-5 text-slate-600 dark:text-muted-foreground">
-            {useOverlayPreview
-              ? "지금은 원본 위 미리보기입니다. baked 오버레이 MP4를 만들면 모델 산출 영상을 재생할 수 있습니다."
-              : activeOverlay?.pendingMessage}
+            오버레이 생성에 실패했습니다. 다시 시도하면 baked 오버레이를 만들 수 있습니다.
           </p>
           {activeJob?.status === "FAILED" ? (
             <p className="text-xs font-semibold text-red-600 dark:text-red-400">
@@ -326,7 +392,7 @@ export function ResultEvidenceMedia({
           <button
             type="button"
             disabled={isRequesting || isGenerating}
-            onClick={() => void handleGenerateOverlay()}
+            onClick={() => void handleGenerateOverlay({ force: true })}
             className={cn(
               "inline-flex items-center justify-center gap-1.5 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-bold text-white transition-colors",
               isRequesting || isGenerating
@@ -340,11 +406,15 @@ export function ResultEvidenceMedia({
                 생성 중…
               </>
             ) : (
-              "오버레이 생성"
+              "다시 생성"
             )}
           </button>
         </div>
-      ) : useOverlaySrc && activeOverlay && !activeOverlay.ready ? (
+      ) : showWaitingCopy ? (
+        <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-600 dark:border-border dark:bg-background dark:text-muted-foreground">
+          원본을 유지한 채 baked 오버레이를 생성하고 있습니다. 완료되면 모델 산출 영상을 재생합니다.
+        </p>
+      ) : useOverlaySrc && activeOverlay && !activeOverlay.ready && !activeOverlayUrl ? (
         <p
           className={cn(
             "mt-2 rounded-lg border px-3 py-2 text-xs font-semibold leading-5",
@@ -377,7 +447,7 @@ export function ResultEvidenceMedia({
         <p className="text-[11px] font-bold text-slate-400">분석 유의사항</p>
         <ul className="mt-1.5 space-y-1 text-xs font-medium leading-5 text-slate-500">
           <li>본 결과는 AI 기반 조작 의심 신호 분석이며, 조작 여부를 확정하지 않습니다.</li>
-          <li>baked 오버레이는 필요할 때 생성하며, 그동안은 원본 위 미리보기를 사용할 수 있습니다.</li>
+          <li>오버레이는 요청 시에만 생성되며, 생성 전에는 원본 영상만 표시됩니다.</li>
           <li>최종 판단은 원본 자료, 사건 맥락, 전문가 검토 결과와 함께 이루어져야 합니다.</li>
         </ul>
       </div>
@@ -469,7 +539,7 @@ function ModelOverlayPicker({
                       : option.category === "deepfake" && deepfakeOverlayBlocked
                         ? "오버레이 없음"
                         : option.ready
-                          ? "미리보기 가능 · 생성 대기"
+                          ? "생성 대기 · 클릭 시 생성"
                           : "데이터 대기"
                   }
                 />
