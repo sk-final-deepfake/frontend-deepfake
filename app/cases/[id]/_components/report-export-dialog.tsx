@@ -115,7 +115,7 @@ import { cn } from "@/lib/utils"
             <InfoBlock
               label="보고서 유형"
               value="AI 분석 종합 보고서"
-              helper="백엔드에 저장된 실제 분석 결과로 생성됩니다."
+              helper="저장된 실제 분석 결과로 생성됩니다."
             />
             <InfoBlock
               label="대상 증거"
@@ -123,8 +123,6 @@ import { cn } from "@/lib/utils"
               helper={evidenceInfo.originalFileName ?? evidenceInfo.fileName}
               mono
             />
-            <InfoBlock label="생성 파일명" value={fileName} mono />
-
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-bold text-muted-foreground">검토 상태</p>
               <span
@@ -177,12 +175,10 @@ import { cn } from "@/lib/utils"
             <X className="size-4" aria-hidden="true" />
           </button>
           <p className="mb-4 pr-12 text-center text-sm font-bold text-slate-600">
-            {fileName}
-            <span className="ml-2 text-xs font-semibold text-slate-400">백엔드 PDF 미리보기</span>
+            PDF 미리보기
           </p>
 
           <BackendPdfPreview
-            fileName={fileName}
             loading={pdfPreviewLoading}
             error={pdfPreviewError}
             url={pdfPreviewUrl}
@@ -217,13 +213,11 @@ function InfoBlock({
 }
 
 function BackendPdfPreview({
-  fileName,
   loading,
   error,
   url,
   onRetry,
 }: {
-  fileName: string
   loading: boolean
   error: string | null
   url: string | null
@@ -233,7 +227,7 @@ function BackendPdfPreview({
     return (
       <div className="flex min-h-[68vh] flex-col items-center justify-center rounded-sm bg-white shadow-xl">
         <Loader2 className="size-8 animate-spin text-teal-600" aria-hidden="true" />
-        <p className="mt-4 text-sm font-bold text-slate-700">백엔드에서 PDF를 준비하고 있습니다.</p>
+        <p className="mt-4 text-sm font-bold text-slate-700">PDF가 준비 중입니다.</p>
       </div>
     )
   }
@@ -263,7 +257,7 @@ function BackendPdfPreview({
   return (
     <div className="relative overflow-hidden rounded-sm bg-white shadow-xl">
       <iframe
-        title={`${fileName} 미리보기`}
+        title="PDF 미리보기"
         src={`${url}#toolbar=0&navpanes=0`}
         className="h-[min(72vh,920px)] min-h-[680px] w-full border-0 bg-white"
       />

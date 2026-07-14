@@ -116,7 +116,7 @@ export function MetadataReportTab({
             <div>
               <h3 className="text-lg font-bold text-foreground">실제 PDF 보고서</h3>
               <p className="mt-1 text-sm font-semibold text-muted-foreground">
-                화면에서 임시 값을 만들지 않고 백엔드 PDF를 그대로 미리보기·다운로드합니다.
+                저장된 실제 분석 결과로 PDF를 미리보기·다운로드합니다.
               </p>
             </div>
           </div>
@@ -135,14 +135,14 @@ export function MetadataReportTab({
         </div>
 
         <dl className="mt-5 grid gap-3 rounded-xl border border-border bg-muted/20 p-4 text-sm md:grid-cols-2">
-          <SummaryLine label="파일명" value={fileName} />
+          <SummaryLine label="PDF 상태" value={reviewApproved ? "최종 발행 가능" : "검토 승인 대기"} />
           <SummaryLine label="분석 완료일" value={formatDateTime(analysisInfo.completedAt)} />
         </dl>
 
         <div className="mt-4 rounded-xl border border-dashed border-border bg-muted/10 px-4 py-4 text-sm font-semibold leading-6 text-muted-foreground">
           {reviewApproved
-            ? "보고서 번호, 실제 검증코드와 QR은 백엔드가 최종 발행 PDF에 생성합니다. 발행정보와 PDF 동일성은 QR 검증 페이지에서 확인할 수 있습니다."
-            : "보고서 번호, 검증코드, 최종 PDF 해시와 QR은 검토 승인 후 백엔드 발행 과정에서 생성됩니다."}
+            ? "보고서 번호, 실제 검증코드와 QR은 최종 발행 PDF에 생성됩니다. 발행정보와 PDF 동일성은 QR 검증 페이지에서 확인할 수 있습니다."
+            : "보고서 번호, 검증코드, 최종 PDF 해시와 QR은 검토 승인 후 발행 과정에서 생성됩니다."}
         </div>
 
         {pdfActionError ? (
@@ -160,7 +160,7 @@ export function MetadataReportTab({
             className="h-11 font-bold"
           >
             {pdfActionLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <ExternalLink className="size-4" aria-hidden="true" />}
-            백엔드 PDF 미리보기
+            PDF 미리보기
           </Button>
           <Button
             type="button"
