@@ -74,7 +74,7 @@ export function AdminShell({ children }: AdminShellProps) {
         <div className="mx-4 mt-4 rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
           <p className="text-sm font-semibold text-slate-900">{session?.name ?? "관리자"}</p>
           <p className="mt-0.5 truncate text-xs text-slate-500">
-            {session?.loginId ? `${session.loginId}@veriforensics.com` : "admin@veriforensics.com"}
+            {session?.loginId ? `${session.loginId}@forenshield.com` : "admin@forenshield.com"}
           </p>
         </div>
 
