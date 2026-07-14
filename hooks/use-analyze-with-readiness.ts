@@ -135,21 +135,15 @@ export function useAnalyzeWithReadiness() {
     }
 
     setIsCheckingReadiness(true)
+    setReadinessCheckPhase("aiAnalysis")
     setQualityDialogLoading(true)
 
     try {
       let summaries = qualityDialogSummaries
 
       if (needsVideoFrameReadinessRefresh(summaries)) {
-        setReadinessCheckPhase("frameSampling")
-        summaries = await withMinDuration(
-          refreshVideoFrameReadiness(summariesToTargets(summaries)),
-          FRAME_SAMPLING_MIN_MS
-        )
+        summaries = await refreshVideoFrameReadiness(summariesToTargets(summaries))
         setQualityDialogSummaries(summaries)
-      } else if (summariesIncludeVideo(summaries)) {
-        setReadinessCheckPhase("frameSampling")
-        await delay(FRAME_SAMPLING_MIN_MS)
       }
 
       if (hasBlockingReadiness(summaries)) {
