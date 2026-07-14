@@ -102,7 +102,7 @@ function ReviewerHeroPanel({ pendingCount }: { pendingCount: number }) {
           </h1>
           <p className="mt-4 max-w-xl text-sm leading-6 text-slate-500 dark:text-muted-foreground">
             기관 관리자가 배정한 사건의 분석 결과를 검토하고 승인합니다.
-            승인 대기 사건은 코멘트 탭에서 최종 결정을 내릴 수 있습니다.
+            승인 대기 사건은 하단 바에서 최종 결정을 내릴 수 있습니다.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Button
@@ -132,7 +132,7 @@ function ReviewerHeroPanel({ pendingCount }: { pendingCount: number }) {
           <ol className="mt-3 space-y-2 text-xs font-semibold leading-5 text-amber-800 dark:text-amber-200">
             <li>1. 배정 사건 선택</li>
             <li>2. 결과보기·무결성 확인</li>
-            <li>3. 코멘트 탭에서 승인</li>
+            <li>3. 하단 바에서 검토 승인</li>
           </ol>
         </div>
       </div>
@@ -274,7 +274,7 @@ function ReviewerPriorityPanel({
       <div className="mb-4">
         <h2 className="text-sm font-bold text-slate-900 dark:text-foreground">승인 대기 사건</h2>
         <p className="text-xs text-slate-500 dark:text-muted-foreground">
-          코멘트 탭에서 승인 또는 재검토를 진행하세요.
+          하단 바에서 검토 승인 또는 보완 요청을 진행하세요.
         </p>
       </div>
 

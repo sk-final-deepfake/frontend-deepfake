@@ -10,6 +10,7 @@ type CompareResultPanelProps = {
   result: CompareResult | null
   downloadError: string | null
   isDownloading: boolean
+  reportApproved: boolean
   onReset: () => void
   onDownloadReport: () => void
 }
@@ -18,6 +19,7 @@ export function CompareResultPanel({
   result,
   downloadError,
   isDownloading,
+  reportApproved,
   onReset,
   onDownloadReport,
 }: CompareResultPanelProps) {
@@ -131,12 +133,13 @@ export function CompareResultPanel({
         </Button>
         <Button
           onClick={() => setReportDialogOpen(true)}
-          disabled={isDownloading}
+          disabled={isDownloading || !reportApproved}
+          title={reportApproved ? undefined : "검토자 승인 후 PDF를 열 수 있습니다"}
           variant="outline"
           className="h-12 w-full rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground sm:w-auto"
         >
           <Download className="size-5" aria-hidden="true" />
-          {isDownloading ? "PDF 생성 중" : "PDF 보고서"}
+          {isDownloading ? "PDF 생성 중" : reportApproved ? "PDF 보고서" : "승인 후 PDF"}
         </Button>
       </div>
 
@@ -145,6 +148,7 @@ export function CompareResultPanel({
         onClose={() => setReportDialogOpen(false)}
         result={result}
         isDownloading={isDownloading}
+        reportApproved={reportApproved}
         downloadError={downloadError}
         onDownload={onDownloadReport}
       />

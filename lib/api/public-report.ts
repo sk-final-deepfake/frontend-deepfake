@@ -3,7 +3,7 @@ import { API_FETCH_CREDENTIALS } from "@/lib/api/interceptor"
 import { ApiError, apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
 
-export type ReportVerifyStatus = "VALID" | "WARNING" | "INVALID"
+export type ReportVerifyStatus = "PENDING" | "VALID" | "WARNING" | "INVALID"
 
 export type ReportVerification = {
   status: ReportVerifyStatus
@@ -62,7 +62,7 @@ export type PublicReportView = {
  * 공개 검증 API. 로그인 없이 접근하므로 인증 헤더를 붙이지 않는다.
  * 목업 모드에서는 토큰 문자열로 상태를 분기한다:
  *  - "invalid" 포함 → INVALID, "warning" 포함 → WARNING
- *  - "notfound" 포함 → 404 오류, 그 외 → VALID
+ *  - "notfound" 포함 → 404 오류, "pending" 또는 "expired" 포함 → 미발행 안내
  */
 export type ReportVerificationLookup = {
   token?: string
@@ -198,6 +198,9 @@ function buildMockVerification(token: string): ReportVerification {
   const normalized = token.toLowerCase()
 
   if (normalized.includes("notfound") || normalized.includes("expired")) {
+    if (normalized.includes("expired")) {
+      return buildPendingVerification()
+    }
     throw new ApiError("등록되지 않은 검증 정보입니다.", 404, "REPORT_VERIFICATION_NOT_FOUND")
   }
 
@@ -257,7 +260,42 @@ function buildMockVerification(token: string): ReportVerification {
     }
   }
 
+  if (normalized.includes("pending") || normalized.includes("unissued")) {
+    return buildPendingVerification()
+  }
+
   return base
+}
+
+function buildPendingVerification(): ReportVerification {
+  return {
+    status: "PENDING",
+    valid: false,
+    message: "아직 발행되지 않은 보고서입니다. 검토 승인과 발행 등록이 완료된 후 다시 확인해 주세요.",
+    reportNo: "",
+    verificationCode: null,
+    reportType: null,
+    revision: null,
+    publicationStatus: "DRAFT",
+    issuedAt: null,
+    queriedAt: new Date().toISOString(),
+    pdfSignatureApplied: false,
+    evidenceId: 0,
+    reportFileName: "",
+    createdAt: "",
+    reportHash: "",
+    hashMatched: false,
+    storedFileIntact: false,
+    signatureValid: null,
+    signatureStatus: "NOT_ISSUED",
+    signatureAlgorithm: null,
+    signerCertificateSubject: null,
+    blockchainMatched: null,
+    blockchainStatus: "NOT_ISSUED",
+    blockchainTxHash: null,
+    blockchainNetwork: null,
+    blockchainAnchoredAt: null,
+  }
 }
 
 function buildMockPublicReportView(code: string): PublicReportView {

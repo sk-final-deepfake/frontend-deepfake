@@ -98,13 +98,22 @@ function VerifyPageBody() {
         <VerifyLinkGuide />
       ) : isLoading ? (
         <VerifyLoading />
+      ) : result?.status === "PENDING" ? (
+        <VerifyEmptyState
+          icon={<PenLine className="size-9 text-slate-400" aria-hidden="true" />}
+          title="아직 발행되지 않은 보고서입니다"
+          description={
+            result.message ??
+            "검토 승인과 발행 등록이 완료된 후 QR 검증 정보를 확인할 수 있습니다."
+          }
+        />
       ) : errorKind === "notFound" ? (
         <VerifyEmptyState
           icon={<QrCode className="size-9 text-slate-400" aria-hidden="true" />}
-          title="등록되지 않은 검증 주소입니다"
+          title="아직 발행되지 않은 보고서입니다"
           description={
             errorMessage ??
-            "검증 토큰이 만료되었거나 잘못된 주소입니다.\n보고서의 QR 코드를 다시 스캔해 주세요."
+            "검증 토큰이 아직 발행되지 않았거나 더 이상 사용할 수 없습니다.\n보고서의 QR 코드를 다시 확인해 주세요."
           }
         />
       ) : errorKind === "server" ? (
@@ -209,7 +218,7 @@ function VerifyEmptyState({
 }
 
 const VERDICT_DISPLAY: Record<
-  ReportVerifyStatus,
+  Exclude<ReportVerifyStatus, "PENDING">,
   { title: string; fallbackMessage: string; icon: ReactNode; text: string }
 > = {
   VALID: {
@@ -248,7 +257,10 @@ function VerifyResult({
   result: ReportVerification
   lookup: ReportVerificationLookup
 }) {
-  const verdict = VERDICT_DISPLAY[result.status] ?? VERDICT_DISPLAY.WARNING
+  const verdictStatus: Exclude<ReportVerifyStatus, "PENDING"> = result.status === "PENDING"
+    ? "WARNING"
+    : result.status
+  const verdict = VERDICT_DISPLAY[verdictStatus]
   const reportType = result.reportType === "COMPARE" ? "비교검증 보고서" : "AI 기술분석 보고서"
   const publicationStatus = getPublicationStatusLabel(result.publicationStatus)
   const signatureApplied = result.pdfSignatureApplied === true

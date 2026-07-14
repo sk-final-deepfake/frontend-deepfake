@@ -4,6 +4,7 @@ import type {
   AnalysisType,
   CaseDetailData,
   CaseEvidenceSummary,
+  CaseReviewRound,
   EvidenceDetailData,
   EvidenceLifecycleStatus,
   EvidenceRole,
@@ -90,6 +91,8 @@ type MockCaseRecord = {
   reviewerComment?: string | null
   aiResult?: AiResult | null
   reviewRequestedAt?: string | null
+  reviewAssignedAt?: string | null
+  reviewRounds?: CaseReviewRound[]
 }
 
 type MockStore = {
@@ -1500,6 +1503,7 @@ export async function mockAssignReviewerToCase(caseId: string, reviewerId: strin
               reviewerId,
               reviewStatus: "REVIEW_ASSIGNED" as const,
               reviewRequestedAt: item.reviewRequestedAt ?? new Date().toISOString(),
+              reviewAssignedAt: new Date().toISOString(),
             }
           : item
       )
@@ -1509,6 +1513,7 @@ export async function mockAssignReviewerToCase(caseId: string, reviewerId: strin
           reviewerId,
           reviewStatus: "REVIEW_ASSIGNED" as const,
           reviewRequestedAt: targetCase.reviewRequestedAt ?? new Date().toISOString(),
+          reviewAssignedAt: new Date().toISOString(),
         },
         ...store.cases,
       ]
@@ -1536,13 +1541,39 @@ export async function mockRecordCaseReviewDecision(
   const reviewStatus: ReviewStatus =
     decision === "APPROVED" ? "REPORT_APPROVED" : "REVIEW_SUPPLEMENT_REQUESTED"
   const reviewerComment = memo?.trim() || null
+  const previousRounds = targetCase.reviewRounds ?? []
+  const reviewerName =
+    mockUsers.find((user) => user.id === targetCase.reviewerId)?.name ?? null
+  const reviewRound: CaseReviewRound = {
+    round: previousRounds.length + 1,
+    decision,
+    reviewerId: targetCase.reviewerId ?? null,
+    reviewerName,
+    requestedAt: targetCase.reviewRequestedAt ?? null,
+    assignedAt: targetCase.reviewAssignedAt ?? null,
+    decidedAt: new Date().toISOString(),
+    reason: reviewerComment,
+  }
   const cases = store.cases.some((item) => item.caseId === resolvedCaseId)
     ? store.cases.map((item) =>
         item.caseId === resolvedCaseId
-          ? { ...item, reviewStatus, reviewerComment }
+          ? {
+              ...item,
+              reviewStatus,
+              reviewerComment,
+              reviewRounds: [...previousRounds, reviewRound],
+            }
           : item
       )
-    : [{ ...targetCase, reviewStatus, reviewerComment }, ...store.cases]
+    : [
+        {
+          ...targetCase,
+          reviewStatus,
+          reviewerComment,
+          reviewRounds: [...previousRounds, reviewRound],
+        },
+        ...store.cases,
+      ]
 
   writeStore({ ...store, cases })
   return mockFetchCaseDetail(resolvedCaseId)
@@ -1568,9 +1599,14 @@ export async function mockRequestCaseReview(
   const reviewRequestedAt = new Date().toISOString()
   const cases = store.cases.some((item) => item.caseId === resolvedCaseId)
     ? store.cases.map((item) =>
-        item.caseId === resolvedCaseId ? { ...item, reviewStatus, reviewRequestedAt } : item
+        item.caseId === resolvedCaseId
+          ? { ...item, reviewStatus, reviewRequestedAt, reviewAssignedAt: null }
+          : item
       )
-    : [{ ...targetCase, reviewStatus, reviewRequestedAt }, ...store.cases]
+    : [
+        { ...targetCase, reviewStatus, reviewRequestedAt, reviewAssignedAt: null },
+        ...store.cases,
+      ]
 
   writeStore({ ...store, cases })
   return mockFetchCaseDetail(resolvedCaseId)
@@ -2514,7 +2550,10 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
         assigneeId: storedCase.assigneeId ?? defaultCaseAccessFields().assigneeId,
         reviewerId: storedCase.reviewerId ?? null,
         reviewStatus: storedCase.reviewStatus ?? "NONE",
+        reviewRequestedAt: storedCase.reviewRequestedAt ?? null,
+        reviewAssignedAt: storedCase.reviewAssignedAt ?? null,
         reviewerComment: storedCase.reviewerComment ?? null,
+        reviewRounds: storedCase.reviewRounds ?? [],
         evidences: [],
       }
     }
@@ -2543,7 +2582,10 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
     assigneeId: caseRecord?.assigneeId ?? defaultCaseAccessFields().assigneeId,
     reviewerId: caseRecord?.reviewerId ?? null,
     reviewStatus: caseRecord?.reviewStatus ?? "NONE",
+    reviewRequestedAt: caseRecord?.reviewRequestedAt ?? null,
+    reviewAssignedAt: caseRecord?.reviewAssignedAt ?? null,
     reviewerComment: caseRecord?.reviewerComment ?? null,
+    reviewRounds: caseRecord?.reviewRounds ?? [],
     evidences,
   }
 }

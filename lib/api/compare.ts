@@ -149,8 +149,12 @@ export async function fetchCompareResult(compareId: number): Promise<CompareResu
   return apiRequest<CompareResult>(`/api/v1/compare/${compareId}`)
 }
 
-export async function downloadCompareReport(compareId: number): Promise<Blob> {
-  return apiDownload(`/api/v1/compare/${compareId}/reports/pdf`)
+export async function downloadCompareReport(
+  compareId: number,
+  options?: { preview?: boolean }
+): Promise<Blob> {
+  const query = options?.preview ? "?preview=true" : ""
+  return apiDownload(`/api/v1/compare/${compareId}/reports/pdf${query}`)
 }
 
 function delay(ms: number) {
