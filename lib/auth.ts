@@ -28,11 +28,18 @@ const LEGACY_API_ORIGIN_KEY = "veriforensics-api-origin"
 const MOCK_SESSION_STORAGE_KEY = "forenshield-mock-auth"
 const SESSION_EXPIRES_AT_STORAGE_KEY = "forenshield-auth-session-expires-at"
 const SESSION_EXPIRED_STORAGE_KEY = "forenshield-auth-session-expired"
+const ACCESS_TOKEN_EXPIRES_AT_STORAGE_KEY = "forenshield-auth-access-expires-at"
+
+/** Access JWT 만료 이만큼 전에 선제 refresh (ms) */
+const ACCESS_REFRESH_LEAD_MS = 2 * 60 * 1000
+/** HLS·UI 활동 touch 최소 간격 — 매 세그먼트마다 sessionStorage 쓰지 않도록 */
+const SESSION_TOUCH_THROTTLE_MS = 30 * 1000
 
 let memorySession: AuthSession | null = null
 let redirectingToLogin = false
 let authBootstrapped = false
 let bootstrapPromise: Promise<void> | null = null
+let lastSessionTouchAt = 0
 
 export function mapBackendRole(role: string): AuthRole {
   if (role === "ROLE_ADMIN") return "admin"
@@ -116,6 +123,32 @@ function clearSessionExpiry() {
   if (typeof window === "undefined") return
   sessionStorage.removeItem(SESSION_EXPIRES_AT_STORAGE_KEY)
   sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY)
+  sessionStorage.removeItem(ACCESS_TOKEN_EXPIRES_AT_STORAGE_KEY)
+}
+
+function readAccessTokenExpiresAt(): number | null {
+  if (typeof window === "undefined") return null
+  const raw = sessionStorage.getItem(ACCESS_TOKEN_EXPIRES_AT_STORAGE_KEY)
+  const expiresAt = Number(raw)
+  return Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : null
+}
+
+function writeAccessTokenExpiresAt(expiresAt: number) {
+  if (typeof window === "undefined") return
+  sessionStorage.setItem(ACCESS_TOKEN_EXPIRES_AT_STORAGE_KEY, String(expiresAt))
+}
+
+function setAccessTokenExpiry(accessTokenExpiresIn?: number) {
+  if (typeof window === "undefined") return
+  if (
+    typeof accessTokenExpiresIn !== "number" ||
+    !Number.isFinite(accessTokenExpiresIn) ||
+    accessTokenExpiresIn <= 0
+  ) {
+    sessionStorage.removeItem(ACCESS_TOKEN_EXPIRES_AT_STORAGE_KEY)
+    return
+  }
+  writeAccessTokenExpiresAt(Date.now() + accessTokenExpiresIn)
 }
 
 function markSessionExpired() {
@@ -148,6 +181,7 @@ function setSessionExpiry(accessTokenExpiresIn?: number) {
   if (typeof window === "undefined") return
   // 로그인·refresh 직후 유휴 타임아웃 시작점
   writeSessionExpiresAt(Date.now() + sessionIdleTimeoutMs(accessTokenExpiresIn))
+  setAccessTokenExpiry(accessTokenExpiresIn)
 }
 
 /**
@@ -160,7 +194,18 @@ export function touchSessionExpiry() {
   if (!memorySession || isMockAuthSession(memorySession)) return
   if (isSessionExpired()) return
 
+  lastSessionTouchAt = Date.now()
   writeSessionExpiresAt(Date.now() + sessionIdleTimeoutMs())
+}
+
+/**
+ * HLS·포인터 등 고빈도 활동용 — 기본 30초에 한 번만 유휴 만료를 연장한다.
+ */
+export function touchSessionExpiryThrottled(minIntervalMs = SESSION_TOUCH_THROTTLE_MS) {
+  if (typeof window === "undefined") return
+  const now = Date.now()
+  if (now - lastSessionTouchAt < minIntervalMs) return
+  touchSessionExpiry()
 }
 
 function notifyAuthChange() {
@@ -327,6 +372,20 @@ export function isAuthBootstrapped(): boolean {
 
 export function getSessionExpiresAt(): number | null {
   return readSessionExpiresAt()
+}
+
+/** Access JWT 만료 시각(epoch ms). 선제 refresh 스케줄에 사용. */
+export function getAccessTokenExpiresAt(): number | null {
+  return readAccessTokenExpiresAt()
+}
+
+/** Access 만료 시각 기준 선제 refresh까지 남은 ms. 이미 지났거나 없으면 null. */
+export function getMsUntilProactiveRefresh(): number | null {
+  const accessExpiresAt = readAccessTokenExpiresAt()
+  if (accessExpiresAt == null) return null
+  const refreshAt = accessExpiresAt - ACCESS_REFRESH_LEAD_MS
+  const remaining = refreshAt - Date.now()
+  return remaining
 }
 
 export function setSession(session: AuthSession) {
