@@ -8,6 +8,7 @@ import {
   useState,
   type Dispatch,
   type ReactNode,
+  type RefObject,
   type SetStateAction,
 } from "react"
 import Link from "next/link"
@@ -86,10 +87,11 @@ import { getXceptionFrameScores } from "./_lib/module-timelines"
 import {
   buildForgeryRepresentativeFrames,
   buildForgeryResultTabSignals,
-  formatForgeryThresholdLabel,
+  formatForgeryDualScoreSub,
   getForgeryPriorityReviewRange,
-  getForgerySpatialTimeline,
+  getForgeryScoreSummary,
 } from "./_lib/forgery-ui"
+import { VideoSeekThumbnail } from "./_components/video-seek-thumbnail"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -1009,8 +1011,7 @@ function CaseResultView({
   const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
   const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
   const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
-  const forgerySpatialTab = getForgerySpatialTimeline(evidenceDetail)
-  const forgerySpatialThreshold = forgerySpatialTab?.threshold ?? 0.515
+  const forgeryScoreSummary = getForgeryScoreSummary(evidenceDetail)
   const forgeryPriorityRange = getForgeryPriorityReviewRange(evidenceDetail)
   const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
@@ -1041,13 +1042,8 @@ function CaseResultView({
       clientTimestamp: new Date().toISOString(),
     }).catch(() => undefined)
   }, [mediaContext, selectedEvidenceId])
-  const forgeryHighestScore = forgeryRiskSignals.reduce(
-    (highest, signal) => Math.max(highest, normalizeResultValue(signal.score)),
-    0
-  )
-  const forgeryOverThresholdCount = forgeryRiskSignals.filter(
-    (signal) => normalizeResultValue(signal.score) >= forgerySpatialThreshold
-  ).length
+  const forgeryHighestScore = forgeryScoreSummary.highestScore
+  const forgeryOverThresholdCount = forgeryScoreSummary.overThresholdCount
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
   const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
 
@@ -1335,31 +1331,47 @@ function CaseResultView({
                     <div>
                       <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위변조 탐지</h3>
                       <p className="mt-1 text-sm font-semibold text-slate-500">
-                        TruFor 국소 위변조 신호를 확인합니다. 시간축(TimeSformer) 분석은 프레임 분석 탭에서 확인하세요.
+                        TruFor(국소)와 TimeSformer(시간축) 위변조 신호를 함께 확인합니다.
                       </p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-secondary">
-                      세부 모델 {forgeryRiskSignals.length}개
+                      세부 모델 {forgeryScoreSummary.modelCount}개
                     </span>
                   </div>
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
                     <FrameMetricCard
                       label="위변조 최고 점수"
-                      value={forgeryRiskSignals.length > 0 ? formatScoreOutOf100(forgeryHighestScore) : "-"}
-                      sub={`TruFor · ${formatForgeryThresholdLabel(forgerySpatialThreshold)}`}
-                      tone={forgeryHighestScore >= forgerySpatialThreshold ? "danger" : "neutral"}
+                      value={
+                        forgeryScoreSummary.modelCount > 0
+                          ? formatScoreOutOf100(forgeryHighestScore)
+                          : "-"
+                      }
+                      sub={formatForgeryDualScoreSub(forgeryScoreSummary)}
+                      tone={
+                        forgeryHighestScore >=
+                        Math.min(
+                          forgeryScoreSummary.spatialThreshold,
+                          forgeryScoreSummary.temporalThreshold
+                        )
+                          ? "danger"
+                          : "neutral"
+                      }
                     />
                     <FrameMetricCard
                       label="기준 초과 항목"
-                      value={`${forgeryOverThresholdCount} / ${forgeryRiskSignals.length}개`}
-                      sub={formatForgeryThresholdLabel(forgerySpatialThreshold)}
+                      value={`${forgeryOverThresholdCount} / ${forgeryScoreSummary.modelCount}개`}
+                      sub={`TruFor ${Math.round(forgeryScoreSummary.spatialThreshold * 100)} · TimeSformer ${Math.round(forgeryScoreSummary.temporalThreshold * 100)}`}
                       tone={forgeryOverThresholdCount > 0 ? "danger" : "neutral"}
                     />
                     <FrameMetricCard
                       label="의심 구간"
                       value={forgeryPriorityRange ? forgeryPriorityRange.label : "-"}
-                      sub={forgeryPriorityRange ? "TruFor spatial 의심 구간" : "임계값 초과 구간 없음"}
+                      sub={
+                        forgeryPriorityRange
+                          ? `${forgeryPriorityRange.source ?? "위변조"} · 최소 1초`
+                          : "임계값 초과 구간 없음"
+                      }
                     />
                     <FrameMetricCard
                       label="시각 증거"
@@ -1381,9 +1393,9 @@ function CaseResultView({
                     </ul>
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                      위변조(TruFor) 결과가 아직 제공되지 않았습니다.
+                      위변조(TruFor / TimeSformer) 결과가 아직 제공되지 않았습니다.
                       <br />
-                      GPU worker가 forgery_spatial 점수와 frameRisks를 내면 이 영역에 표시됩니다.
+                      GPU worker가 forgery_spatial · forgery_temporal 점수를 내면 이 영역에 표시됩니다.
                     </p>
                   )}
 
@@ -1392,7 +1404,7 @@ function CaseResultView({
                       <div>
                         <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">고위험 프레임</h4>
                         <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                          TruFor frameRisks 상위 시점입니다. 시간축·클립 분석은 프레임 분석 &gt; 위변조를 확인하세요.
+                          TruFor frameRisks 상위 시점입니다. 서버 이미지가 없으면 영상에서 해당 시각을 캡처합니다.
                         </p>
                       </div>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -1401,6 +1413,7 @@ function CaseResultView({
                             key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
                             frame={frame}
                             index={index}
+                            videoRef={videoRef}
                           />
                         ))}
                       </div>
@@ -4183,18 +4196,39 @@ function RiskSignalCard({
   )
 }
 
-function RepresentativeFrameDetailCard({ frame, index }: { frame: RepresentativeFrame; index: number }) {
+function RepresentativeFrameDetailCard({
+  frame,
+  index,
+  videoRef,
+}: {
+  frame: RepresentativeFrame
+  index: number
+  videoRef?: RefObject<HTMLVideoElement | null>
+}) {
   const score = frame.score == null ? null : Math.round(normalizeResultValue(frame.score) * 100)
   const tone = score == null ? null : getDetectionTone(score / 100)
   const timeLabel =
     frame.timestamp ?? (frame.timeSec != null ? formatDuration(frame.timeSec) : `프레임 ${index + 1}`)
+  const timeSec = frame.timeSec ?? 0
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50/70 dark:border-border dark:bg-background">
       <div className="relative aspect-video bg-slate-950">
-        {frame.imageUrl ? (
+        {videoRef ? (
+          <VideoSeekThumbnail
+            videoRef={videoRef}
+            timeSec={timeSec}
+            imageUrl={frame.imageUrl}
+            heatmapImageUrl={frame.heatmapImageUrl}
+            label="대표 프레임"
+          />
+        ) : frame.imageUrl || frame.heatmapImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={frame.imageUrl} alt={`대표 프레임 ${index + 1}`} className="size-full object-cover" />
+          <img
+            src={(frame.imageUrl || frame.heatmapImageUrl) ?? undefined}
+            alt={`대표 프레임 ${index + 1}`}
+            className="size-full object-cover"
+          />
         ) : (
           <div className="flex size-full items-center justify-center text-xs font-bold text-white/45">
             대표 프레임
@@ -4210,7 +4244,9 @@ function RepresentativeFrameDetailCard({ frame, index }: { frame: Representative
           <p className="truncate text-sm font-bold text-slate-950 dark:text-foreground">
             {frame.frameNumber != null ? `프레임 ${frame.frameNumber}` : `대표 ${index + 1}`}
           </p>
-          <p className="mt-0.5 text-xs font-semibold text-slate-500">원본 프레임</p>
+          <p className="mt-0.5 text-xs font-semibold text-slate-500">
+            {frame.heatmapImageUrl && !frame.imageUrl ? "히트맵" : "원본 프레임"}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="font-mono text-sm font-bold text-slate-950 dark:text-foreground">
