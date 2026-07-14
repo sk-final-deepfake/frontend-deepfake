@@ -1,13 +1,18 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react"
-import { FileVideo } from "lucide-react"
+import { FileVideo, Loader2 } from "lucide-react"
 
 import {
   ProtectedEvidencePlayer,
   type ProtectedSecurityEvent,
 } from "@/components/protected-evidence-player"
 import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
+import {
+  fetchOverlayJobStatus,
+  requestOverlayGeneration,
+  type OverlayJobStatusResponse,
+} from "@/lib/evidence-api"
 import type { HlsPlayback } from "@/lib/hls-playback"
 import { cn } from "@/lib/utils"
 
@@ -16,6 +21,7 @@ import {
   findOverlayOption,
   getDefaultOverlaySelection,
   isDeepfakeOverlayBlocked,
+  overlayModuleApiPath,
   resolveDeepfakeOverlayAdvisory,
   type ModelOverlayOption,
   type OverlayCategory,
@@ -31,12 +37,21 @@ type ResultEvidenceMediaProps = {
   onSecurityEvent: (event: ProtectedSecurityEvent) => void
   onSeek?: (seconds: number) => void
   onMediaContextChange?: (context: string) => void
+  onOverlayReady?: () => void
   renderHeatStrip: (props: {
     scores: import("@/lib/api/evidence-detail").FrameScore[]
     caption: string
     onSeek?: (seconds: number) => void
   }) => ReactNode
   renderWatermark: ReactNode
+}
+
+type OverlayJobUiState = {
+  jobId: number
+  module: string
+  status: string
+  progress: number
+  errorMessage?: string | null
 }
 
 export function ResultEvidenceMedia({
@@ -47,6 +62,7 @@ export function ResultEvidenceMedia({
   onSecurityEvent,
   onSeek,
   onMediaContextChange,
+  onOverlayReady,
   renderHeatStrip,
   renderWatermark,
 }: ResultEvidenceMediaProps) {
@@ -58,6 +74,9 @@ export function ResultEvidenceMedia({
   const [mediaView, setMediaView] = useState<ResultMediaView>("original")
   const [overlayCategory, setOverlayCategory] = useState<OverlayCategory>(defaultSelection.category)
   const [selectedOverlayId, setSelectedOverlayId] = useState(defaultSelection.overlayId)
+  const [jobByModule, setJobByModule] = useState<Record<string, OverlayJobUiState>>({})
+  const [generateError, setGenerateError] = useState<string | null>(null)
+  const [isRequesting, setIsRequesting] = useState(false)
 
   useEffect(() => {
     setOverlayCategory(defaultSelection.category)
@@ -70,6 +89,12 @@ export function ResultEvidenceMedia({
     overlayOptions[0] ??
     null
 
+  const activeModulePath = activeOverlay ? overlayModuleApiPath(activeOverlay.id) : null
+  const activeJob = activeModulePath ? jobByModule[activeModulePath] : undefined
+  const isGenerating =
+    Boolean(activeJob) &&
+    (activeJob?.status === "QUEUED" || activeJob?.status === "PROCESSING")
+
   useEffect(() => {
     if (!onMediaContextChange) return
     if (mediaView === "original") {
@@ -78,6 +103,74 @@ export function ResultEvidenceMedia({
     }
     onMediaContextChange(`overlay:${activeOverlay?.id ?? selectedOverlayId}`)
   }, [mediaView, activeOverlay?.id, selectedOverlayId, onMediaContextChange])
+
+  useEffect(() => {
+    const evidenceId = selectedEvidenceId
+    if (!evidenceId) return
+
+    const activeJobs = Object.values(jobByModule).filter(
+      (job) => job.status === "QUEUED" || job.status === "PROCESSING"
+    )
+    if (activeJobs.length === 0) return
+
+    let cancelled = false
+    const poll = async () => {
+      for (const job of activeJobs) {
+        try {
+          const status = await fetchOverlayJobStatus(evidenceId, job.jobId)
+          if (cancelled) return
+          applyJobStatus(status)
+          if (status.status === "COMPLETED") {
+            onOverlayReady?.()
+          }
+        } catch {
+          // keep previous progress; next tick retries
+        }
+      }
+    }
+
+    void poll()
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      void poll()
+    }, 1500)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [jobByModule, onOverlayReady, selectedEvidenceId])
+
+  function applyJobStatus(status: OverlayJobStatusResponse) {
+    setJobByModule((current) => ({
+      ...current,
+      [status.module]: {
+        jobId: status.overlayJobId,
+        module: status.module,
+        status: status.status,
+        progress: status.progressPercent ?? 0,
+        errorMessage: status.errorMessage,
+      },
+    }))
+  }
+
+  async function handleGenerateOverlay() {
+    if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
+    if (activeOverlay.overlayVideoUrl) return
+    setGenerateError(null)
+    setIsRequesting(true)
+    try {
+      const status = await requestOverlayGeneration(selectedEvidenceId, activeModulePath)
+      applyJobStatus(status)
+      if (status.status === "COMPLETED") {
+        onOverlayReady?.()
+      }
+    } catch (error) {
+      setGenerateError(error instanceof Error ? error.message : "오버레이 생성 요청에 실패했습니다.")
+    } finally {
+      setIsRequesting(false)
+    }
+  }
 
   const categoryOptions = overlayOptions.filter((item) => item.category === overlayCategory)
   const useOverlaySrc = mediaView === "overlay"
@@ -108,6 +201,13 @@ export function ResultEvidenceMedia({
 
   const showDeepfakeAdvisory =
     useOverlaySrc && activeOverlay?.category === "deepfake" && Boolean(deepfakeAdvisoryMessage)
+
+  const canRequestOverlay =
+    useOverlaySrc &&
+    Boolean(activeModulePath) &&
+    !activeOverlayUrl &&
+    !showDeepfakeAdvisory &&
+    Boolean(activeOverlay?.ready || activeOverlay)
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:sticky lg:top-4 lg:self-start dark:border-border dark:bg-card">
@@ -148,6 +248,7 @@ export function ResultEvidenceMedia({
             options={overlayOptions}
             categoryOptions={categoryOptions}
             deepfakeOverlayBlocked={deepfakeOverlayBlocked}
+            hasGeneratedUrl={(id) => Boolean(findOverlayOption(overlayOptions, id)?.overlayVideoUrl)}
             onCategoryChange={(category) => {
               setOverlayCategory(category)
               const firstInCategory = overlayOptions.find((item) => item.category === category)
@@ -181,6 +282,23 @@ export function ResultEvidenceMedia({
                 </div>
               </div>
             ) : null}
+            {isGenerating ? (
+              <div className="absolute inset-x-0 bottom-0 z-30 bg-black/70 px-4 py-3">
+                <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-white/90">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                    baked 오버레이 생성 중
+                  </span>
+                  <span>{Math.max(0, Math.min(100, activeJob?.progress ?? 0))}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/20">
+                  <div
+                    className="h-full rounded-full bg-teal-400 transition-[width] duration-300"
+                    style={{ width: `${Math.max(2, Math.min(100, activeJob?.progress ?? 0))}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </ProtectedEvidencePlayer>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
@@ -190,7 +308,43 @@ export function ResultEvidenceMedia({
         )}
       </div>
 
-      {useOverlaySrc && activeOverlay && !activeOverlay.ready ? (
+      {canRequestOverlay ? (
+        <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-border dark:bg-background">
+          <p className="text-xs font-semibold leading-5 text-slate-600 dark:text-muted-foreground">
+            {useOverlayPreview
+              ? "지금은 원본 위 미리보기입니다. baked 오버레이 MP4를 만들면 모델 산출 영상을 재생할 수 있습니다."
+              : activeOverlay?.pendingMessage}
+          </p>
+          {activeJob?.status === "FAILED" ? (
+            <p className="text-xs font-semibold text-red-600 dark:text-red-400">
+              {activeJob.errorMessage || "오버레이 생성에 실패했습니다. 다시 시도해 주세요."}
+            </p>
+          ) : null}
+          {generateError ? (
+            <p className="text-xs font-semibold text-red-600 dark:text-red-400">{generateError}</p>
+          ) : null}
+          <button
+            type="button"
+            disabled={isRequesting || isGenerating}
+            onClick={() => void handleGenerateOverlay()}
+            className={cn(
+              "inline-flex items-center justify-center gap-1.5 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-bold text-white transition-colors",
+              isRequesting || isGenerating
+                ? "cursor-not-allowed opacity-60"
+                : "hover:bg-teal-500"
+            )}
+          >
+            {isRequesting || isGenerating ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                생성 중…
+              </>
+            ) : (
+              "오버레이 생성"
+            )}
+          </button>
+        </div>
+      ) : useOverlaySrc && activeOverlay && !activeOverlay.ready ? (
         <p
           className={cn(
             "mt-2 rounded-lg border px-3 py-2 text-xs font-semibold leading-5",
@@ -200,15 +354,10 @@ export function ResultEvidenceMedia({
           )}
         >
           {showDeepfakeAdvisory ? deepfakeAdvisoryMessage : activeOverlay.pendingMessage}
-          {!showDeepfakeAdvisory ? (
-            <span className="mt-1 block text-[11px] font-medium text-amber-700/80 dark:text-amber-300/80">
-              모듈 타임라인(`frameRisks` / `clipRisks`)이 제공되면 원본 영상 위 미리보기 오버레이가 표시됩니다.
-            </span>
-          ) : null}
         </p>
-      ) : useOverlayPreview ? (
-        <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-600 dark:border-border dark:bg-background dark:text-muted-foreground">
-          AI 오버레이 MP4가 없어 원본 영상 위 모델별 미리보기를 표시합니다. 타임라인 구간과 재생 시점에 맞춰 bbox·클립 테두리가 강조됩니다.
+      ) : useOverlayMp4 ? (
+        <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold leading-5 text-teal-800 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
+          baked 오버레이 MP4를 재생 중입니다.
         </p>
       ) : null}
 
@@ -228,7 +377,7 @@ export function ResultEvidenceMedia({
         <p className="text-[11px] font-bold text-slate-400">분석 유의사항</p>
         <ul className="mt-1.5 space-y-1 text-xs font-medium leading-5 text-slate-500">
           <li>본 결과는 AI 기반 조작 의심 신호 분석이며, 조작 여부를 확정하지 않습니다.</li>
-          <li>오버레이는 모델별 산출물이 제공된 경우에만 해당 시각화가 재생됩니다.</li>
+          <li>baked 오버레이는 필요할 때 생성하며, 그동안은 원본 위 미리보기를 사용할 수 있습니다.</li>
           <li>최종 판단은 원본 자료, 사건 맥락, 전문가 검토 결과와 함께 이루어져야 합니다.</li>
         </ul>
       </div>
@@ -242,6 +391,7 @@ function ModelOverlayPicker({
   options,
   categoryOptions,
   deepfakeOverlayBlocked,
+  hasGeneratedUrl,
   onCategoryChange,
   onSelectOverlay,
 }: {
@@ -250,6 +400,7 @@ function ModelOverlayPicker({
   options: ModelOverlayOption[]
   categoryOptions: ModelOverlayOption[]
   deepfakeOverlayBlocked: boolean
+  hasGeneratedUrl: (overlayId: string) => boolean
   onCategoryChange: (category: OverlayCategory) => void
   onSelectOverlay: (overlayId: string) => void
 }) {
@@ -287,39 +438,48 @@ function ModelOverlayPicker({
           categoryOptions.length >= 3 ? "grid-cols-3" : categoryOptions.length === 2 ? "grid-cols-2" : "grid-cols-1"
         )}
       >
-        {categoryOptions.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => onSelectOverlay(option.id)}
-            className={cn(
-              "flex flex-col items-start rounded-md border px-2.5 py-2 text-left transition-colors",
-              selectedOverlayId === option.id
-                ? "border-teal-500 bg-teal-50 dark:border-teal-400 dark:bg-teal-950/30"
-                : "border-slate-200 bg-white hover:border-slate-300 dark:border-border dark:bg-card"
-            )}
-          >
-            <span className="flex w-full items-center justify-between gap-2">
-              <span className="text-xs font-bold text-slate-950 dark:text-foreground">{option.shortLabel}</span>
-              <span
-                className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  option.ready ? "bg-teal-500" : "bg-slate-300 dark:bg-slate-600"
-                )}
-                title={
-                  option.ready
-                    ? "오버레이 제공됨"
-                    : option.category === "deepfake" && deepfakeOverlayBlocked
-                      ? "오버레이 없음"
-                      : "연동 대기"
-                }
-              />
-            </span>
-            <span className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-4 text-slate-500">
-              {option.overlayBadge}
-            </span>
-          </button>
-        ))}
+        {categoryOptions.map((option) => {
+          const generated = hasGeneratedUrl(option.id)
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => onSelectOverlay(option.id)}
+              className={cn(
+                "flex flex-col items-start rounded-md border px-2.5 py-2 text-left transition-colors",
+                selectedOverlayId === option.id
+                  ? "border-teal-500 bg-teal-50 dark:border-teal-400 dark:bg-teal-950/30"
+                  : "border-slate-200 bg-white hover:border-slate-300 dark:border-border dark:bg-card"
+              )}
+            >
+              <span className="flex w-full items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-950 dark:text-foreground">{option.shortLabel}</span>
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    generated
+                      ? "bg-teal-500"
+                      : option.ready
+                        ? "bg-amber-400"
+                        : "bg-slate-300 dark:bg-slate-600"
+                  )}
+                  title={
+                    generated
+                      ? "baked 오버레이 준비됨"
+                      : option.category === "deepfake" && deepfakeOverlayBlocked
+                        ? "오버레이 없음"
+                        : option.ready
+                          ? "미리보기 가능 · 생성 대기"
+                          : "데이터 대기"
+                  }
+                />
+              </span>
+              <span className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-4 text-slate-500">
+                {option.overlayBadge}
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       {categoryOptions.length === 0 ? (

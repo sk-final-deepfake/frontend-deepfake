@@ -186,11 +186,41 @@ export type AnalysisStatusResponse = {
   progressPercent: number
 }
 
+export type OverlayJobStatusResponse = {
+  overlayJobId: number
+  evidenceId: number
+  module: string
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | string
+  progressPercent: number
+  overlayVideoUrl?: string | null
+  errorCode?: string | null
+  errorMessage?: string | null
+}
+
 export async function fetchAnalysisStatus(
   evidenceId: number
 ): Promise<AnalysisStatusResponse> {
   return apiRequest<AnalysisStatusResponse>(
     `/api/v1/evidences/${evidenceId}/analysis-status`
+  )
+}
+
+export async function requestOverlayGeneration(
+  evidenceId: number,
+  module: string
+): Promise<OverlayJobStatusResponse> {
+  return apiRequest<OverlayJobStatusResponse>(
+    `/api/v1/evidences/${evidenceId}/overlays/${encodeURIComponent(module)}/generate`,
+    { method: "POST" }
+  )
+}
+
+export async function fetchOverlayJobStatus(
+  evidenceId: number,
+  overlayJobId: number
+): Promise<OverlayJobStatusResponse> {
+  return apiRequest<OverlayJobStatusResponse>(
+    `/api/v1/evidences/${evidenceId}/overlays/jobs/${overlayJobId}`
   )
 }
 

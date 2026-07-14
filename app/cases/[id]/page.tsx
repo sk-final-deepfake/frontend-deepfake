@@ -1098,6 +1098,11 @@ function CaseResultView({
               onSecurityEvent={reportSecurityEvent}
               onSeek={seekResultVideo}
               onMediaContextChange={setMediaContext}
+              onOverlayReady={() => {
+                if (selectedEvidenceId) {
+                  void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
+                }
+              }}
               renderHeatStrip={({ scores, caption, onSeek: seek }) => (
                 <FrameRiskHeatStrip scores={scores} onSeek={seek} caption={caption} />
               )}
