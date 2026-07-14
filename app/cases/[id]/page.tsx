@@ -2935,7 +2935,7 @@ function CaseWorkflowPanel({
           for (const evidenceId of targetIds) {
             next[evidenceId] = {
               status: "PROCESSING",
-              progress: Math.max(current[evidenceId]?.progress ?? 0, 1),
+              progress: current[evidenceId]?.progress ?? 0,
             }
           }
           return next
