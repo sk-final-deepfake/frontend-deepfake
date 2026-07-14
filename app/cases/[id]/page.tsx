@@ -2324,7 +2324,7 @@ function BlockchainAnchorCard({
           </div>
           {anchor.analysisModel || anchor.analysisModules.length > 0 ? (
             <div className="mt-4 border-t border-slate-200/80 pt-4 dark:border-border">
-              <p className="text-xs font-bold text-slate-400">AI 분석 모델 스냅샷 (원장)</p>
+              <p className="text-xs font-bold text-slate-400">AI·위변조 분석 모델 스냅샷 (원장)</p>
               {anchor.analysisModel ? (
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <IntegrityInfoRow label="모델명" value={anchor.analysisModel.name} />
