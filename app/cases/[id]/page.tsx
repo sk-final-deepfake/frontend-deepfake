@@ -87,6 +87,7 @@ import { getXceptionFrameScores } from "./_lib/module-timelines"
 import {
   buildForgeryRepresentativeFrames,
   buildForgeryResultTabSignals,
+  DEFAULT_FORGERY_THRESHOLDS,
   formatForgeryDualScoreSub,
   getForgeryPriorityReviewRange,
   getForgeryScoreSummary,
@@ -1496,16 +1497,27 @@ function CaseResultView({
                       {forgeryMethodologyItems.map((item) => (
                         <div key={item.name} className="px-5 py-3.5">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">{item.name}</p>
+                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                              {item.name}
+                              {item.version ? (
+                                <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">
+                                  {item.version}
+                                </span>
+                              ) : null}
+                            </p>
                             <span
                               className={cn(
                                 "rounded-full px-2.5 py-1 text-[11px] font-bold",
-                                item.available
-                                  ? "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300"
+                                item.score != null && item.overThreshold
+                                  ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
                                   : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
                               )}
                             >
-                              {item.available ? "결과 수신" : "대기"}
+                              {item.score == null
+                                ? "정보 없음"
+                                : item.overThreshold
+                                  ? `기준 ${Math.round(item.threshold * 100)} 초과`
+                                  : `기준 ${Math.round(item.threshold * 100)} 미만`}
                             </span>
                           </div>
                           <p className="mt-1 text-xs font-semibold text-slate-500">분석 목적: {item.role}</p>
@@ -4809,40 +4821,42 @@ type DetailModuleResult = EvidenceDetailData["analysisInfo"]["moduleResults"][nu
 
 const FORGERY_METHOD_BASELINES = [
   {
+    id: "trufor" as const,
     name: "Frame Edit",
-    role: "프레임 삽입·삭제·복제처럼 시간축 편집으로 생기는 불연속성을 확인합니다.",
-    output: "프레임 편집 점수, 의심 구간",
-    keywords: ["frame_edit", "frame edit", "frameedit", "frame manipulation", "frame tamper"],
-    labels: ["프레임 편집"],
+    modelName: "TruFor",
+    role: "국소 삭제·객체 삽입·영역 변조 등 공간(픽셀) 위변조 카테고리를 봅니다.",
+    output: "국소 위변조 점수, 의심 구간, 히트맵·마스크",
+    match: (signal: UiRiskSignal) => {
+      const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
+      return text.includes("trufor") || text.includes("spatial")
+    },
   },
   {
+    id: "timesformer" as const,
     name: "Splicing",
-    role: "서로 다른 영상 구간을 이어붙였을 때 나타나는 경계·압축 패턴 변화를 확인합니다.",
-    output: "구간 이어붙이기 점수, 경계 구간",
-    keywords: ["splicing", "splice"],
-    labels: ["이어붙이기"],
-  },
-  {
-    name: "Re-encoding",
-    role: "재압축·트랜스코딩 과정에서 남는 인코딩 특성 변화를 확인합니다.",
-    output: "재인코딩 점수, 압축 흔적 설명",
-    keywords: ["re_encoding", "re-encoding", "reencoding", "re encode", "reencode", "transcoding", "transcode"],
-    labels: ["재인코딩"],
-  },
-  {
-    name: "Forgery Localization",
-    role: "국소 위변조 의심 영역을 프레임 단위 히트맵이나 마스크로 확인합니다.",
-    output: "대표 프레임, 히트맵, 마스크 URL",
-    keywords: ["forgery", "tamper", "localization", "mask"],
-    labels: ["국소 위변조", "히트맵", "마스크"],
+    modelName: "TimeSformer",
+    role: "Cut splicing·frame drop/dup/insert 등 시간축 편집 카테고리를 봅니다.",
+    output: "시간축 위변조 점수, 의심 구간",
+    match: (signal: UiRiskSignal) => {
+      const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
+      return text.includes("timesformer") || text.includes("temporal")
+    },
   },
 ]
 
 function isForgeryKeywordText(value: string | null | undefined) {
   const normalized = value?.toLowerCase() ?? ""
-  return FORGERY_METHOD_BASELINES.some((method) =>
-    [...method.keywords, ...method.labels].some((keyword) => normalized.includes(keyword.toLowerCase()))
-  )
+  if (!normalized) return false
+  if (normalized.includes("trufor") || normalized.includes("forgery") || normalized.includes("tamper")) {
+    return true
+  }
+  if (normalized.includes("timesformer") && normalized.includes("temporal")) return true
+  if (normalized.includes("frame_edit") || normalized.includes("frame edit") || normalized.includes("splic")) return true
+  if (normalized.includes("re_encoding") || normalized.includes("re-encoding") || normalized.includes("reencoding")) {
+    return true
+  }
+  if (normalized.includes("localization") || normalized.includes("국소 위변조")) return true
+  return false
 }
 
 function isForgeryRiskSignal(signal: UiRiskSignal) {
@@ -4863,9 +4877,13 @@ function formatForgeryModuleLabel(moduleName: string) {
 }
 
 function formatForgeryDefinition(label: string) {
-  if (label.includes("이어붙이기")) return "서로 다른 구간을 연결했을 때 생기는 경계·압축 흔적을 확인합니다."
+  if (label.includes("TruFor") || label.includes("Spatial") || label.includes("국소")) {
+    return "국소 삭제·객체 삽입·영역 변조 등 공간(픽셀) 위변조 카테고리를 봅니다."
+  }
+  if (label.includes("TimeSformer") || label.includes("Temporal") || label.includes("이어붙이기")) {
+    return "Cut splicing·frame drop/dup/insert 등 시간축 편집 카테고리를 봅니다."
+  }
   if (label.includes("재인코딩")) return "재압축이나 변환 과정에서 생기는 인코딩 특성 변화를 확인합니다."
-  if (label.includes("국소")) return "프레임 내부의 변조 의심 영역을 히트맵이나 마스크 기반으로 확인합니다."
   return "프레임 삽입·삭제·합성처럼 시간축 편집으로 생기는 위변조 흔적을 확인합니다."
 }
 
@@ -4964,15 +4982,30 @@ function buildForgeryRiskSignals(data: EvidenceDetailData | null, threshold: num
 
 function buildForgeryMethodologyItems(signals: UiRiskSignal[]) {
   return FORGERY_METHOD_BASELINES.map((method) => {
-    const available = signals.some((signal) => {
-      const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
-      return [...method.keywords, ...method.labels].some((keyword) => text.includes(keyword.toLowerCase()))
-    })
+    const signal = signals.find((item) => method.match(item)) ?? null
+    const defaultThreshold =
+      method.id === "trufor"
+        ? DEFAULT_FORGERY_THRESHOLDS.spatial
+        : DEFAULT_FORGERY_THRESHOLDS.temporal
+    const threshold =
+      signal?.thresholdPercent != null && signal.thresholdPercent > 0
+        ? signal.thresholdPercent / 100
+        : defaultThreshold
+    const score = signal != null ? normalizeResultValue(signal.score) : null
+    const overThreshold = score != null && score >= threshold
+    const versionLabel = signal?.modelLabel?.trim()
+      ? signal.modelLabel.trim()
+      : method.modelName
+
     return {
       name: method.name,
+      version: versionLabel,
       role: method.role,
-      output: available ? `${method.output}, 이번 분석 점수` : method.output,
-      available,
+      output: signal != null ? `${method.output}, 이번 분석 점수` : method.output,
+      available: signal != null,
+      score,
+      threshold,
+      overThreshold,
     }
   })
 }
