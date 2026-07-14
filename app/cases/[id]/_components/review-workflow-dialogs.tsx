@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react"
-import { Loader2, Search, X } from "lucide-react"
+import { AlertTriangle, Loader2, Search, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { AdminReviewer } from "@/lib/api/admin"
@@ -21,22 +21,25 @@ type DialogBaseProps = {
 
 export function ReviewRequestDialog({
   processing,
+  rereview = false,
   onClose,
   onConfirm,
 }: DialogBaseProps & {
+  rereview?: boolean
   onConfirm: () => void
 }) {
   const dialogRef = useDialogFocusTrap(onClose)
+  const title = rereview ? "재검토 요청" : "검토 요청"
 
   return (
     <DialogFrame
       dialogRef={dialogRef}
       labelledBy="review-request-title"
       onClose={onClose}
-      closeLabel="검토 요청 닫기"
+      closeLabel={`${title} 닫기`}
     >
       <h3 id="review-request-title" className="text-lg font-bold text-foreground">
-        검토 요청
+        {title}
       </h3>
       <p className="mt-3 text-sm font-semibold leading-6 text-muted-foreground">
         기관 관리자에게 검토를 요청합니다.
@@ -64,6 +67,7 @@ export function ReviewerAssignmentDialog({
   reviewers,
   loading,
   defaultReviewerId,
+  caseSummary,
   processing,
   onClose,
   onAssign,
@@ -71,6 +75,7 @@ export function ReviewerAssignmentDialog({
   reviewers: AdminReviewer[]
   loading: boolean
   defaultReviewerId?: string | null
+  caseSummary: string
   onAssign: (reviewer: AdminReviewer) => void
 }) {
   const dialogRef = useDialogFocusTrap(onClose)
@@ -104,6 +109,7 @@ export function ReviewerAssignmentDialog({
       <h3 id="reviewer-assignment-title" className="text-lg font-bold text-foreground">
         검토자 배정
       </h3>
+      <p className="mt-2 truncate text-sm font-semibold text-muted-foreground">{caseSummary}</p>
 
       <label className="relative mt-4 block">
         <span className="sr-only">검색</span>
@@ -193,11 +199,17 @@ export function ReviewerAssignmentDialog({
 
 export function ReviewDecisionDialog({
   decision,
+  caseSummary,
+  analystName,
+  unreadEvidenceLabels,
   processing,
   onClose,
   onSubmit,
 }: DialogBaseProps & {
   decision: "APPROVED" | "REVISION"
+  caseSummary: string
+  analystName?: string | null
+  unreadEvidenceLabels: string[]
   onSubmit: (reason: string) => void
 }) {
   const dialogRef = useDialogFocusTrap(onClose)
@@ -206,6 +218,15 @@ export function ReviewDecisionDialog({
   const isRevision = decision === "REVISION"
   const title = isRevision ? "보완 요청" : "검토 승인"
   const errorId = "review-decision-error"
+  const reasonHintId = "review-decision-reason-hint"
+  const submitDisabled = processing || (isRevision && !reason.trim())
+  const describedBy = [
+    isRevision && !reason.trim() ? reasonHintId : null,
+    error ? errorId : null,
+  ]
+    .filter(Boolean)
+    .join(" ") || undefined
+  const submitLabel = isRevision ? "보완 요청 보내기" : "승인 확정"
 
   function handleSubmit() {
     if (isRevision && !reason.trim()) {
@@ -225,6 +246,20 @@ export function ReviewDecisionDialog({
       <h3 id="review-decision-title" className="text-lg font-bold text-foreground">
         {title}
       </h3>
+      <p className="mt-2 truncate text-sm font-semibold text-muted-foreground">{caseSummary}</p>
+      {!isRevision && unreadEvidenceLabels.length > 0 ? (
+        <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-semibold leading-5 text-amber-700">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <p>
+            아직 열람하지 않은 증거가 {unreadEvidenceLabels.length}건 있습니다 ({unreadEvidenceLabels.join(", ")})
+          </p>
+        </div>
+      ) : null}
+      {isRevision ? (
+        <p className="mt-4 text-sm font-semibold text-muted-foreground">
+          분석관 {analystName ?? ""}에게 반려됩니다
+        </p>
+      ) : null}
       <label htmlFor="review-decision-reason" className="mt-4 block text-sm font-bold text-foreground">
         {isRevision ? "사유" : "의견 (선택)"}
       </label>
@@ -232,7 +267,7 @@ export function ReviewDecisionDialog({
         id="review-decision-reason"
         value={reason}
         aria-invalid={Boolean(error)}
-        aria-describedby={error ? errorId : undefined}
+        aria-describedby={describedBy}
         onChange={(event) => {
           setReason(event.target.value)
           if (error) setError("")
@@ -247,24 +282,32 @@ export function ReviewDecisionDialog({
           {error}
         </p>
       ) : null}
+      {isRevision && !reason.trim() ? (
+        <p id={reasonHintId} className="mt-2 text-xs font-bold text-red-700">
+          사유를 입력해야 보낼 수 있습니다
+        </p>
+      ) : null}
+      <p className="mt-4 text-xs font-semibold leading-5 text-muted-foreground">
+        확정 후에는 취소할 수 없으며, 검토 기록에 영구 저장됩니다.
+      </p>
       <div className="mt-5 flex justify-end gap-2">
         <Button type="button" variant="outline" className="h-10 font-bold" disabled={processing} onClick={onClose}>
           취소
         </Button>
         <Button
           type="button"
-          variant="outline"
+          variant={isRevision ? "outline" : "default"}
           className={cn(
             "h-10 px-5 font-bold",
             isRevision
-              ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-50"
-              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"
+              ? "border-red-200 text-red-700 hover:bg-red-50"
+              : "bg-emerald-700 text-white hover:bg-emerald-800"
           )}
-          disabled={processing}
+          disabled={submitDisabled}
           onClick={handleSubmit}
         >
           {processing ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-          {title}
+          {submitLabel}
         </Button>
       </div>
     </DialogFrame>

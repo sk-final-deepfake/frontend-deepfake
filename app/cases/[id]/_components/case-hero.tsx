@@ -12,6 +12,7 @@ type CaseHeroProps = {
   getStatusLabel: (status: string) => string
   reviewerName?: string | null
   requesterName?: string | null
+  viewerIsReviewer?: boolean
   reviewOpen: boolean
   onReviewOpenChange: (open: boolean) => void
 }
@@ -23,11 +24,14 @@ export function CaseHero({
   getStatusLabel,
   reviewerName,
   requesterName,
+  viewerIsReviewer = false,
   reviewOpen,
   onReviewOpenChange,
 }: CaseHeroProps) {
   const reviewStatus = data.reviewStatus ?? "NONE"
   const hasReview = reviewStatus !== "NONE"
+  const supplementRequested = isSupplementReviewStatus(reviewStatus)
+  const showReviewChip = hasReview && !supplementRequested
   const runningCount = data.evidences.filter((evidence) =>
     ["PENDING", "PROCESSING", "RUNNING", "QUEUED"].includes(
       String(evidence.analysisStatus ?? "").toUpperCase()
@@ -58,12 +62,13 @@ export function CaseHero({
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
-        <HeroChip value={analysisLabel} className={analysisTone} />
-        {hasReview ? (
+        {!hasReview ? <HeroChip value={analysisLabel} className={analysisTone} /> : null}
+        {showReviewChip ? (
           <ReviewStatusChip
             data={data}
             reviewerName={reviewerName}
             requesterName={requesterName}
+            viewerIsReviewer={viewerIsReviewer}
             open={reviewOpen}
             onOpenChange={onReviewOpenChange}
           />
@@ -91,12 +96,14 @@ function ReviewStatusChip({
   data,
   reviewerName,
   requesterName,
+  viewerIsReviewer,
   open,
   onOpenChange,
 }: {
   data: CaseDetailData
   reviewerName?: string | null
   requesterName?: string | null
+  viewerIsReviewer: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -121,13 +128,13 @@ function ReviewStatusChip({
     reviewStatus === "REVIEW_REQUESTED"
       ? "검토 · 배정대기"
       : reviewStatus === "REVIEW_ASSIGNED"
-        ? `검토 · 진행 중 · ${reviewerName ?? ""}`
+        ? `검토 진행 · ${viewerIsReviewer ? "내 담당" : reviewerName ?? ""}`
         : supplementRequested
           ? "보완 요청됨"
           : "검토 완료"
   const toneClassName =
     reviewStatus === "REVIEW_REQUESTED"
-      ? "border-slate-400 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+      ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
       : supplementRequested
         ? "border-red-200 bg-red-50 text-red-700"
         : "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -205,7 +212,7 @@ function ReviewStatusChip({
         onClick={() => onOpenChange(!open)}
       >
         {reviewStatus === "REVIEW_REQUESTED" ? (
-          <Clock3 className="size-3.5 text-slate-600" aria-hidden="true" />
+          <Clock3 className="size-3.5 text-amber-700" aria-hidden="true" />
         ) : null}
         {statusLabel}
         <ChevronDown

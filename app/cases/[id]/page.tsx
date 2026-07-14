@@ -784,6 +784,7 @@ export default function CaseDetailPage() {
                   getStatusLabel={getCaseStatusLabel}
                   reviewerName={getCaseActorName(caseData.reviewerId)}
                   requesterName={getCaseActorName(caseData.createdBy)}
+                  viewerIsReviewer={isReviewer}
                   reviewOpen={reviewPopoverOpen}
                   onReviewOpenChange={setReviewPopoverOpen}
                 />
@@ -835,15 +836,6 @@ export default function CaseDetailPage() {
                     currentUserName={currentUser?.name ?? null}
                     currentUser={currentUser}
                     readOnly={isReviewer}
-                    onOpenReviewDetails={() => {
-                      setReviewPopoverOpen(true)
-                      window.requestAnimationFrame(() => {
-                        document.getElementById("case-review-chip")?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "center",
-                        })
-                      })
-                    }}
                     onReauthenticate={async () => {
                       await ensureStepUp()
                       if (selectedEvidenceId) {
@@ -2427,7 +2419,6 @@ function CaseWorkflowPanel({
   currentUserName,
   currentUser = null,
   readOnly = false,
-  onOpenReviewDetails,
   onReauthenticate,
 }: {
   caseData: CaseDetailData
@@ -2451,7 +2442,6 @@ function CaseWorkflowPanel({
   currentUserName?: string | null
   currentUser?: AppUser | null
   readOnly?: boolean
-  onOpenReviewDetails: () => void
   onReauthenticate: () => Promise<void>
 }) {
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -2478,6 +2468,7 @@ function CaseWorkflowPanel({
   const [reviewers, setReviewers] = useState<AdminReviewer[]>([])
   const [reviewersLoading, setReviewersLoading] = useState(false)
   const [isWorking, setIsWorking] = useState(false)
+  const [reviewedEvidenceIds, setReviewedEvidenceIds] = useState<number[]>([])
   const [readinessByEvidenceId, setReadinessByEvidenceId] = useState<
     Record<number, EvidenceReadinessResponse>
   >({})
@@ -2567,7 +2558,6 @@ function CaseWorkflowPanel({
   const allSelectableAnalysisSelected =
     selectableAnalysisEvidences.length > 0 &&
     selectableAnalysisEvidences.every((evidence) => selectedAnalysisIdSet.has(evidence.evidenceId))
-  const showEvidenceActionFooter = !readOnly || selectedEvidenceCompleted
   const showSelectedEvidenceResultAction = selectedAnalysisCount === 0 && selectedEvidenceCompleted
   const selectedHlsPlayback = evidenceDetail?.hlsPlayback ?? null
   const selectedMetadata = evidenceDetail?.evidenceInfo.technicalMetadata ?? null
@@ -2599,21 +2589,27 @@ function CaseWorkflowPanel({
   const isAdminMode = currentUser?.role === "ORG_ADMIN"
   const caseReviewStatus = caseData.reviewStatus ?? "NONE"
   const supplementRequested = isSupplementReviewStatus(caseReviewStatus)
-  const allEvidenceAnalysisCompleted =
+  const deepfakeAnalysisReady =
     activeEvidences.length > 0 &&
-    activeEvidences.every(
+    activeEvidences.some(
       (evidence) => normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED"
+    ) &&
+    activeEvidences.every((evidence) =>
+      ["COMPLETED", "FAILED"].includes(
+        normalizeStatus(evidence.analysisStatus ?? "PENDING")
+      )
     )
   const showReviewRequestAction =
     currentUser?.role === "INVESTIGATOR" &&
     isCaseOwner(currentUser, caseData) &&
     caseReviewStatus === "NONE"
   const reviewRequestAllowed =
-    showReviewRequestAction && caseData.status === "COMPLETED" && allEvidenceAnalysisCompleted
-  const showRereviewRequestAction =
+    showReviewRequestAction && deepfakeAnalysisReady
+  const canRequestRereview =
     currentUser?.role === "INVESTIGATOR" &&
     isCaseOwner(currentUser, caseData) &&
     supplementRequested
+  const showSupplementBanner = canRequestRereview
   const showAssignmentAction =
     isAdminMode &&
     caseReviewStatus === "REVIEW_REQUESTED" &&
@@ -2622,8 +2618,28 @@ function CaseWorkflowPanel({
     isReviewerMode &&
     caseReviewStatus === "REVIEW_ASSIGNED" &&
     isAssignedReviewer(currentUser, caseData)
+  const showEvidenceActionFooter = !readOnly || selectedEvidenceCompleted || isReviewerMode
   const latestSupplementRound =
     [...(caseData.reviewRounds ?? [])].reverse().find((round) => round.decision === "REVISION") ?? null
+  const supplementReason = latestSupplementRound?.reason ?? caseData.reviewerComment ?? ""
+  const supplementReviewerName = latestSupplementRound?.reviewerName ?? reviewerName ?? ""
+  const supplementRequestedAt = latestSupplementRound?.decidedAt ?? null
+  const unreadReviewEvidences = activeEvidences.filter(
+    (evidence) => !reviewedEvidenceIds.includes(evidence.evidenceId)
+  )
+  const unreadReviewEvidenceLabels = unreadReviewEvidences.map(
+    (evidence) => `증거 ${activeEvidences.findIndex((item) => item.evidenceId === evidence.evidenceId) + 1}`
+  )
+  const reviewedEvidenceCount = activeEvidences.length - unreadReviewEvidenceLabels.length
+  const caseReviewSummary = `${caseData.caseName} · 증거 ${activeEvidences.length}개`
+
+  useEffect(() => {
+    if (!isReviewerMode || !selectedEvidence || !selectedEvidenceActive) return
+
+    setReviewedEvidenceIds((current) =>
+      current.includes(selectedEvidence.evidenceId) ? current : [...current, selectedEvidence.evidenceId]
+    )
+  }, [isReviewerMode, selectedEvidence?.evidenceId, selectedEvidenceActive])
 
   useEffect(() => {
     if (!selectedEvidence) {
@@ -3001,10 +3017,10 @@ function CaseWorkflowPanel({
       setDecisionDialog(null)
       setMessage({
         type: "success",
-        text: nextDecision === "APPROVED" ? "검토 승인" : "보완 요청",
+        text: nextDecision === "APPROVED" ? "검토가 승인되었습니다" : "보완 요청을 보냈습니다",
       })
       addAppNotification({
-        title: nextDecision === "APPROVED" ? "검토 승인" : "보완 요청",
+        title: nextDecision === "APPROVED" ? "검토가 승인되었습니다" : "보완 요청을 보냈습니다",
         description: caseData.caseName,
         href: window.location.pathname,
       })
@@ -3024,7 +3040,7 @@ function CaseWorkflowPanel({
   async function handleRequestReview() {
     if (
       isWorking ||
-      (!reviewRequestAllowed && !showRereviewRequestAction)
+      (!reviewRequestAllowed && !canRequestRereview)
     ) {
       return
     }
@@ -3036,10 +3052,10 @@ function CaseWorkflowPanel({
       setReviewRequestOpen(false)
       setMessage({
         type: "success",
-        text: showRereviewRequestAction ? "재검토 요청" : "검토 요청",
+        text: canRequestRereview ? "재검토 요청" : "검토 요청",
       })
       addAppNotification({
-        title: showRereviewRequestAction ? "재검토 요청" : "검토 요청",
+        title: canRequestRereview ? "재검토 요청" : "검토 요청",
         description: caseData.caseName,
         href: window.location.pathname,
       })
@@ -3082,7 +3098,33 @@ function CaseWorkflowPanel({
   const visibleMessage = analysisPollingMessage ?? message
 
   return (
-    <section className="relative rounded-xl border border-border bg-card p-3 shadow-sm sm:p-5">
+    <>
+      {showSupplementBanner ? (
+        <section
+          aria-label="보완 요청됨"
+          className="flex min-h-12 flex-col gap-3 border-l-[3px] border-red-600 bg-red-50 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-red-700">
+            <Flag className="size-4 shrink-0" aria-hidden="true" />
+            <p className="min-w-0 truncate">
+              보완 요청됨 — {supplementReason ? `“${supplementReason}”` : ""}
+              {supplementReviewerName ? ` · 검토자 ${supplementReviewerName}` : ""}
+              {supplementRequestedAt ? ` · ${formatReviewEventDate(supplementRequestedAt)}` : ""}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shrink-0 border-red-200 bg-white px-3 text-sm font-bold text-red-700 hover:bg-red-50"
+            disabled={isWorking}
+            onClick={() => setReviewRequestOpen(true)}
+          >
+            보완 완료 · 재검토 요청
+          </Button>
+        </section>
+      ) : null}
+
+      <section className="relative rounded-xl border border-border bg-card p-3 shadow-sm sm:p-5">
       {!readOnly ? (
         <input
           ref={uploadInputRef}
@@ -3422,25 +3464,6 @@ function CaseWorkflowPanel({
               </div>
             ) : (
               <div className="min-h-0 space-y-3 xl:min-h-[372px]">
-                {latestSupplementRound ? (
-                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-md bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
-                    <Flag className="size-3.5 shrink-0" aria-hidden="true" />
-                    <span>
-                      {latestSupplementRound.reviewerName ?? reviewerName ?? ""}님이 보완을 요청했습니다
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      className="font-bold text-slate-700 underline underline-offset-2"
-                      onClick={onOpenReviewDetails}
-                    >
-                      {latestSupplementRound.round}차 검토 의견 보기
-                    </button>
-                    <span aria-hidden="true">·</span>
-                    <span>{formatReviewEventDate(latestSupplementRound.decidedAt)}</span>
-                  </div>
-                ) : null}
-
                 <div>
                   <label
                     htmlFor="caseAnalystComment"
@@ -3543,9 +3566,49 @@ function CaseWorkflowPanel({
                     </Button>
                   ) : null}
                 </>
+              ) : isReviewerMode ? (
+                <p className="px-3 text-sm font-bold text-muted-foreground">
+                  증거 {activeEvidences.length}개 중 {reviewedEvidenceCount}개 열람
+                </p>
               ) : null}
             </div>
             <div className="ml-0 flex w-full shrink-0 flex-col items-stretch justify-end gap-3 sm:ml-auto sm:w-auto sm:flex-row sm:items-center">
+              {isReviewerMode ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 w-full rounded-full border-slate-300 px-5 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+                    disabled={isWorking || !selectedEvidenceCompleted}
+                    onClick={() => {
+                      if (selectedEvidence) onViewResult(selectedEvidence.evidenceId)
+                    }}
+                  >
+                    결과보기
+                  </Button>
+                  {showDecisionActions ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-full rounded-full border-red-200 px-5 text-sm font-bold text-red-700 hover:bg-red-50 sm:w-auto"
+                        disabled={isWorking}
+                        onClick={() => setDecisionDialog("REVISION")}
+                      >
+                        보완 요청
+                      </Button>
+                      <Button
+                        type="button"
+                        className="h-11 w-full rounded-full bg-emerald-700 px-5 text-sm font-bold text-white hover:bg-emerald-800 sm:w-auto"
+                        disabled={isWorking}
+                        onClick={() => setDecisionDialog("APPROVED")}
+                      >
+                        검토 승인
+                      </Button>
+                    </>
+                  ) : null}
+                </>
+              ) : null}
               {showReviewRequestAction ? (
                 <span
                   className="group/review-request relative inline-flex"
@@ -3566,21 +3629,10 @@ function CaseWorkflowPanel({
                       role="tooltip"
                       className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-30 hidden w-max max-w-[260px] -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-xs font-semibold text-white shadow-lg group-hover/review-request:block group-focus-within/review-request:block"
                     >
-                      모든 증거 분석 완료 후 요청할 수 있습니다
+                      딥페이크 분석 완료 후 요청할 수 있습니다
                     </span>
                   ) : null}
                 </span>
-              ) : null}
-              {showRereviewRequestAction ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 w-full rounded-full border-slate-300 px-5 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-                  disabled={isWorking}
-                  onClick={() => setReviewRequestOpen(true)}
-                >
-                  보완 완료 · 재검토 요청
-                </Button>
               ) : null}
               {showAssignmentAction ? (
                 <Button
@@ -3593,29 +3645,7 @@ function CaseWorkflowPanel({
                   검토자 배정
                 </Button>
               ) : null}
-              {showDecisionActions ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-11 w-full rounded-full border-red-200 bg-red-50 px-5 text-sm font-bold text-red-700 hover:bg-red-50 sm:w-auto"
-                    disabled={isWorking}
-                    onClick={() => setDecisionDialog("REVISION")}
-                  >
-                    보완 요청
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-11 w-full rounded-full border-emerald-200 bg-emerald-50 px-5 text-sm font-bold text-emerald-700 hover:bg-emerald-50 sm:w-auto"
-                    disabled={isWorking}
-                    onClick={() => setDecisionDialog("APPROVED")}
-                  >
-                    검토 승인
-                  </Button>
-                </>
-              ) : null}
-              {selectedEvidenceRunning ? (
+              {!isReviewerMode && selectedEvidenceRunning ? (
                 <div
                   className="flex w-full min-w-0 flex-col gap-2 sm:min-w-[360px]"
                   aria-label={`AI 분석 진행률 ${selectedEvidenceProgress}%`}
@@ -3653,7 +3683,7 @@ function CaseWorkflowPanel({
                   </div>
                 </div>
               ) : null}
-              {!selectedEvidenceRunning ? (
+              {!isReviewerMode && !selectedEvidenceRunning ? (
                 <Button
                   type="button"
                   className="h-11 w-full rounded-full bg-foreground px-6 text-sm font-bold text-background hover:bg-foreground/90 sm:w-auto"
@@ -3689,6 +3719,7 @@ function CaseWorkflowPanel({
       {reviewRequestOpen ? (
         <ReviewRequestDialog
           processing={isWorking}
+          rereview={canRequestRereview}
           onClose={() => setReviewRequestOpen(false)}
           onConfirm={() => void handleRequestReview()}
         />
@@ -3698,7 +3729,8 @@ function CaseWorkflowPanel({
         <ReviewerAssignmentDialog
           reviewers={reviewers}
           loading={reviewersLoading}
-          defaultReviewerId={caseData.reviewerId}
+          defaultReviewerId={caseData.reviewerId ?? latestSupplementRound?.reviewerId}
+          caseSummary={caseReviewSummary}
           processing={isWorking}
           onClose={() => setAssignmentOpen(false)}
           onAssign={(reviewer) => void handleAssignReviewer(reviewer)}
@@ -3708,6 +3740,9 @@ function CaseWorkflowPanel({
       {decisionDialog ? (
         <ReviewDecisionDialog
           decision={decisionDialog}
+          caseSummary={caseReviewSummary}
+          analystName={analystName}
+          unreadEvidenceLabels={unreadReviewEvidenceLabels}
           processing={isWorking}
           onClose={() => setDecisionDialog(null)}
           onSubmit={(reason) => void handleReviewDecision(decisionDialog, reason)}
@@ -3891,7 +3926,8 @@ function CaseWorkflowPanel({
         onConfirm={() => void confirmQualityDialog()}
         onCancel={cancelQualityDialog}
       />
-    </section>
+      </section>
+    </>
   )
 }
 
