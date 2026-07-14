@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "@/lib/api/config"
-import { getToken } from "@/lib/auth"
+import { getToken, touchSessionExpiryThrottled } from "@/lib/auth"
 import { resolveStepUpHeaderValue, STEP_UP_HEADER } from "@/lib/api/step-up-auth"
 
 export type HlsStatus = "PENDING" | "PACKAGING" | "READY" | "FAILED"
@@ -40,6 +40,9 @@ export function getHlsStatusMessage(status: HlsStatus | string | null | undefine
 
 /** hls.js xhrSetup — manifest·key·segment 요청에 JWT·step-up 헤더 부착 */
 export function applyHlsRequestHeaders(xhr: XMLHttpRequest, url: string): void {
+  // HLS 재생도 세션 사용으로 보고 유휴 만료를 스로틀 연장한다.
+  touchSessionExpiryThrottled()
+
   const token = getToken()
   if (token) {
     xhr.setRequestHeader("Authorization", `Bearer ${token}`)

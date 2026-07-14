@@ -5,7 +5,8 @@
 //   NEXT_PUBLIC_USE_MOCK_API=false      // true면 mock 데이터 사용
 //   NEXT_PUBLIC_UPLOAD_ONLY_MODE=true   // S3/AI 미연동 구간: 업로드만 확인하는 모드
 //   NEXT_PUBLIC_AUTH_REFRESH_ENABLED=false // false면 새로고침·직접 접속 시 세션 복구 차단
-//   NEXT_PUBLIC_AUTH_SESSION_TIMEOUT_MINUTES=15 // 마지막 API 활동 기준 유휴 세션 유지 시간
+//   NEXT_PUBLIC_AUTH_SESSION_TIMEOUT_MINUTES=15 // 마지막 API·HLS·UI 활동 기준 유휴 세션 유지 시간
+// Access JWT는 별도로 만료 2분 전 선제 /api/auth/refresh (AuthProvider)
 
 const configuredSessionTimeoutMinutes = Number(
   process.env.NEXT_PUBLIC_AUTH_SESSION_TIMEOUT_MINUTES
