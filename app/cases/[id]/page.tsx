@@ -487,7 +487,7 @@ export default function CaseDetailPage() {
 
         if (status === "PROCESSING") {
           const previous = next[evidence.evidenceId]
-          const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+          const nextProgress = Math.max(previous?.progress ?? 0, progress)
           if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
             next[evidence.evidenceId] = { status: "PROCESSING", progress: nextProgress }
             changed = true
@@ -505,35 +505,6 @@ export default function CaseDetailPage() {
       return changed ? next : current
     })
   }, [caseData])
-
-  useEffect(() => {
-    const hasRunningOverride = Object.values(analysisProgressOverrides).some(
-      (item) => item.status === "PROCESSING" && item.progress < 92
-    )
-    if (!hasRunningOverride) return
-
-    const timer = window.setInterval(() => {
-      setAnalysisProgressOverrides((current) => {
-        let changed = false
-        const next = { ...current }
-
-        for (const [rawId, item] of Object.entries(current)) {
-          if (item.status !== "PROCESSING" || item.progress >= 92) continue
-
-          const increment = item.progress < 18 ? 3 : item.progress < 55 ? 2 : 1
-          const progress = Math.min(92, item.progress + increment)
-          if (progress !== item.progress) {
-            next[Number(rawId)] = { ...item, progress }
-            changed = true
-          }
-        }
-
-        return changed ? next : current
-      })
-    }, 1500)
-
-    return () => window.clearInterval(timer)
-  }, [analysisProgressOverrides])
 
   useEffect(() => {
     if (!trackedAnalysisIdsKey) {
@@ -592,7 +563,7 @@ export default function CaseDetailPage() {
 
           if (status === "PROCESSING" || progress > 0) {
             const previous = next[statusUpdate.evidenceId]
-            const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+            const nextProgress = Math.max(previous?.progress ?? 0, progress)
             if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
               next[statusUpdate.evidenceId] = { status: "PROCESSING", progress: nextProgress }
               changed = true
@@ -645,7 +616,7 @@ export default function CaseDetailPage() {
     const interval = window.setInterval(() => {
       if (document.hidden) return
       void pollAnalysisStatuses()
-    }, 4000)
+    }, 2000)
 
     return () => {
       cancelled = true
@@ -2790,7 +2761,7 @@ function CaseWorkflowPanel({
           for (const evidenceId of targetIds) {
             next[evidenceId] = {
               status: "PROCESSING",
-              progress: Math.max(current[evidenceId]?.progress ?? 0, 6),
+              progress: Math.max(current[evidenceId]?.progress ?? 0, 1),
             }
           }
           return next
@@ -5406,27 +5377,34 @@ function getAnalysisTypeLabel(type: AnalysisType) {
 function getRunningAnalysisCopy(type: AnalysisType, status: AnalysisStatus, progress: number) {
   const currentProgress = Math.max(0, Math.min(100, progress))
 
-  if (currentProgress < 12) {
+  if (currentProgress < 8) {
     return {
       title: "AI 분석 준비 중",
       detail:
         status === "PENDING"
           ? "분석 작업을 등록하고 원본 파일 정보를 확인하고 있습니다."
-          : "분석 엔진을 준비하고 처리 순서를 맞추고 있습니다.",
+          : "영상을 준비하고 처리 순서를 맞추고 있습니다.",
     }
   }
 
-  if (currentProgress < 24) {
+  if (currentProgress < 18) {
     return {
       title: "AI 분석 중",
-      detail: "프레임을 추출하고 얼굴 영역을 정렬하고 있습니다.",
+      detail: "영상을 내려받고 모델 추론을 준비하고 있습니다.",
     }
   }
 
-  if (currentProgress >= 85) {
+  if (currentProgress < 36) {
+    return {
+      title: "AI 분석 중",
+      detail: "얼굴 영역을 검출하고 Xception(CNN)으로 분석하고 있습니다.",
+    }
+  }
+
+  if (currentProgress >= 90) {
     return {
       title: "결과 정리 중",
-      detail: "탐지 결과와 검증 기록을 사건 증거 정보에 반영하고 있습니다.",
+      detail: "오버레이와 탐지 결과를 사건 증거 정보에 반영하고 있습니다.",
     }
   }
 
@@ -5454,23 +5432,23 @@ function getRunningAnalysisCopy(type: AnalysisType, status: AnalysisStatus, prog
         }
   }
 
-  if (currentProgress < 42) {
+  if (currentProgress < 58) {
     return {
       title: "AI 분석 중",
-      detail: "얼굴 경계와 압축 패턴의 이상 신호를 확인하고 있습니다.",
+      detail: "TimeSformer로 프레임 간 시간적 일관성을 대조하고 있습니다.",
     }
   }
 
-  if (currentProgress < 64) {
+  if (currentProgress < 78) {
     return {
       title: "AI 분석 중",
-      detail: "프레임 간 움직임과 시간적 일관성을 대조하고 있습니다.",
+      detail: "GMFlow로 광학 흐름 이상을 확인하고 있습니다.",
     }
   }
 
   return {
     title: "위험 신호 계산 중",
-    detail: "탐지 모델 결과를 종합해 최종 위험도를 계산하고 있습니다.",
+    detail: "모듈 결과를 융합하고 오버레이를 생성하고 있습니다.",
   }
 }
 
