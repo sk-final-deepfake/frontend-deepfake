@@ -1,6 +1,6 @@
 # ForenShield AI — Frontend (frontend-forensic)
 
-딥페이크 포렌식 분석 플랫폼 **ForenShield AI / VeriForensics**의 프론트엔드입니다.
+딥페이크 포렌식 분석 플랫폼 **ForenShield AI**의 프론트엔드입니다.
 
 이번 단계의 목적은 화면을 완성하는 것이 아니라, **팀원들이 각자 맡은 페이지를 독립적으로 개발할 수 있도록**
 라우트 폴더 / 공통 컴포넌트 / 공통 스타일을 나누는 것입니다.

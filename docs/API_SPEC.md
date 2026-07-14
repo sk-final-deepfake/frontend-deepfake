@@ -1,4 +1,4 @@
-# VeriForensics Frontend → Backend API 명세서
+# ForenShield Frontend → Backend API 명세서
 
 > **기준 브랜치:** `develop`  
 > **작성 목적:** 프론트엔드 UI(mock) 기준으로 백엔드 구현에 필요한 API 계약 정의  
