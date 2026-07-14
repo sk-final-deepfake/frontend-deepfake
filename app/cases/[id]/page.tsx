@@ -5382,37 +5382,6 @@ function getAnalysisTypeLabel(type: AnalysisType) {
 function getRunningAnalysisCopy(type: AnalysisType, status: AnalysisStatus, progress: number) {
   const currentProgress = Math.max(0, Math.min(100, progress))
 
-  if (currentProgress < 8) {
-    return {
-      title: "AI 분석 준비 중",
-      detail:
-        status === "PENDING"
-          ? "분석 작업을 등록하고 원본 파일 정보를 확인하고 있습니다."
-          : "영상을 준비하고 처리 순서를 맞추고 있습니다.",
-    }
-  }
-
-  if (currentProgress < 18) {
-    return {
-      title: "AI 분석 중",
-      detail: "영상을 내려받고 모델 추론을 준비하고 있습니다.",
-    }
-  }
-
-  if (currentProgress < 36) {
-    return {
-      title: "AI 분석 중",
-      detail: "얼굴 영역을 검출하고 Xception(CNN)으로 분석하고 있습니다.",
-    }
-  }
-
-  if (currentProgress >= 90) {
-    return {
-      title: "결과 정리 중",
-      detail: "오버레이와 탐지 결과를 사건 증거 정보에 반영하고 있습니다.",
-    }
-  }
-
   if (type === "INTEGRITY") {
     return currentProgress < 55
       ? {
@@ -5437,6 +5406,31 @@ function getRunningAnalysisCopy(type: AnalysisType, status: AnalysisStatus, prog
         }
   }
 
+  // Deepfake / forgery analysis stages (aligned with GPU worker progressPercent).
+  if (currentProgress < 8) {
+    return {
+      title: "AI 분석 준비 중",
+      detail:
+        status === "PENDING"
+          ? "분석 작업을 등록하고 원본 파일 정보를 확인하고 있습니다."
+          : "영상을 준비하고 처리 순서를 맞추고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 18) {
+    return {
+      title: "AI 분석 중",
+      detail: "영상을 내려받고 모델 추론을 준비하고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 36) {
+    return {
+      title: "AI 분석 중",
+      detail: "얼굴 영역을 검출하고 Xception(CNN)으로 분석하고 있습니다.",
+    }
+  }
+
   if (currentProgress < 58) {
     return {
       title: "AI 분석 중",
@@ -5451,9 +5445,23 @@ function getRunningAnalysisCopy(type: AnalysisType, status: AnalysisStatus, prog
     }
   }
 
+  if (currentProgress < 84) {
+    return {
+      title: "위험 신호 계산 중",
+      detail: "모듈 결과를 융합해 최종 위험도를 계산하고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 90) {
+    return {
+      title: "위변조 분석 중",
+      detail: "TruFor로 국소 위변조 신호를 확인하고 있습니다.",
+    }
+  }
+
   return {
-    title: "위험 신호 계산 중",
-    detail: "모듈 결과를 융합하고 오버레이를 생성하고 있습니다.",
+    title: "결과 정리 중",
+    detail: "대표 프레임과 탐지 결과를 사건 증거 정보에 반영하고 있습니다.",
   }
 }
 
