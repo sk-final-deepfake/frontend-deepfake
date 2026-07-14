@@ -5,6 +5,7 @@ import type {
   FrameScore,
   ModelOverlayArtifact,
   ModuleTimelineKind,
+  PairRisk,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
 
@@ -84,16 +85,16 @@ const DEEPFAKE_OVERLAY_META: Record<
   temporal: {
     label: "TimeSformer",
     shortLabel: "TimeSformer",
-    badge: "클립 구간 하이라이트",
-    description: "시계열 이상이 감지된 클립 구간을 영상 위에 표시합니다.",
-    pendingMessage: "TimeSformer 클립 오버레이 연동 예정입니다.",
+    badge: "상단 배너 · 화면 테두리",
+    description: "시계열 이상이 감지된 클립 구간을 상단 배너와 화면 테두리로 표시합니다.",
+    pendingMessage: "TimeSformer 오버레이 MP4가 없으면 클립 구간 테두리 미리보기를 표시합니다.",
   },
   optical: {
     label: "GMFlow",
     shortLabel: "GMFlow",
-    badge: "움직임 벡터 · 이상 프레임쌍",
-    description: "연속 프레임쌍의 optical flow 이상을 영상 위에 표시합니다.",
-    pendingMessage: "GMFlow motion 오버레이 연동 예정입니다.",
+    badge: "상단 배너 · 화면 테두리",
+    description: "optical flow 이상이 높은 프레임쌍 구간을 상단 배너와 화면 테두리로 표시합니다.",
+    pendingMessage: "GMFlow 오버레이 MP4가 없으면 이상 프레임 테두리 미리보기를 표시합니다.",
   },
 }
 
@@ -181,7 +182,10 @@ function buildDeepfakeOverlayOption(
     timelineUrl ??
     (module === "cnn" ? legacyCnnUrl : null)
 
-  const clipWindows = extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments)
+  const clipWindows =
+    module === "optical"
+      ? extractOpticalWindows(timeline?.pairRisks, timeline?.suspiciousSegments)
+      : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments)
   const spatialMarkers = extractSpatialMarkers(timeline?.frameRisks)
   const timelineScores = timelineTab?.points ?? []
   const advisoryMessage = resolveDeepfakeOverlayAdvisory(data.analysisInfo.errorCode)
@@ -329,6 +333,26 @@ function extractClipWindows(
     endTimeSec: segment.endTime,
     riskScore: segment.maxRiskScore,
   }))
+}
+
+/** GMFlow pairRisk → short time windows for banner/border preview sync. */
+function extractOpticalWindows(
+  pairRisks: PairRisk[] | null | undefined,
+  suspiciousSegments: SuspiciousSegment[] | null | undefined = []
+): OverlayClipWindow[] {
+  const fromPairs = (pairRisks ?? []).map((risk) => {
+    const start = Math.max(0, Number(risk.timestampSec) || 0)
+    // Cover the frame pair (~2 frames); keep readable even when FPS is low.
+    const end = Math.max(start + 0.2, start + 0.5)
+    return {
+      startTimeSec: start,
+      endTimeSec: end,
+      riskScore: risk.riskScore,
+    }
+  })
+  if (fromPairs.length > 0) return fromPairs
+
+  return extractClipWindows(null, suspiciousSegments)
 }
 
 function extractSpatialMarkers(
