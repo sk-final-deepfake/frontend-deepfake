@@ -130,49 +130,71 @@ export function ResultEvidenceMedia({
     }))
   }, [])
 
-  const handleGenerateOverlay = useCallback(
-    async (options?: { force?: boolean }) => {
-      if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
-      if (activeOverlay.overlayVideoUrl) return
-      if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
+  const clearModuleAttempt = useCallback((modulePath: string | null) => {
+    if (!modulePath) return
+    setGenerateError(null)
+    setIsRequesting(false)
+    autoRequestKeyRef.current = null
+    setJobByModule((current) => {
+      if (!(modulePath in current)) return current
+      const next = { ...current }
+      delete next[modulePath]
+      return next
+    })
+  }, [])
 
-      const modulePath = activeModulePath
-      const requestKey = `${selectedEvidenceId}:${modulePath}`
-      if (!options?.force && autoRequestKeyRef.current === requestKey && !isFailed) {
-        return
-      }
+  const handleGenerateOverlay = useCallback(async () => {
+    if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
+    if (activeOverlay.overlayVideoUrl) return
+    if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
 
-      setGenerateError(null)
-      setIsRequesting(true)
-      autoRequestKeyRef.current = requestKey
-      try {
-        const status = await requestOverlayGeneration(selectedEvidenceId, modulePath)
-        applyJobStatus(status)
-        if (status.status === "COMPLETED") {
-          onOverlayReady?.()
-        }
-      } catch (error) {
-        if (autoRequestKeyRef.current === requestKey) {
-          autoRequestKeyRef.current = null
-        }
-        setGenerateError(error instanceof Error ? error.message : "오버레이 생성 요청에 실패했습니다.")
-      } finally {
-        // Only clear spinner if this request is still the latest for its module key.
-        if (autoRequestKeyRef.current === requestKey || autoRequestKeyRef.current == null) {
-          setIsRequesting(false)
-        }
+    const modulePath = activeModulePath
+    const requestKey = `${selectedEvidenceId}:${modulePath}`
+    if (autoRequestKeyRef.current === requestKey) return
+
+    setGenerateError(null)
+    setIsRequesting(true)
+    autoRequestKeyRef.current = requestKey
+    try {
+      const status = await requestOverlayGeneration(selectedEvidenceId, modulePath)
+      applyJobStatus(status)
+      if (status.status === "COMPLETED") {
+        onOverlayReady?.()
       }
-    },
-    [
-      activeModulePath,
-      activeOverlay,
-      applyJobStatus,
-      deepfakeOverlayBlocked,
-      isFailed,
-      onOverlayReady,
-      selectedEvidenceId,
-    ]
-  )
+    } catch (error) {
+      if (autoRequestKeyRef.current === requestKey) {
+        autoRequestKeyRef.current = null
+      }
+      setGenerateError(error instanceof Error ? error.message : "오버레이 생성 요청에 실패했습니다.")
+    } finally {
+      if (autoRequestKeyRef.current === requestKey || autoRequestKeyRef.current == null) {
+        setIsRequesting(false)
+      }
+    }
+  }, [
+    activeModulePath,
+    activeOverlay,
+    applyJobStatus,
+    deepfakeOverlayBlocked,
+    onOverlayReady,
+    selectedEvidenceId,
+  ])
+
+  function enterOverlayView() {
+    // Re-entering overlay tab clears a prior failure so generation runs again.
+    if (isFailed) clearModuleAttempt(activeModulePath)
+    setMediaView("overlay")
+  }
+
+  function selectOverlayOption(overlayId: string) {
+    const option = findOverlayOption(overlayOptions, overlayId)
+    const modulePath = option ? overlayModuleApiPath(option.id) : null
+    const previousJob = modulePath ? jobByModule[modulePath] : undefined
+    if (previousJob?.status === "FAILED" || (modulePath === activeModulePath && generateError)) {
+      clearModuleAttempt(modulePath)
+    }
+    setSelectedOverlayId(overlayId)
+  }
 
   useEffect(() => {
     const evidenceId = selectedEvidenceId
@@ -261,22 +283,17 @@ export function ResultEvidenceMedia({
   const showDeepfakeAdvisory =
     useOverlaySrc && activeOverlay?.category === "deepfake" && Boolean(deepfakeAdvisoryMessage)
 
-  const showRetryPanel =
+  const showProgressModal =
     useOverlaySrc &&
-    Boolean(activeModulePath) &&
     !activeOverlayUrl &&
     !showDeepfakeAdvisory &&
-    isFailed &&
-    !isGenerating &&
-    !isRequesting
+    (isRequesting || isGenerating || isFailed)
 
-  const showWaitingCopy =
-    useOverlaySrc &&
-    Boolean(activeOverlay) &&
-    !activeOverlayUrl &&
-    !showDeepfakeAdvisory &&
-    !isFailed &&
-    (isRequesting || isGenerating)
+  const progressPercent = Math.max(0, Math.min(100, activeJob?.progress ?? (isRequesting ? 2 : 0)))
+  const failureMessage =
+    generateError ||
+    activeJob?.errorMessage ||
+    "오버레이 생성에 실패했습니다. 원본으로 돌아간 뒤 다시 오버레이를 눌러 주세요."
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:sticky lg:top-4 lg:self-start dark:border-border dark:bg-card">
@@ -302,7 +319,10 @@ export function ResultEvidenceMedia({
                   "rounded-full px-3 py-1 text-xs font-bold transition-colors",
                   mediaView === mode ? "bg-teal-500 text-white" : "text-white/80 hover:text-white"
                 )}
-                onClick={() => setMediaView(mode)}
+                onClick={() => {
+                  if (mode === "overlay") enterOverlayView()
+                  else setMediaView("original")
+                }}
               >
                 {label}
               </button>
@@ -321,9 +341,9 @@ export function ResultEvidenceMedia({
             onCategoryChange={(category) => {
               setOverlayCategory(category)
               const firstInCategory = overlayOptions.find((item) => item.category === category)
-              if (firstInCategory) setSelectedOverlayId(firstInCategory.id)
+              if (firstInCategory) selectOverlayOption(firstInCategory.id)
             }}
-            onSelectOverlay={setSelectedOverlayId}
+            onSelectOverlay={selectOverlayOption}
           />
         ) : null}
       </div>
@@ -350,23 +370,6 @@ export function ResultEvidenceMedia({
                 </div>
               </div>
             ) : null}
-            {isGenerating || isRequesting ? (
-              <div className="absolute inset-x-0 bottom-0 z-30 bg-black/70 px-4 py-3">
-                <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-white/90">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                    baked 오버레이 생성 중
-                  </span>
-                  <span>{Math.max(0, Math.min(100, activeJob?.progress ?? 0))}%</span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-white/20">
-                  <div
-                    className="h-full rounded-full bg-teal-400 transition-[width] duration-300"
-                    style={{ width: `${Math.max(2, Math.min(100, activeJob?.progress ?? 0))}%` }}
-                  />
-                </div>
-              </div>
-            ) : null}
           </ProtectedEvidencePlayer>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
@@ -374,56 +377,59 @@ export function ResultEvidenceMedia({
             미리보기 가능한 영상이 없습니다.
           </div>
         )}
+
+        {showProgressModal ? (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+            <div
+              role="status"
+              aria-live="polite"
+              className="w-full max-w-[280px] rounded-xl border border-white/15 bg-slate-950/90 px-4 py-4 shadow-xl"
+            >
+              {isFailed ? (
+                <div className="space-y-3 text-center">
+                  <p className="text-sm font-bold text-white">오버레이 생성 실패</p>
+                  <p className="text-xs font-semibold leading-5 text-white/75">{failureMessage}</p>
+                  <button
+                    type="button"
+                    className="rounded-md bg-white/10 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-white/20"
+                    onClick={() => setMediaView("original")}
+                  >
+                    원본으로 돌아가기
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-bold text-white">
+                    <Loader2 className="size-4 shrink-0 animate-spin text-teal-300" aria-hidden="true" />
+                    <span>{activeOverlay?.label ?? "모델"} 오버레이 생성 중</span>
+                  </div>
+                  <p className="text-[11px] font-semibold leading-4 text-white/70">
+                    완료되면 오버레이 영상으로 전환됩니다.
+                  </p>
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-white/85">
+                    <span>진행률</span>
+                    <span>{progressPercent}%</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
+                    <div
+                      className="h-full rounded-full bg-teal-400 transition-[width] duration-300"
+                      style={{ width: `${Math.max(4, progressPercent)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      {showRetryPanel ? (
-        <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-border dark:bg-background">
-          <p className="text-xs font-semibold leading-5 text-slate-600 dark:text-muted-foreground">
-            오버레이 생성에 실패했습니다. 다시 시도하면 baked 오버레이를 만들 수 있습니다.
-          </p>
-          {activeJob?.status === "FAILED" ? (
-            <p className="text-xs font-semibold text-red-600 dark:text-red-400">
-              {activeJob.errorMessage || "오버레이 생성에 실패했습니다. 다시 시도해 주세요."}
-            </p>
-          ) : null}
-          {generateError ? (
-            <p className="text-xs font-semibold text-red-600 dark:text-red-400">{generateError}</p>
-          ) : null}
-          <button
-            type="button"
-            disabled={isRequesting || isGenerating}
-            onClick={() => void handleGenerateOverlay({ force: true })}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-bold text-white transition-colors",
-              isRequesting || isGenerating
-                ? "cursor-not-allowed opacity-60"
-                : "hover:bg-teal-500"
-            )}
-          >
-            {isRequesting || isGenerating ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                생성 중…
-              </>
-            ) : (
-              "다시 생성"
-            )}
-          </button>
-        </div>
-      ) : showWaitingCopy ? (
-        <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-600 dark:border-border dark:bg-background dark:text-muted-foreground">
-          원본을 유지한 채 baked 오버레이를 생성하고 있습니다. 완료되면 모델 산출 영상을 재생합니다.
+      {showDeepfakeAdvisory ? (
+        <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-700 dark:border-border dark:bg-background dark:text-muted-foreground">
+          {deepfakeAdvisoryMessage}
         </p>
-      ) : useOverlaySrc && activeOverlay && !activeOverlay.ready && !activeOverlayUrl ? (
-        <p
-          className={cn(
-            "mt-2 rounded-lg border px-3 py-2 text-xs font-semibold leading-5",
-            showDeepfakeAdvisory
-              ? "border-slate-200 bg-slate-50 text-slate-700 dark:border-border dark:bg-background dark:text-muted-foreground"
-              : "border-dashed border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200"
-          )}
-        >
-          {showDeepfakeAdvisory ? deepfakeAdvisoryMessage : activeOverlay.pendingMessage}
+      ) : useOverlaySrc && activeOverlay && !activeOverlay.ready && !activeOverlayUrl && !showProgressModal ? (
+        <p className="mt-2 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+          {activeOverlay.pendingMessage}
         </p>
       ) : useOverlayMp4 ? (
         <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold leading-5 text-teal-800 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
