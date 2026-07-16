@@ -414,7 +414,7 @@ export function ResultEvidenceMedia({
         ) : null}
       </div>
 
-      <div className="relative w-full overflow-hidden rounded-lg bg-slate-950">
+      <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-slate-950">
         {showResultPlayer ? (
           <ProtectedEvidencePlayer
             key={`result-player-${selectedEvidenceId ?? "none"}-${playerSurfaceKey}`}
@@ -422,7 +422,7 @@ export function ResultEvidenceMedia({
             playback={useOverlayMp4 ? null : hlsPlayback}
             fallbackOpenUrl={useOverlayMp4 ? activeOverlayUrl : null}
             videoRef={videoRef}
-            fitToVideoFrame
+            objectFit="contain"
             onSecurityEvent={onSecurityEvent}
           >
             {!useOverlayMp4 ? renderWatermark : null}

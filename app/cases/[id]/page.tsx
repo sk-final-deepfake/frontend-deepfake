@@ -3464,9 +3464,9 @@ function CaseWorkflowPanel({
                 </div>
 
                 <div className="mt-3 grid min-h-[430px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,58%)_minmax(0,1fr)] xl:items-start">
-                  <div className="relative w-full overflow-hidden rounded-lg bg-slate-950">
+                  <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-slate-950">
                 {showEvidencePreviewLoading ? (
-                  <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-slate-950 text-[15px] font-bold text-white/70">
+                  <div className="flex size-full flex-col items-center justify-center gap-2 bg-slate-950 text-[15px] font-bold text-white/70">
                     <Loader2 className="size-6 animate-spin text-white/70" aria-hidden="true" />
                     <span>로딩 중</span>
                     <span className="text-[11px] font-semibold text-white/45">
@@ -3479,7 +3479,7 @@ function CaseWorkflowPanel({
                   <ProtectedEvidencePlayer
                     key={`evidence-preview-${selectedEvidence.evidenceId}`}
                     playback={selectedHlsPlayback}
-                    fitToVideoFrame
+                    objectFit="contain"
                     onReauthenticate={onReauthenticate}
                   >
                     <EvidenceWatermarkOverlay
