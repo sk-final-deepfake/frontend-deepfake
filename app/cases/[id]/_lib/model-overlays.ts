@@ -405,17 +405,30 @@ function normalizeRiskBboxes(
   videoHeight: number,
   fallbackScore: number
 ): OverlaySpatialBBox[] | undefined {
-  if (!bboxes?.length || videoWidth <= 0 || videoHeight <= 0) return undefined
+  if (!bboxes?.length) return undefined
+
+  const looksNormalized = bboxes.every((box) => {
+    const x = Number(box.x)
+    const y = Number(box.y)
+    const w = Number(box.w)
+    const h = Number(box.h)
+    return x <= 1 && y <= 1 && w <= 1 && h <= 1
+  })
+
+  const vw = videoWidth > 0 ? videoWidth : looksNormalized ? 1 : 0
+  const vh = videoHeight > 0 ? videoHeight : looksNormalized ? 1 : 0
+  if (vw <= 0 || vh <= 0) return undefined
+
   const out: OverlaySpatialBBox[] = []
   for (const box of bboxes) {
     const w = Number(box.w)
     const h = Number(box.h)
     if (!(w > 0) || !(h > 0)) continue
     out.push({
-      x: Math.max(0, Math.min(1, Number(box.x) / videoWidth)),
-      y: Math.max(0, Math.min(1, Number(box.y) / videoHeight)),
-      w: Math.max(0.01, Math.min(1, w / videoWidth)),
-      h: Math.max(0.01, Math.min(1, h / videoHeight)),
+      x: Math.max(0, Math.min(1, Number(box.x) / vw)),
+      y: Math.max(0, Math.min(1, Number(box.y) / vh)),
+      w: Math.max(0.01, Math.min(1, w / vw)),
+      h: Math.max(0.01, Math.min(1, h / vh)),
       score: Number(box.score ?? fallbackScore) || 0,
     })
   }

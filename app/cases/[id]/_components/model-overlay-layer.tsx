@@ -238,14 +238,10 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
               />
             )
           })
-        ) : (
-          <div
-            className="absolute inset-0 border-[3px] border-orange-500/70"
-            style={{ opacity: 0.25 + score * 0.45 }}
-          />
-        )}
+        ) : null}
         <div className="absolute bottom-4 left-4 rounded-md bg-orange-600/95 px-2.5 py-1 text-xs font-bold text-white">
           {label} · risk {scorePct}점
+          {boxes.length === 0 ? " · bbox 대기(재분석 필요)" : null}
         </div>
       </div>
     )
