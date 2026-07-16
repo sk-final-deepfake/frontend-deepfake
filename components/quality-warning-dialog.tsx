@@ -43,8 +43,9 @@ function ReadinessFrameMetricsTable({
       label: "Blur (선명도)",
       hint: "높을수록 선명",
       mean: metrics.blur?.mean,
-      edge: metrics.blur?.min,
-      edgeLabel: "min",
+      // 대표값은 표본 평균(mean). min은 등급 판정용으로 백엔드에만 쓰이며 UI에는 노출하지 않음.
+      edge: metrics.blur?.mean,
+      edgeLabel: "mean",
     },
     {
       label: "Blockiness",
