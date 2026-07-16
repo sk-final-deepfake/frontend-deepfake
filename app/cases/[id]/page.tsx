@@ -734,6 +734,23 @@ export default function CaseDetailPage() {
     void refreshEvidenceDetail(selectedEvidenceId)
   }, [refreshEvidenceDetail, selectedEvidenceId])
 
+  useEffect(() => {
+    if (!selectedEvidenceId) return
+    const hlsStatus = evidenceDetail?.hlsPlayback?.hlsStatus
+    if (hlsStatus !== "PENDING" && hlsStatus !== "PACKAGING") return
+
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
+    }, 4000)
+
+    return () => window.clearInterval(timer)
+  }, [
+    evidenceDetail?.hlsPlayback?.hlsStatus,
+    refreshEvidenceDetail,
+    selectedEvidenceId,
+  ])
+
   async function copyHash(hash: string) {
     try {
       await navigator.clipboard.writeText(hash)
@@ -2749,23 +2766,6 @@ function CaseWorkflowPanel({
       cancelled = true
     }
   }, [selectedEvidence?.evidenceId])
-
-  useEffect(() => {
-    if (!selectedEvidenceId) return
-    const hlsStatus = evidenceDetail?.hlsPlayback?.hlsStatus
-    if (hlsStatus !== "PENDING" && hlsStatus !== "PACKAGING") return
-
-    const timer = window.setInterval(() => {
-      if (document.hidden) return
-      void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
-    }, 4000)
-
-    return () => window.clearInterval(timer)
-  }, [
-    evidenceDetail?.hlsPlayback?.hlsStatus,
-    refreshEvidenceDetail,
-    selectedEvidenceId,
-  ])
 
   useEffect(() => {
     if (message?.type !== "success") return
