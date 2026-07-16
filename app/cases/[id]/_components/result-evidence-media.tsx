@@ -226,6 +226,9 @@ export function ResultEvidenceMedia({
       if (!existing || jobActive) {
         setIsRequesting(true)
       }
+    } else {
+      // Live TruFor boxes / existing URL: never leave a stale 2% spinner.
+      setIsRequesting(false)
     }
   }
 
@@ -238,15 +241,17 @@ export function ResultEvidenceMedia({
     }
     setSelectedOverlayId(overlayId)
     // Optimistic loading when switching models while already on overlay view.
-    if (mediaView === "overlay" && needsOverlayGeneration(option)) {
+    if (mediaView !== "overlay") return
+    if (needsOverlayGeneration(option)) {
       const existing = modulePath ? jobByModule[modulePath] : undefined
       const jobActive = existing?.status === "QUEUED" || existing?.status === "PROCESSING"
       if (!jobActive) {
         autoRequestKeyRef.current = null
-        setIsRequesting(true)
-      } else {
-        setIsRequesting(true)
       }
+      setIsRequesting(true)
+    } else {
+      // Switching onto TruFor live-bbox (or ready URL) must clear spinner from prior model.
+      setIsRequesting(false)
     }
   }
 
