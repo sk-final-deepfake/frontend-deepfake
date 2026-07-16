@@ -347,6 +347,7 @@ export default function CaseDetailPage() {
   const [caseRefreshKey, setCaseRefreshKey] = useState(0)
   const isInitialCaseLoad = useRef(true)
   const selectedEvidenceIdRef = useRef<number | null>(null)
+  const reviewRequestPromptedForAnalysisRef = useRef<string | null>(null)
   const [showResultDashboard, setShowResultDashboard] = useState(false)
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
@@ -356,6 +357,10 @@ export default function CaseDetailPage() {
   const [reviewRequestDialogOpen, setReviewRequestDialogOpen] = useState(false)
   const isReviewer = isReviewerSession(session)
   const currentUser = getAppUserFromSession(session)
+  const canPromptReviewForCurrentCase =
+    caseData != null &&
+    currentUser?.role === "INVESTIGATOR" &&
+    isCaseOwner(currentUser, caseData)
   const refreshCase = useCallback(() => {
     setCaseRefreshKey((key) => key + 1)
   }, [])
@@ -551,7 +556,10 @@ export default function CaseDetailPage() {
 
   useEffect(() => {
     if (!trackedAnalysisIdsKey) {
-      setAnalysisPollingMessage(null)
+      const promptPrefix = caseData ? `${caseData.caseId}|` : ""
+      if (!reviewRequestPromptedForAnalysisRef.current?.startsWith(promptPrefix)) {
+        setAnalysisPollingMessage(null)
+      }
       return
     }
 
@@ -585,7 +593,10 @@ export default function CaseDetailPage() {
       }
 
       failedPollCount = 0
-      setAnalysisPollingMessage(null)
+      const promptKey = caseData ? `${caseData.caseId}|${trackedAnalysisIdsKey}` : trackedAnalysisIdsKey
+      if (reviewRequestPromptedForAnalysisRef.current !== promptKey) {
+        setAnalysisPollingMessage(null)
+      }
       setAnalysisProgressOverrides((current) => {
         let changed = false
         const next = { ...current }
@@ -621,6 +632,15 @@ export default function CaseDetailPage() {
         (status) =>
           normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
       )
+      const allTrackedAnalysesTerminal =
+        validStatuses.length === pollIds.length &&
+        validStatuses.every((status) => {
+          const analysisStatus = normalizeStatus(status.status)
+          return analysisStatus === "COMPLETED" || analysisStatus === "FAILED"
+        })
+      const canPromptForReview =
+        canPromptReviewForCurrentCase &&
+        validStatuses.some((status) => normalizeStatus(status.status) === "COMPLETED")
       const now = Date.now()
       const selectedId = selectedEvidenceIdRef.current
 
@@ -648,6 +668,15 @@ export default function CaseDetailPage() {
         refreshCase()
       }
 
+      if (
+        allTrackedAnalysesTerminal &&
+        canPromptForReview &&
+        reviewRequestPromptedForAnalysisRef.current !== promptKey
+      ) {
+        reviewRequestPromptedForAnalysisRef.current = promptKey
+        setAnalysisPollingMessage({ type: "info", text: "검토 요청을 진행해주세요" })
+      }
+
       if (!timeoutNotified && now - pollingStartedAt > 60000 && !hasTerminalStatus) {
         timeoutNotified = true
         setAnalysisPollingMessage({ type: "error", text: ANALYSIS_STATUS_POLL_TIMEOUT_TEXT })
@@ -665,7 +694,13 @@ export default function CaseDetailPage() {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [refreshCase, refreshEvidenceDetail, trackedAnalysisIdsKey])
+  }, [
+    canPromptReviewForCurrentCase,
+    caseData,
+    refreshCase,
+    refreshEvidenceDetail,
+    trackedAnalysisIdsKey,
+  ])
 
   useEffect(() => {
     if (!caseData || !selectedEvidenceId) return
@@ -776,13 +811,6 @@ export default function CaseDetailPage() {
     }
   }
 
-  const canRequestReviewFromHeader =
-    caseData != null &&
-    currentUser?.role === "INVESTIGATOR" &&
-    isCaseOwner(currentUser, caseData) &&
-    (caseData.reviewStatus ?? "NONE") === "NONE" &&
-    isDeepfakeAnalysisReady(caseData.evidences)
-
   return (
     <div className="min-h-screen bg-[#f6f8fa] text-slate-900 dark:bg-background dark:text-foreground">
       <SiteHeader />
@@ -808,11 +836,6 @@ export default function CaseDetailPage() {
                   reviewerName={getCaseActorName(caseData.reviewerId)}
                   requesterName={getCaseActorName(caseData.createdBy)}
                   viewerIsReviewer={isReviewer}
-                  onRequestReview={
-                    canRequestReviewFromHeader
-                      ? () => setReviewRequestDialogOpen(true)
-                      : undefined
-                  }
                   reviewOpen={reviewPopoverOpen}
                   onReviewOpenChange={setReviewPopoverOpen}
                 />
@@ -3487,6 +3510,27 @@ function CaseWorkflowPanel({
                         />
                       </span>
                     </button>
+
+                    {reviewRequestAllowed ? (
+                      <section
+                        aria-live="polite"
+                        className="flex flex-col gap-3 border-l-[3px] border-amber-500 bg-amber-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex min-w-0 items-center gap-2 text-sm font-bold text-amber-700">
+                          <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+                          <p>검토 요청을 진행해주세요</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9 shrink-0 border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                          disabled={isWorking}
+                          onClick={() => onReviewRequestOpenChange(true)}
+                        >
+                          검토 요청
+                        </Button>
+                      </section>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
