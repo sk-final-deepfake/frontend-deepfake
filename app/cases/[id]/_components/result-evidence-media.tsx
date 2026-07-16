@@ -113,9 +113,9 @@ export function ResultEvidenceMedia({
   }, [mediaView, activeOverlay?.id, selectedOverlayId, onMediaContextChange])
 
   // Clear prior module request errors when the selected overlay module changes.
+  // Do not clear isRequesting here — optimistic loading must stay until generate finishes.
   useEffect(() => {
     setGenerateError(null)
-    setIsRequesting(false)
   }, [activeModulePath])
 
   const applyJobStatus = useCallback((status: OverlayJobStatusResponse) => {
@@ -129,6 +129,11 @@ export function ResultEvidenceMedia({
         errorMessage: status.errorMessage,
       },
     }))
+    if (status.status === "COMPLETED" || status.status === "FAILED") {
+      setIsRequesting(false)
+      // Allow a later retry if evidence detail never picks up the MP4 URL.
+      autoRequestKeyRef.current = null
+    }
   }, [])
 
   const clearModuleAttempt = useCallback((modulePath: string | null) => {
@@ -144,14 +149,34 @@ export function ResultEvidenceMedia({
     })
   }, [])
 
+  const needsOverlayGeneration = useCallback(
+    (option: ModelOverlayOption | null | undefined) => {
+      if (!option) return false
+      if (option.overlayVideoUrl) return false
+      if (option.category === "deepfake" && deepfakeOverlayBlocked) return false
+      return true
+    },
+    [deepfakeOverlayBlocked]
+  )
+
   const handleGenerateOverlay = useCallback(async () => {
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
-    if (activeOverlay.overlayVideoUrl) return
-    if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
+    if (activeOverlay.overlayVideoUrl) {
+      setIsRequesting(false)
+      return
+    }
+    if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) {
+      setIsRequesting(false)
+      return
+    }
 
     const modulePath = activeModulePath
     const requestKey = `${selectedEvidenceId}:${modulePath}`
-    if (autoRequestKeyRef.current === requestKey) return
+    // Deduplicate in-flight POSTs only. Do not block just because optimistic
+    // isRequesting was set — that previously left the UI stuck at 2%.
+    if (autoRequestKeyRef.current === requestKey) {
+      return
+    }
 
     setGenerateError(null)
     setIsRequesting(true)
@@ -163,14 +188,11 @@ export function ResultEvidenceMedia({
         onOverlayReady?.()
       }
     } catch (error) {
-      if (autoRequestKeyRef.current === requestKey) {
-        autoRequestKeyRef.current = null
-      }
+      autoRequestKeyRef.current = null
       setGenerateError(error instanceof Error ? error.message : "오버레이 생성 요청에 실패했습니다.")
     } finally {
-      if (autoRequestKeyRef.current === requestKey || autoRequestKeyRef.current == null) {
-        setIsRequesting(false)
-      }
+      // Keep spinner via isGenerating once we have a QUEUED/PROCESSING job.
+      setIsRequesting(false)
     }
   }, [
     activeModulePath,
@@ -185,6 +207,19 @@ export function ResultEvidenceMedia({
     // Re-entering overlay tab clears a prior failure so generation runs again.
     if (isFailed) clearModuleAttempt(activeModulePath)
     setMediaView("overlay")
+    // Show loading immediately — do not wait for the generate POST round-trip.
+    if (needsOverlayGeneration(activeOverlay)) {
+      const modulePath = activeModulePath
+      const existing = modulePath ? jobByModule[modulePath] : undefined
+      const jobActive = existing?.status === "QUEUED" || existing?.status === "PROCESSING"
+      if (!jobActive) {
+        // Drop stale dedupe key so the generate effect can POST again.
+        autoRequestKeyRef.current = null
+      }
+      if (!existing || jobActive) {
+        setIsRequesting(true)
+      }
+    }
   }
 
   function selectOverlayOption(overlayId: string) {
@@ -195,6 +230,17 @@ export function ResultEvidenceMedia({
       clearModuleAttempt(modulePath)
     }
     setSelectedOverlayId(overlayId)
+    // Optimistic loading when switching models while already on overlay view.
+    if (mediaView === "overlay" && needsOverlayGeneration(option)) {
+      const existing = modulePath ? jobByModule[modulePath] : undefined
+      const jobActive = existing?.status === "QUEUED" || existing?.status === "PROCESSING"
+      if (!jobActive) {
+        autoRequestKeyRef.current = null
+        setIsRequesting(true)
+      } else {
+        setIsRequesting(true)
+      }
+    }
   }
 
   useEffect(() => {
@@ -242,13 +288,19 @@ export function ResultEvidenceMedia({
   )
 
   // Overlay tab / model selection: request baked MP4 when missing.
-  // Live CSS preview can show immediately when timeline risks exist.
+  // TruFor with localization bboxes uses live CSS boxes — skip stale border MP4 jobs.
   useEffect(() => {
     if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
     if (activeOverlay.overlayVideoUrl) return
+    if (
+      activeOverlay.id === "forgery:forgery_spatial" &&
+      activeOverlay.spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
+    ) {
+      return
+    }
     if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
-    if (isRequesting || isGenerating) return
+    if (isGenerating) return
     if (activeJob?.status === "FAILED") return
     if (activeJob?.status === "COMPLETED") return
     if (generateError) return
@@ -262,7 +314,6 @@ export function ResultEvidenceMedia({
     generateError,
     handleGenerateOverlay,
     isGenerating,
-    isRequesting,
     mediaView,
     selectedEvidenceId,
   ])
@@ -292,14 +343,19 @@ export function ResultEvidenceMedia({
   const showDeepfakeAdvisory =
     useOverlaySrc && activeOverlay?.category === "deepfake" && Boolean(deepfakeAdvisoryMessage)
 
+  // Always show progress while generating — even if live CSS preview data exists.
+  // Previously !canLivePreview hid the modal for Xception/TimeSformer/GMFlow, so
+  // users only saw a silent live box until the baked MP4 appeared.
   const showProgressModal =
     useOverlaySrc &&
     !activeOverlayUrl &&
-    !canLivePreview &&
     !showDeepfakeAdvisory &&
     (isRequesting || isGenerating || isFailed)
 
-  const progressPercent = Math.max(0, Math.min(100, activeJob?.progress ?? (isRequesting ? 2 : 0)))
+  const progressPercent = Math.max(
+    0,
+    Math.min(100, activeJob?.progress ?? (isRequesting || isGenerating ? 2 : 0))
+  )
   const failureMessage =
     generateError ||
     activeJob?.errorMessage ||
@@ -440,14 +496,17 @@ export function ResultEvidenceMedia({
         <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-700 dark:border-border dark:bg-background dark:text-muted-foreground">
           {deepfakeAdvisoryMessage}
         </p>
+      ) : showProgressModal && !isFailed ? (
+        <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold leading-5 text-teal-800 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
+          {(activeOverlay?.label ?? "모델") + " 오버레이를 생성 중입니다. 완료되면 자동으로 전환됩니다."}
+        </p>
       ) : useOverlaySrc && activeOverlay && !activeOverlay.ready && !activeOverlayUrl && !showProgressModal ? (
         <p className="mt-2 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
           {activeOverlay.pendingMessage}
         </p>
-      ) : useOverlaySrc && canLivePreview ? (
+      ) : useOverlaySrc && canLivePreview && !isRequesting && !isGenerating ? (
         <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold leading-5 text-teal-800 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
           타임라인 점수 기반 라이브 오버레이를 표시 중입니다.
-          {activeModulePath ? " 오버레이 생성이 완료되면 자동 전환됩니다." : ""}
         </p>
       ) : null}
 

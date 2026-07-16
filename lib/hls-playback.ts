@@ -28,7 +28,7 @@ export function getHlsStatusMessage(status: HlsStatus | string | null | undefine
     case "PENDING":
       return "재생 준비 중입니다."
     case "PACKAGING":
-      return "영상 패키징 중입니다. 잠시 후 다시 시도해 주세요."
+      return "재생용 영상 변환 중입니다. 고해상도(4K/8K)는 수 분이 걸릴 수 있습니다."
     case "FAILED":
       return "재생 준비에 실패했습니다."
     case "READY":

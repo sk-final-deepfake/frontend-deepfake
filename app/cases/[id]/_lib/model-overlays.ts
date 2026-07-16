@@ -7,6 +7,7 @@ import type {
   ModuleTimelineKind,
   PairRisk,
   SuspiciousSegment,
+  TamperBBox,
 } from "@/lib/api/evidence-detail"
 
 import {
@@ -38,6 +39,8 @@ export type OverlaySpatialMarker = {
   timeSec: number
   score: number
   bboxes?: OverlaySpatialBBox[]
+  /** Pixel-space boxes when video width/height were unknown at build time. */
+  rawBboxes?: TamperBBox[]
 }
 
 export type ModelOverlayOption = {
@@ -255,11 +258,6 @@ function buildForgeryOverlayOption(
   const topLevelUrl = isSpatial
     ? normalizeUrl(data.analysisInfo.spatialOverlayVideoUrl)
     : normalizeUrl(data.analysisInfo.temporalOverlayVideoUrl)
-  const overlayVideoUrl =
-    normalizeUrl(artifact?.overlayVideoUrl) ??
-    normalizeUrl(timeline?.overlayVideoUrl) ??
-    topLevelUrl ??
-    normalizeUrl(moduleResult?.overlayVideoUrl)
 
   const clipWindows = isSpatial
     ? []
@@ -268,9 +266,21 @@ function buildForgeryOverlayOption(
   const spatialMarkers = isSpatial
     ? extractSpatialMarkers(timeline?.frameRisks, tab.points, metaSize?.width, metaSize?.height)
     : []
+  const hasTamperBboxes = spatialMarkers.some(
+    (marker) => (marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0
+  )
+  const cachedOverlayUrl =
+    normalizeUrl(artifact?.overlayVideoUrl) ??
+    normalizeUrl(timeline?.overlayVideoUrl) ??
+    topLevelUrl ??
+    normalizeUrl(moduleResult?.overlayVideoUrl)
+  // When localization bboxes exist, prefer live CSS boxes over a possibly stale
+  // full-frame border MP4 baked before the bbox pipeline.
+  const overlayVideoUrl = isSpatial && hasTamperBboxes ? null : cachedOverlayUrl
   const timelineScores = tab.points
   const ready =
     Boolean(overlayVideoUrl) ||
+    hasTamperBboxes ||
     artifact?.status === "ready" ||
     timelineScores.length > 0 ||
     clipWindows.length > 0 ||
@@ -283,14 +293,18 @@ function buildForgeryOverlayOption(
     shortLabel: meta.shortLabel,
     overlayVideoUrl,
     ready,
-    overlayBadge: meta.badge,
+    overlayBadge: isSpatial && hasTamperBboxes ? "변조 영역 bbox · 위험도 컬러" : meta.badge,
     timelineCaption: `${tab.label || meta.label} 구간 위험도`,
     timelineScores,
     clipWindows,
     spatialMarkers,
     detectionThreshold: tab.threshold,
-    description: artifact?.description?.trim() || meta.description,
-    pendingMessage: meta.pendingMessage,
+    description: hasTamperBboxes
+      ? "TruFor localization 박스를 영상에 표시합니다."
+      : artifact?.description?.trim() || meta.description,
+    pendingMessage: hasTamperBboxes
+      ? "localization 박스를 표시 중입니다."
+      : "bbox 데이터가 없습니다. 최신 GPU 코드로 재분석한 뒤 다시 열어 주세요.",
   }
 }
 
@@ -385,11 +399,19 @@ function extractSpatialMarkers(
   if (frameRisks && frameRisks.length > 0) {
     const vw = videoWidth && videoWidth > 0 ? videoWidth : 0
     const vh = videoHeight && videoHeight > 0 ? videoHeight : 0
-    return frameRisks.map((risk) => ({
-      timeSec: risk.timestampSec,
-      score: risk.riskScore,
-      bboxes: normalizeRiskBboxes(risk.bboxes, vw, vh, risk.riskScore),
-    }))
+    return frameRisks.map((risk) => {
+      const normalized = normalizeRiskBboxes(risk.bboxes, vw, vh, risk.riskScore)
+      const rawBboxes =
+        normalized == null && risk.bboxes?.length
+          ? risk.bboxes.filter((box) => Number(box.w) > 0 && Number(box.h) > 0)
+          : undefined
+      return {
+        timeSec: risk.timestampSec,
+        score: risk.riskScore,
+        bboxes: normalized,
+        rawBboxes: rawBboxes?.length ? rawBboxes : undefined,
+      }
+    })
   }
   return fallbackPoints
     .filter((point) => point.timeSec != null)
@@ -405,17 +427,30 @@ function normalizeRiskBboxes(
   videoHeight: number,
   fallbackScore: number
 ): OverlaySpatialBBox[] | undefined {
-  if (!bboxes?.length || videoWidth <= 0 || videoHeight <= 0) return undefined
+  if (!bboxes?.length) return undefined
+
+  const looksNormalized = bboxes.every((box) => {
+    const x = Number(box.x)
+    const y = Number(box.y)
+    const w = Number(box.w)
+    const h = Number(box.h)
+    return x <= 1 && y <= 1 && w <= 1 && h <= 1
+  })
+
+  const vw = videoWidth > 0 ? videoWidth : looksNormalized ? 1 : 0
+  const vh = videoHeight > 0 ? videoHeight : looksNormalized ? 1 : 0
+  if (vw <= 0 || vh <= 0) return undefined
+
   const out: OverlaySpatialBBox[] = []
   for (const box of bboxes) {
     const w = Number(box.w)
     const h = Number(box.h)
     if (!(w > 0) || !(h > 0)) continue
     out.push({
-      x: Math.max(0, Math.min(1, Number(box.x) / videoWidth)),
-      y: Math.max(0, Math.min(1, Number(box.y) / videoHeight)),
-      w: Math.max(0.01, Math.min(1, w / videoWidth)),
-      h: Math.max(0.01, Math.min(1, h / videoHeight)),
+      x: Math.max(0, Math.min(1, Number(box.x) / vw)),
+      y: Math.max(0, Math.min(1, Number(box.y) / vh)),
+      w: Math.max(0.01, Math.min(1, w / vw)),
+      h: Math.max(0.01, Math.min(1, h / vh)),
       score: Number(box.score ?? fallbackScore) || 0,
     })
   }
