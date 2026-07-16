@@ -370,7 +370,8 @@ export function ResultEvidenceMedia({
             onSecurityEvent={onSecurityEvent}
           >
             {!useOverlayMp4 ? renderWatermark : null}
-            {useOverlaySrc && activeOverlay ? (
+            {/* Live CSS preview only — baked MP4 already has GPU labels. */}
+            {useOverlaySrc && activeOverlay && !useOverlayMp4 ? (
               <div className="absolute left-4 top-4 z-20 max-w-[70%] space-y-1">
                 <div className="rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
                   {activeOverlay.label} 오버레이
@@ -445,14 +446,10 @@ export function ResultEvidenceMedia({
         <p className="mt-2 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
           {activeOverlay.pendingMessage}
         </p>
-      ) : useOverlayMp4 ? (
-        <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold leading-5 text-teal-800 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
-          baked 오버레이 MP4를 재생 중입니다.
-        </p>
       ) : useOverlaySrc && canLivePreview ? (
         <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold leading-5 text-teal-800 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
           타임라인 점수 기반 라이브 오버레이를 표시 중입니다.
-          {activeModulePath ? " baked MP4 생성이 완료되면 자동 전환됩니다." : ""}
+          {activeModulePath ? " 오버레이 생성이 완료되면 자동 전환됩니다." : ""}
         </p>
       ) : null}
 
@@ -560,7 +557,7 @@ function ModelOverlayPicker({
                   )}
                   title={
                     generated
-                      ? "baked 오버레이 준비됨"
+                      ? "오버레이 준비됨"
                       : option.category === "deepfake" && deepfakeOverlayBlocked
                         ? "오버레이 없음"
                         : option.ready
