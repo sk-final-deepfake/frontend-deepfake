@@ -90,21 +90,21 @@ const DEEPFAKE_OVERLAY_META: Record<
     shortLabel: "Xception",
     badge: "얼굴 bbox · 위험도 컬러",
     description: "프레임별 얼굴 경계와 위험 점수를 영상 위에 표시합니다.",
-    pendingMessage: "오버레이 탭을 열면 Xception baked 오버레이를 생성한 뒤 재생합니다.",
+    pendingMessage: "오버레이 탭을 열면 Xception 오버레이를 생성한 뒤 재생합니다.",
   },
   temporal: {
     label: "TimeSformer",
     shortLabel: "TimeSformer",
     badge: "상단 배너 · 화면 테두리",
     description: "시계열 이상이 감지된 클립 구간을 상단 배너와 화면 테두리로 표시합니다.",
-    pendingMessage: "오버레이 탭을 열면 TimeSformer baked 오버레이를 생성한 뒤 재생합니다.",
+    pendingMessage: "오버레이 탭을 열면 TimeSformer 오버레이를 생성한 뒤 재생합니다.",
   },
   optical: {
     label: "GMFlow",
     shortLabel: "GMFlow",
     badge: "상단 배너 · 화면 테두리",
     description: "optical flow 이상이 높은 프레임쌍 구간을 상단 배너와 화면 테두리로 표시합니다.",
-    pendingMessage: "오버레이 탭을 열면 GMFlow baked 오버레이를 생성한 뒤 재생합니다.",
+    pendingMessage: "오버레이 탭을 열면 GMFlow 오버레이를 생성한 뒤 재생합니다.",
   },
 }
 
@@ -114,14 +114,14 @@ const FORGERY_OVERLAY_META = {
     shortLabel: "TruFor",
     badge: "변조 영역 bbox · 위험도 컬러",
     description: "TruFor localization map에서 뽑은 변조 영역을 네모칸으로 추적합니다.",
-    pendingMessage: "오버레이 탭을 열면 TruFor baked 오버레이를 생성한 뒤 재생합니다.",
+    pendingMessage: "오버레이 탭을 열면 TruFor 오버레이를 생성한 뒤 재생합니다.",
   },
   temporal: {
     label: "TimeSformer (Temporal)",
     shortLabel: "TimeSformer",
     badge: "상단 배너 · 화면 테두리",
     description: "TimeSformer가 의심하는 시간축 클립 구간을 상단 배너와 화면 테두리로 표시합니다.",
-    pendingMessage: "오버레이 탭을 열면 TimeSformer baked 오버레이를 생성한 뒤 재생합니다.",
+    pendingMessage: "오버레이 탭을 열면 TimeSformer 오버레이를 생성한 뒤 재생합니다.",
   },
 } as const
 
