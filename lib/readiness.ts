@@ -10,7 +10,7 @@ import {
 
 export type { EvidenceReadinessResponse, ReadinessTier }
 
-export type ReadinessCheckPhase = "metadata" | "frameSampling" | null
+export type ReadinessCheckPhase = "metadata" | "frameSampling" | "aiAnalysis" | null
 
 export type ReadinessCheckTarget = {
   evidenceId: number
@@ -149,6 +149,89 @@ export const READINESS_THRESHOLDS = {
   fftPeakHighGt: 0.4,
 } as const
 
+/** backend `video_readiness.py` `_effective_blur_gates` 와 동일 */
+export function resolveBlurThresholds(
+  width?: number | null,
+  height?: number | null
+): { poorLt: number; cautionLt: number; recommendGte: number } {
+  const pixels = (width ?? 0) * (height ?? 0)
+  if (pixels >= 7680 * 4320) {
+    return { poorLt: 20, cautionLt: 35, recommendGte: 35 }
+  }
+  if (pixels >= 3840 * 2160) {
+    return { poorLt: 40, cautionLt: 60, recommendGte: 60 }
+  }
+  return {
+    poorLt: READINESS_THRESHOLDS.blurPoorLt,
+    cautionLt: READINESS_THRESHOLDS.blurCautionLt,
+    recommendGte: READINESS_THRESHOLDS.blurRecommendGte,
+  }
+}
+
+const CAUTION_MIN_PIXELS = 640 * 480
+const POOR_MIN_PIXELS = 426 * 240
+const MIN_DURATION_SEC = 3
+const MIN_FPS = 15
+
+function maxReadinessTier(current: ReadinessTier, candidate: ReadinessTier): ReadinessTier {
+  return compareReadinessTier(current, candidate) >= 0 ? current : candidate
+}
+
+/**
+ * 저장된 readinessTier가 구버전 blur 게이트로 POOR여도,
+ * frameMetrics + videoMetadata가 있으면 해상도 보정 기준으로 다시 판정한다.
+ * (분석 조회 안쪽 Blur 카드 판정과 바깥 배지를 맞추기 위함)
+ */
+export function resolveDisplayReadinessTier(
+  readiness: EvidenceReadinessResponse | null | undefined
+): ReadinessTier | null {
+  if (!readiness) return null
+  if (readiness.readinessTier === "BLOCK") return "BLOCK"
+
+  const blurMean = readiness.frameMetrics?.blur?.mean
+  const blockinessMax = readiness.frameMetrics?.blockiness?.max
+  const fftPeakMax = readiness.frameMetrics?.fftPeak?.max
+  const hasFrameMetrics =
+    (blurMean != null && !Number.isNaN(blurMean)) ||
+    (blockinessMax != null && !Number.isNaN(blockinessMax)) ||
+    (fftPeakMax != null && !Number.isNaN(fftPeakMax))
+
+  if (!hasFrameMetrics) return readiness.readinessTier
+
+  const width = readiness.videoMetadata?.width ?? null
+  const height = readiness.videoMetadata?.height ?? null
+  const fps = readiness.videoMetadata?.fps ?? null
+  const durationSec = readiness.videoMetadata?.durationSec ?? null
+
+  let tier: ReadinessTier = "GOOD"
+  const pixels = (width ?? 0) * (height ?? 0)
+
+  if (width != null && height != null) {
+    if (pixels < POOR_MIN_PIXELS) tier = "POOR"
+    else if (pixels < CAUTION_MIN_PIXELS) tier = maxReadinessTier(tier, "CAUTION")
+  }
+
+  if (durationSec != null && durationSec < MIN_DURATION_SEC) tier = "POOR"
+
+  if (fps != null && fps > 0 && fps < MIN_FPS) tier = maxReadinessTier(tier, "CAUTION")
+
+  const blurGates = resolveBlurThresholds(width, height)
+  if (blurMean != null && !Number.isNaN(blurMean)) {
+    if (blurMean < blurGates.poorLt) tier = "POOR"
+    else if (blurMean < blurGates.cautionLt) tier = maxReadinessTier(tier, "CAUTION")
+  }
+
+  if (blockinessMax != null && blockinessMax > READINESS_THRESHOLDS.blockinessHighGt) {
+    tier = maxReadinessTier(tier, "CAUTION")
+  }
+
+  if (fftPeakMax != null && fftPeakMax > READINESS_THRESHOLDS.fftPeakHighGt) {
+    tier = maxReadinessTier(tier, "CAUTION")
+  }
+
+  return tier
+}
+
 export type ReadinessMetricVerdict = "good" | "caution" | "poor" | "unknown"
 
 const READINESS_VERDICT_LABELS: Record<ReadinessMetricVerdict, string> = {
@@ -158,10 +241,13 @@ const READINESS_VERDICT_LABELS: Record<ReadinessMetricVerdict, string> = {
   unknown: "미측정",
 }
 
-function evaluateBlurVerdict(value: number | null | undefined): ReadinessMetricVerdict {
+function evaluateBlurVerdict(
+  value: number | null | undefined,
+  gates: { poorLt: number; cautionLt: number }
+): ReadinessMetricVerdict {
   if (value == null || Number.isNaN(value)) return "unknown"
-  if (value < READINESS_THRESHOLDS.blurPoorLt) return "poor"
-  if (value < READINESS_THRESHOLDS.blurCautionLt) return "caution"
+  if (value < gates.poorLt) return "poor"
+  if (value < gates.cautionLt) return "caution"
   return "good"
 }
 
@@ -173,19 +259,23 @@ function evaluateUpperBoundVerdict(
   return value > threshold ? "caution" : "good"
 }
 
-function buildBlurVerdictExplanation(verdict: ReadinessMetricVerdict, evaluatedValue: number | null): string {
-  const threshold = READINESS_THRESHOLDS.blurRecommendGte
+function buildBlurVerdictExplanation(
+  verdict: ReadinessMetricVerdict,
+  evaluatedValue: number | null,
+  recommendGte: number,
+  poorLt: number
+): string {
   switch (verdict) {
     case "good":
-      return `최저 선명도가 권장 기준 ${threshold} 이상이라 분석에 적합합니다.`
+      return `평균 선명도가 권장 기준 ${recommendGte} 이상이라 분석에 적합합니다.`
     case "caution":
-      return `최저 선명도가 ${threshold} 미만입니다. 일부 구간이 흐려 분석 신뢰도가 제한될 수 있습니다.`
+      return `평균 선명도가 ${recommendGte} 미만입니다. 전반적으로 흐려 분석 신뢰도가 제한될 수 있습니다.`
     case "poor":
-      return `최저 선명도가 ${READINESS_THRESHOLDS.blurPoorLt} 미만입니다. 화질이 분석에 충분히 적합하지 않을 수 있습니다.`
+      return `평균 선명도가 ${poorLt} 미만입니다. 화질이 분석에 충분히 적합하지 않을 수 있습니다.`
     default:
       return evaluatedValue == null
         ? "선명도 측정값이 없습니다."
-        : `권장 기준은 ${threshold} 이상입니다.`
+        : `권장 기준은 ${recommendGte} 이상입니다.`
   }
 }
 
@@ -213,7 +303,8 @@ function buildFftPeakVerdictExplanation(verdict: ReadinessMetricVerdict): string
 
 function buildMetricItem(
   key: UiReadinessMetricItem["key"],
-  aggregate: { mean?: number | null; min?: number | null; max?: number | null } | null | undefined
+  aggregate: { mean?: number | null; min?: number | null; max?: number | null } | null | undefined,
+  resolution?: { width?: number | null; height?: number | null }
 ): UiReadinessMetricItem {
   const definition = READINESS_METRIC_DEFINITIONS[key]
   const mean = aggregate?.mean
@@ -223,10 +314,16 @@ function buildMetricItem(
   let verdictExplanation = ""
 
   if (key === "blur") {
-    const evaluatedValue = aggregate?.min ?? mean ?? null
-    verdict = evaluateBlurVerdict(evaluatedValue)
-    thresholdLabel = `권장 ${READINESS_THRESHOLDS.blurRecommendGte} 이상`
-    verdictExplanation = buildBlurVerdictExplanation(verdict, evaluatedValue)
+    const evaluatedValue = mean ?? null
+    const blurGates = resolveBlurThresholds(resolution?.width, resolution?.height)
+    verdict = evaluateBlurVerdict(evaluatedValue, blurGates)
+    thresholdLabel = `권장 ${blurGates.recommendGte} 이상`
+    verdictExplanation = buildBlurVerdictExplanation(
+      verdict,
+      evaluatedValue,
+      blurGates.recommendGte,
+      blurGates.poorLt
+    )
   } else if (key === "blockiness") {
     const evaluatedValue = aggregate?.max ?? mean ?? null
     verdict = evaluateUpperBoundVerdict(evaluatedValue, READINESS_THRESHOLDS.blockinessHighGt)
@@ -293,8 +390,12 @@ export function buildReadinessMetricItems(
   if (!readiness) return []
 
   const metrics = readiness.frameMetrics
+  const resolution = {
+    width: readiness.videoMetadata?.width,
+    height: readiness.videoMetadata?.height,
+  }
 
-  return READINESS_METRIC_KEYS.map((key) => buildMetricItem(key, metrics?.[key]))
+  return READINESS_METRIC_KEYS.map((key) => buildMetricItem(key, metrics?.[key], resolution))
 }
 
 export function getReadinessFrameCheckNote(

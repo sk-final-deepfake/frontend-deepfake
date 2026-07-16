@@ -63,13 +63,12 @@ export function formatFileSize(
   return `${trimTrailingZero ? Number.parseFloat(value) : value} ${FILE_SIZE_UNITS[boundedIndex]}`
 }
 
-// 21.0 -> 00:21.000 (초 -> mm:ss.mmm)
+// 21.0 -> 00:21 (초 -> mm:ss)
 export function formatDuration(totalSeconds?: number | null): string {
   if (totalSeconds == null || Number.isNaN(totalSeconds) || totalSeconds < 0) return "-"
 
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = Math.floor(totalSeconds % 60)
-  const millis = Math.round((totalSeconds - Math.floor(totalSeconds)) * 1000)
 
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 }

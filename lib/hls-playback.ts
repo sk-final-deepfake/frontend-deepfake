@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "@/lib/api/config"
-import { getToken } from "@/lib/auth"
+import { getToken, touchSessionExpiryThrottled } from "@/lib/auth"
 import { resolveStepUpHeaderValue, STEP_UP_HEADER } from "@/lib/api/step-up-auth"
 
 export type HlsStatus = "PENDING" | "PACKAGING" | "READY" | "FAILED"
@@ -28,7 +28,7 @@ export function getHlsStatusMessage(status: HlsStatus | string | null | undefine
     case "PENDING":
       return "재생 준비 중입니다."
     case "PACKAGING":
-      return "영상 패키징 중입니다. 잠시 후 다시 시도해 주세요."
+      return "재생용 영상 변환 중입니다. 고해상도(4K/8K)는 수 분이 걸릴 수 있습니다."
     case "FAILED":
       return "재생 준비에 실패했습니다."
     case "READY":
@@ -40,6 +40,9 @@ export function getHlsStatusMessage(status: HlsStatus | string | null | undefine
 
 /** hls.js xhrSetup — manifest·key·segment 요청에 JWT·step-up 헤더 부착 */
 export function applyHlsRequestHeaders(xhr: XMLHttpRequest, url: string): void {
+  // HLS 재생도 세션 사용으로 보고 유휴 만료를 스로틀 연장한다.
+  touchSessionExpiryThrottled()
+
   const token = getToken()
   if (token) {
     xhr.setRequestHeader("Authorization", `Bearer ${token}`)

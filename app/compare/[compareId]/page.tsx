@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button"
 import { CompareReportExportDialog } from "@/app/compare/_components/compare-report-export-dialog"
 import {
   downloadCompareReport,
+  fetchCompareOriginal,
   fetchCompareResult,
   type CompareBlockchainInfo,
   type CompareItem,
@@ -31,6 +32,7 @@ import {
   type CompareSignatureStatus,
   type CompareVerdict,
 } from "@/lib/api/compare"
+import { fetchCaseDetail } from "@/lib/api/evidence-detail"
 import { getApiErrorMessage } from "@/lib/api/errors"
 import { getSession, isReviewerSession } from "@/lib/auth"
 import { formatDateTime } from "@/lib/formatters"
@@ -47,6 +49,7 @@ export default function CompareReportPage() {
   const [error, setError] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
+  const [reportApprovalState, setReportApprovalState] = useState<ReportApprovalState>("loading")
   const isReviewer = isReviewerSession(getSession())
 
   useEffect(() => {
@@ -61,10 +64,30 @@ export default function CompareReportPage() {
 
       setIsLoading(true)
       setError(null)
+      setReportApprovalState("loading")
 
       try {
         const data = await fetchCompareResult(compareId)
-        if (!cancelled) setResult(data)
+        if (cancelled) return
+        setResult(data)
+
+        try {
+          const original = await fetchCompareOriginal(data.originalEvidenceId)
+          const caseKey = original.caseNumber?.trim() || original.caseName?.trim()
+          if (!caseKey) {
+            setReportApprovalState("unknown")
+            return
+          }
+
+          const caseDetail = await fetchCaseDetail(caseKey)
+          if (!cancelled) {
+            setReportApprovalState(
+              caseDetail.reviewStatus === "REPORT_APPROVED" ? "approved" : "pending"
+            )
+          }
+        } catch {
+          if (!cancelled) setReportApprovalState("unknown")
+        }
       } catch (error) {
         if (!cancelled) {
           setError(getApiErrorMessage(error, "비교검증 리포트를 불러오지 못했습니다."))
@@ -83,6 +106,10 @@ export default function CompareReportPage() {
 
   async function handleDownloadReport() {
     if (!result) return
+    if (reportApprovalState !== "approved") {
+      setDownloadError("검토자가 승인한 뒤 비교검증 PDF를 다운로드할 수 있습니다.")
+      return
+    }
 
     setDownloadError(null)
     setIsDownloading(true)
@@ -145,6 +172,7 @@ export default function CompareReportPage() {
             isDownloading={isDownloading}
             onOpenReport={() => setReportDialogOpen(true)}
             readOnly={isReviewer}
+            reportApprovalState={reportApprovalState}
           />
         ) : null}
 
@@ -154,6 +182,7 @@ export default function CompareReportPage() {
             onClose={() => setReportDialogOpen(false)}
             result={result}
             isDownloading={isDownloading}
+            reportApproved={reportApprovalState === "approved"}
             downloadError={downloadError}
             onDownload={handleDownloadReport}
           />
@@ -171,6 +200,8 @@ export default function CompareReportPage() {
   )
 }
 
+type ReportApprovalState = "loading" | "approved" | "pending" | "unknown"
+
 type LayerTone = "danger" | "neutral" | "muted"
 
 type LayerStatus = {
@@ -183,11 +214,13 @@ function CompareReport({
   isDownloading,
   onOpenReport,
   readOnly = false,
+  reportApprovalState,
 }: {
   result: CompareResult
   isDownloading: boolean
   onOpenReport: () => void
   readOnly?: boolean
+  reportApprovalState: ReportApprovalState
 }) {
   const router = useRouter()
   const verdict = getVerdictDisplay(result)
@@ -241,14 +274,27 @@ function CompareReport({
             variant="outline"
             className="h-12 w-full rounded-lg border-slate-200 bg-white px-6 text-base font-bold text-slate-950 shadow-none hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground sm:w-auto"
             onClick={onOpenReport}
-            disabled={isDownloading}
+            disabled={isDownloading || reportApprovalState !== "approved"}
+            title={
+              reportApprovalState === "approved"
+                ? undefined
+                : reportApprovalState === "loading"
+                  ? "검토 승인 상태를 확인하고 있습니다"
+                  : "검토자 승인 후 PDF를 열 수 있습니다"
+            }
           >
             {isDownloading ? (
               <Loader2 className="size-5 animate-spin" aria-hidden="true" />
             ) : (
               <Download className="size-5" aria-hidden="true" />
             )}
-            {isDownloading ? "PDF 생성 중" : "PDF 보고서"}
+            {isDownloading
+              ? "PDF 생성 중"
+              : reportApprovalState === "loading"
+                ? "승인 상태 확인 중"
+                : reportApprovalState === "approved"
+                  ? "PDF 보고서"
+                  : "승인 후 PDF"}
           </Button>
         </div>
       </div>

@@ -5,7 +5,9 @@ import type {
   FrameScore,
   ModelOverlayArtifact,
   ModuleTimelineKind,
+  PairRisk,
   SuspiciousSegment,
+  TamperBBox,
 } from "@/lib/api/evidence-detail"
 
 import {
@@ -24,9 +26,21 @@ export type OverlayClipWindow = {
   riskScore: number
 }
 
+export type OverlaySpatialBBox = {
+  /** normalized 0..1 relative to video frame */
+  x: number
+  y: number
+  w: number
+  h: number
+  score: number
+}
+
 export type OverlaySpatialMarker = {
   timeSec: number
   score: number
+  bboxes?: OverlaySpatialBBox[]
+  /** Pixel-space boxes when video width/height were unknown at build time. */
+  rawBboxes?: TamperBBox[]
 }
 
 export type ModelOverlayOption = {
@@ -79,21 +93,21 @@ const DEEPFAKE_OVERLAY_META: Record<
     shortLabel: "Xception",
     badge: "얼굴 bbox · 위험도 컬러",
     description: "프레임별 얼굴 경계와 위험 점수를 영상 위에 표시합니다.",
-    pendingMessage: "Xception 오버레이 MP4가 제공되면 재생됩니다.",
+    pendingMessage: "오버레이 탭을 열면 Xception 오버레이를 생성한 뒤 재생합니다.",
   },
   temporal: {
     label: "TimeSformer",
     shortLabel: "TimeSformer",
-    badge: "클립 구간 하이라이트",
-    description: "시계열 이상이 감지된 클립 구간을 영상 위에 표시합니다.",
-    pendingMessage: "TimeSformer 클립 오버레이 연동 예정입니다.",
+    badge: "상단 배너 · 화면 테두리",
+    description: "시계열 이상이 감지된 클립 구간을 상단 배너와 화면 테두리로 표시합니다.",
+    pendingMessage: "오버레이 탭을 열면 TimeSformer 오버레이를 생성한 뒤 재생합니다.",
   },
   optical: {
     label: "GMFlow",
     shortLabel: "GMFlow",
-    badge: "움직임 벡터 · 이상 프레임쌍",
-    description: "연속 프레임쌍의 optical flow 이상을 영상 위에 표시합니다.",
-    pendingMessage: "GMFlow motion 오버레이 연동 예정입니다.",
+    badge: "상단 배너 · 화면 테두리",
+    description: "optical flow 이상이 높은 프레임쌍 구간을 상단 배너와 화면 테두리로 표시합니다.",
+    pendingMessage: "오버레이 탭을 열면 GMFlow 오버레이를 생성한 뒤 재생합니다.",
   },
 }
 
@@ -101,19 +115,28 @@ const FORGERY_OVERLAY_META = {
   spatial: {
     label: "TruFor (Spatial)",
     shortLabel: "TruFor",
-    badge: "국소 변조 · heatmap/bbox",
-    description: "TruFor가 의심하는 국소 변조 영역을 프레임 위에 표시합니다.",
-    pendingMessage: "TruFor spatial frameRisks가 제공되면 원본 영상 위 미리보기가 표시됩니다.",
+    badge: "변조 영역 bbox · 위험도 컬러",
+    description: "TruFor localization map에서 뽑은 변조 영역을 네모칸으로 추적합니다.",
+    pendingMessage: "오버레이 탭을 열면 TruFor 오버레이를 생성한 뒤 재생합니다.",
   },
   temporal: {
     label: "TimeSformer (Temporal)",
     shortLabel: "TimeSformer",
-    badge: "클립 구간 테두리",
-    description: "TimeSformer가 의심하는 시간축 클립 구간을 영상 테두리로 표시합니다.",
-    pendingMessage: "TimeSformer clipRisks가 제공되면 클립 구간 하이라이트가 표시됩니다.",
+    badge: "상단 배너 · 화면 테두리",
+    description: "TimeSformer가 의심하는 시간축 클립 구간을 상단 배너와 화면 테두리로 표시합니다.",
+    pendingMessage: "오버레이 탭을 열면 TimeSformer 오버레이를 생성한 뒤 재생합니다.",
   },
 } as const
 
+/** FE option id → BE/AI overlay module path segment */
+export function overlayModuleApiPath(optionId: string): string | null {
+  if (optionId === "deepfake:cnn") return "cnn"
+  if (optionId === "deepfake:temporal") return "temporal"
+  if (optionId === "deepfake:optical") return "optical"
+  if (optionId === "forgery:forgery_spatial") return "forgery_spatial"
+  if (optionId === "forgery:forgery_temporal") return "forgery_temporal"
+  return null
+}
 export function buildModelOverlayOptions(data: EvidenceDetailData | null): ModelOverlayOption[] {
   if (!data) return []
 
@@ -181,8 +204,18 @@ function buildDeepfakeOverlayOption(
     timelineUrl ??
     (module === "cnn" ? legacyCnnUrl : null)
 
-  const clipWindows = extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments)
-  const spatialMarkers = extractSpatialMarkers(timeline?.frameRisks)
+  const clipWindows =
+    module === "optical"
+      ? extractOpticalWindows(timeline?.pairRisks, timeline?.suspiciousSegments)
+      : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments)
+  const metaSize = data.evidenceInfo.technicalMetadata
+  const spatialMarkers = extractSpatialMarkers(
+    timeline?.frameRisks,
+    [],
+    metaSize?.width,
+    metaSize?.height,
+    timelineTab?.threshold
+  )
   const timelineScores = timelineTab?.points ?? []
   const advisoryMessage = resolveDeepfakeOverlayAdvisory(data.analysisInfo.errorCode)
   const ready =
@@ -231,21 +264,38 @@ function buildForgeryOverlayOption(
   const topLevelUrl = isSpatial
     ? normalizeUrl(data.analysisInfo.spatialOverlayVideoUrl)
     : normalizeUrl(data.analysisInfo.temporalOverlayVideoUrl)
-  const overlayVideoUrl =
-    normalizeUrl(artifact?.overlayVideoUrl) ??
-    normalizeUrl(timeline?.overlayVideoUrl) ??
-    topLevelUrl ??
-    normalizeUrl(moduleResult?.overlayVideoUrl)
 
   const clipWindows = isSpatial
     ? []
     : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments ?? tab.segments)
+  const metaSize = data.evidenceInfo.technicalMetadata
   const spatialMarkers = isSpatial
-    ? extractSpatialMarkers(timeline?.frameRisks, tab.points)
+    ? extractSpatialMarkers(
+        timeline?.frameRisks,
+        tab.points,
+        metaSize?.width,
+        metaSize?.height,
+        tab.threshold
+      )
     : []
+  // Only count boxes on frames that clear the TruFor detection threshold.
+  const hasTamperBboxes = spatialMarkers.some(
+    (marker) =>
+      marker.score >= tab.threshold &&
+      ((marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0)
+  )
+  const cachedOverlayUrl =
+    normalizeUrl(artifact?.overlayVideoUrl) ??
+    normalizeUrl(timeline?.overlayVideoUrl) ??
+    topLevelUrl ??
+    normalizeUrl(moduleResult?.overlayVideoUrl)
+  // When localization bboxes exist, prefer live CSS boxes over a possibly stale
+  // full-frame border MP4 baked before the bbox pipeline.
+  const overlayVideoUrl = isSpatial && hasTamperBboxes ? null : cachedOverlayUrl
   const timelineScores = tab.points
   const ready =
     Boolean(overlayVideoUrl) ||
+    hasTamperBboxes ||
     artifact?.status === "ready" ||
     timelineScores.length > 0 ||
     clipWindows.length > 0 ||
@@ -258,14 +308,18 @@ function buildForgeryOverlayOption(
     shortLabel: meta.shortLabel,
     overlayVideoUrl,
     ready,
-    overlayBadge: meta.badge,
+    overlayBadge: isSpatial && hasTamperBboxes ? "변조 영역 bbox · 위험도 컬러" : meta.badge,
     timelineCaption: `${tab.label || meta.label} 구간 위험도`,
     timelineScores,
     clipWindows,
     spatialMarkers,
     detectionThreshold: tab.threshold,
-    description: artifact?.description?.trim() || meta.description,
-    pendingMessage: meta.pendingMessage,
+    description: hasTamperBboxes
+      ? "TruFor localization 박스를 영상에 표시합니다."
+      : artifact?.description?.trim() || meta.description,
+    pendingMessage: hasTamperBboxes
+      ? "localization 박스를 표시 중입니다."
+      : "bbox 데이터가 없습니다. 최신 GPU 코드로 재분석한 뒤 다시 열어 주세요.",
   }
 }
 
@@ -331,15 +385,62 @@ function extractClipWindows(
   }))
 }
 
+/** GMFlow pairRisk → short time windows for banner/border preview sync. */
+function extractOpticalWindows(
+  pairRisks: PairRisk[] | null | undefined,
+  suspiciousSegments: SuspiciousSegment[] | null | undefined = []
+): OverlayClipWindow[] {
+  const fromPairs = (pairRisks ?? []).map((risk) => {
+    const start = Math.max(0, Number(risk.timestampSec) || 0)
+    // Cover the frame pair (~2 frames); keep readable even when FPS is low.
+    const end = Math.max(start + 0.2, start + 0.5)
+    return {
+      startTimeSec: start,
+      endTimeSec: end,
+      riskScore: risk.riskScore,
+    }
+  })
+  if (fromPairs.length > 0) return fromPairs
+
+  return extractClipWindows(null, suspiciousSegments)
+}
+
 function extractSpatialMarkers(
   frameRisks: FrameRisk[] | null | undefined,
-  fallbackPoints: FrameScore[] = []
+  fallbackPoints: FrameScore[] = [],
+  videoWidth?: number | null,
+  videoHeight?: number | null,
+  detectionThreshold?: number | null
 ): OverlaySpatialMarker[] {
+  // Jangdochi intent: draw localization boxes only when frame risk clears TruFor threshold.
+  const scoreFloor =
+    typeof detectionThreshold === "number" && Number.isFinite(detectionThreshold)
+      ? detectionThreshold
+      : null
+
   if (frameRisks && frameRisks.length > 0) {
-    return frameRisks.map((risk) => ({
-      timeSec: risk.timestampSec,
-      score: risk.riskScore,
-    }))
+    const vw = videoWidth && videoWidth > 0 ? videoWidth : 0
+    const vh = videoHeight && videoHeight > 0 ? videoHeight : 0
+    return frameRisks.map((risk) => {
+      const aboveThreshold = scoreFloor == null || risk.riskScore >= scoreFloor
+      if (!aboveThreshold) {
+        return {
+          timeSec: risk.timestampSec,
+          score: risk.riskScore,
+        }
+      }
+      const normalized = normalizeRiskBboxes(risk.bboxes, vw, vh, risk.riskScore)
+      const rawBboxes =
+        normalized == null && risk.bboxes?.length
+          ? risk.bboxes.filter((box) => Number(box.w) > 0 && Number(box.h) > 0)
+          : undefined
+      return {
+        timeSec: risk.timestampSec,
+        score: risk.riskScore,
+        bboxes: normalized,
+        rawBboxes: rawBboxes?.length ? rawBboxes : undefined,
+      }
+    })
   }
   return fallbackPoints
     .filter((point) => point.timeSec != null)
@@ -347,6 +448,42 @@ function extractSpatialMarkers(
       timeSec: point.timeSec as number,
       score: point.score,
     }))
+}
+
+function normalizeRiskBboxes(
+  bboxes: FrameRisk["bboxes"],
+  videoWidth: number,
+  videoHeight: number,
+  fallbackScore: number
+): OverlaySpatialBBox[] | undefined {
+  if (!bboxes?.length) return undefined
+
+  const looksNormalized = bboxes.every((box) => {
+    const x = Number(box.x)
+    const y = Number(box.y)
+    const w = Number(box.w)
+    const h = Number(box.h)
+    return x <= 1 && y <= 1 && w <= 1 && h <= 1
+  })
+
+  const vw = videoWidth > 0 ? videoWidth : looksNormalized ? 1 : 0
+  const vh = videoHeight > 0 ? videoHeight : looksNormalized ? 1 : 0
+  if (vw <= 0 || vh <= 0) return undefined
+
+  const out: OverlaySpatialBBox[] = []
+  for (const box of bboxes) {
+    const w = Number(box.w)
+    const h = Number(box.h)
+    if (!(w > 0) || !(h > 0)) continue
+    out.push({
+      x: Math.max(0, Math.min(1, Number(box.x) / vw)),
+      y: Math.max(0, Math.min(1, Number(box.y) / vh)),
+      w: Math.max(0.01, Math.min(1, w / vw)),
+      h: Math.max(0.01, Math.min(1, h / vh)),
+      score: Number(box.score ?? fallbackScore) || 0,
+    })
+  }
+  return out.length ? out : undefined
 }
 
 function indexOverlayArtifacts(artifacts: ModelOverlayArtifact[] | null | undefined) {

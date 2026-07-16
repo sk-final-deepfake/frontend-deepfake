@@ -574,6 +574,7 @@ function ResultStep({ result, onReset }: { result: CompareResult | null; onReset
       result={result}
       downloadError={downloadError}
       isDownloading={isDownloading}
+      reportApproved={false}
       onReset={onReset}
       onDownloadReport={handleDownloadReport}
     />

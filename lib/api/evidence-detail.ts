@@ -88,18 +88,25 @@ export type FrameScore = {
   score: number
 }
 
-export type FrameRisk = {
-  frameIndex: number
-  timestampSec: number
-  /** 0.0 ~ 1.0 */
-  riskScore: number
-}
-
 export type FaceBBox = {
   x: number
   y: number
   w: number
   h: number
+}
+
+export type TamperBBox = FaceBBox & {
+  /** region confidence from TruFor map (0..1) */
+  score?: number | null
+}
+
+export type FrameRisk = {
+  frameIndex: number
+  timestampSec: number
+  /** 0.0 ~ 1.0 */
+  riskScore: number
+  /** TruFor localization → connected-component boxes (video pixel space) */
+  bboxes?: TamperBBox[] | null
 }
 
 /** Late fusion per-face score (frameRisks is max-collapsed per frame). */
@@ -323,8 +330,21 @@ export type CaseDetailData = {
   reviewerId?: string | null
   reviewStatus?: ReviewStatus | null
   reviewRequestedAt?: string | null
+  reviewAssignedAt?: string | null
   reviewerComment?: string | null
+  reviewRounds?: CaseReviewRound[]
   evidences: CaseEvidenceSummary[]
+}
+
+export type CaseReviewRound = {
+  round: number
+  decision: "APPROVED" | "REVISION"
+  reviewerId?: string | null
+  reviewerName?: string | null
+  requestedAt?: string | null
+  assignedAt?: string | null
+  decidedAt: string
+  reason?: string | null
 }
 
 export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceDetailData> {

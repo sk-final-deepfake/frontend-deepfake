@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type RefObject } from "react"
 import { FileVideo, Play } from "lucide-react"
 
 import {
@@ -12,7 +12,12 @@ import type { EvidenceDetailData, FrameScore, RepresentativeFrame } from "@/lib/
 import { formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
-import { buildForgeryRepresentativeFrames, formatForgeryThresholdLabel } from "../_lib/forgery-ui"
+import {
+  buildForgeryRepresentativeFrames,
+  forgeryHighRiskGalleryCopy,
+  formatForgeryThresholdLabel,
+  FORGERY_TEMPORAL_MODULE,
+} from "../_lib/forgery-ui"
 import {
   buildDeepfakeTimelineTabs,
   buildForgeryTimelineTabs,
@@ -21,11 +26,13 @@ import {
   type ForgeryTimelineTab,
 } from "../_lib/module-timelines"
 import { FrameRiskChart } from "./frame-risk-chart"
+import { VideoSeekThumbnail } from "./video-seek-thumbnail"
 
 type ResultFrameAnalysisProps = {
   evidenceDetail: EvidenceDetailData
   detectionThreshold: number
   representativeFrames: RepresentativeFrame[]
+  videoRef?: RefObject<HTMLVideoElement | null>
   onSeek: (seconds: number) => void
 }
 
@@ -35,17 +42,22 @@ export function ResultFrameAnalysis({
   evidenceDetail,
   detectionThreshold,
   representativeFrames,
+  videoRef,
   onSeek,
 }: ResultFrameAnalysisProps) {
   const [category, setCategory] = useState<AnalysisCategory>("deepfake")
   const deepfakeTabs = buildDeepfakeTimelineTabs(evidenceDetail, detectionThreshold)
   const forgeryTabs = buildForgeryTimelineTabs(evidenceDetail, detectionThreshold)
-  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail)
   const [deepfakeKey, setDeepfakeKey] = useState(deepfakeTabs[0]?.key ?? "cnn")
   const [forgeryKey, setForgeryKey] = useState(forgeryTabs[0]?.key ?? "")
 
   const activeDeepfakeTab = deepfakeTabs.find((tab) => tab.key === deepfakeKey) ?? deepfakeTabs[0]
   const activeForgeryTab = forgeryTabs.find((tab) => tab.key === forgeryKey) ?? forgeryTabs[0]
+  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail, {
+    moduleKey: activeForgeryTab?.key,
+    maxFrames: 2,
+  })
+  const forgeryGalleryCopy = forgeryHighRiskGalleryCopy(activeForgeryTab?.key)
 
   return (
     <section>
@@ -99,6 +111,8 @@ export function ResultFrameAnalysis({
           activeKey={activeForgeryTab?.key ?? ""}
           onSelectTab={setForgeryKey}
           representativeFrames={forgeryRepresentativeFrames}
+          galleryCopy={forgeryGalleryCopy}
+          videoRef={videoRef}
           onSeek={onSeek}
         />
       )}
@@ -202,6 +216,8 @@ function ForgeryFrameAnalysis({
   activeKey,
   onSelectTab,
   representativeFrames,
+  galleryCopy,
+  videoRef,
   onSeek,
 }: {
   tabs: ForgeryTimelineTab[]
@@ -209,6 +225,8 @@ function ForgeryFrameAnalysis({
   activeKey: string
   onSelectTab: (key: string) => void
   representativeFrames: RepresentativeFrame[]
+  galleryCopy: { title: string; description: string; empty: string }
+  videoRef?: RefObject<HTMLVideoElement | null>
   onSeek: (seconds: number) => void
 }) {
   if (tabs.length === 0) {
@@ -223,6 +241,7 @@ function ForgeryFrameAnalysis({
   const moduleThreshold = activeTab?.threshold ?? 0.515
   const scores = activeTab?.points ?? []
   const summary = summarizeFrameScores(scores, moduleThreshold)
+  const isTemporal = activeKey === FORGERY_TEMPORAL_MODULE
 
   return (
     <div className="mt-5 space-y-4">
@@ -273,13 +292,13 @@ function ForgeryFrameAnalysis({
                 summary={summary}
                 scores={scores}
                 detectionThreshold={moduleThreshold}
-                unitLabel={activeTab.key === "forgery_temporal" ? "클립" : "프레임"}
+                unitLabel={isTemporal ? "클립" : "프레임"}
               />
               <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
                 <FrameRiskChart
                   scores={scores}
                   threshold={moduleThreshold}
-                  title={`${activeTab.label} ${activeTab.key === "forgery_temporal" ? "클립별" : "프레임별"} 위험도`}
+                  title={`${activeTab.label} ${isTemporal ? "클립별" : "프레임별"} 위험도`}
                 />
               </div>
               <SegmentList segments={activeTab.segments} onSeek={onSeek} />
@@ -291,19 +310,25 @@ function ForgeryFrameAnalysis({
             />
           )}
 
-          {representativeFrames.length > 0 ? (
-            <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-              <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">고위험 프레임</h4>
-              <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                TruFor frameRisks 상위 시점입니다.
-              </p>
+          <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
+            <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">{galleryCopy.title}</h4>
+            <p className="mt-0.5 text-xs font-semibold text-slate-500">{galleryCopy.description}</p>
+            {representativeFrames.length > 0 ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {representativeFrames.slice(0, 2).map((frame, index) => (
-                  <RepresentativeThumb key={`${frame.timestamp ?? frame.timeSec ?? index}`} frame={frame} />
+                  <RepresentativeThumb
+                    key={`${activeKey}-${frame.timestamp ?? frame.timeSec ?? index}`}
+                    frame={frame}
+                    videoRef={videoRef}
+                  />
                 ))}
               </div>
-            </div>
-          ) : null}
+            ) : (
+              <p className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
+                {galleryCopy.empty}
+              </p>
+            )}
+          </div>
         </>
       ) : null}
     </div>
@@ -463,14 +488,29 @@ function SegmentList({
   )
 }
 
-function RepresentativeThumb({ frame }: { frame: RepresentativeFrame }) {
+function RepresentativeThumb({
+  frame,
+  videoRef,
+}: {
+  frame: RepresentativeFrame
+  videoRef?: RefObject<HTMLVideoElement | null>
+}) {
+  const timeSec = frame.timeSec ?? 0
   return (
     <article className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
       <p className="text-xs font-semibold text-slate-500">
         {frame.timeSec != null ? formatDuration(frame.timeSec) : frame.timestamp ?? "-"}
       </p>
       <div className="mt-2 aspect-video overflow-hidden rounded-md bg-slate-200 dark:bg-secondary">
-        {frame.imageUrl ? (
+        {videoRef ? (
+          <VideoSeekThumbnail
+            videoRef={videoRef}
+            timeSec={timeSec}
+            imageUrl={frame.imageUrl}
+            heatmapImageUrl={frame.heatmapImageUrl}
+            label="고위험 시점"
+          />
+        ) : frame.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={frame.imageUrl} alt="대표 프레임" className="size-full object-cover" />
         ) : (

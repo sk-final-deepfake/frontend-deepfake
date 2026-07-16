@@ -12,6 +12,7 @@ import type {
   PerFrameFaceScore,
   RepresentativeFrame,
   SuspiciousSegment,
+  TamperBBox,
 } from "@/lib/api/evidence-detail"
 
 const VIDEO_TIMELINE_MODULE = "video_timeline"
@@ -100,6 +101,29 @@ function normalizeTimeSec(value: unknown, fallback: number | null = null) {
   const parsed = typeof value === "number" ? value : Number(value)
   if (!Number.isFinite(parsed) || parsed < 0) return fallback
   return parsed
+}
+
+function normalizeTamperBBoxes(value: unknown): TamperBBox[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null
+  const boxes: TamperBBox[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue
+    const box = raw as Record<string, unknown>
+    const x = Number(box.x)
+    const y = Number(box.y)
+    const w = Number(box.w)
+    const h = Number(box.h)
+    if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue
+    const score = Number(box.score)
+    boxes.push({
+      x: Math.round(x),
+      y: Math.round(y),
+      w: Math.round(w),
+      h: Math.round(h),
+      ...(Number.isFinite(score) ? { score: Math.max(0, Math.min(1, score)) } : {}),
+    })
+  }
+  return boxes.length > 0 ? boxes : null
 }
 
 function normalizeText(value: unknown): string
@@ -298,6 +322,7 @@ function normalizeModuleTimelines(timelines: ModuleTimeline[] | null | undefined
           frameIndex: Math.max(0, Math.round(Number(risk.frameIndex) || index)),
           timestampSec: normalizeTimeSec(risk.timestampSec, index) ?? index,
           riskScore: normalizeUnitScore(risk.riskScore),
+          bboxes: normalizeTamperBBoxes((risk as { bboxes?: unknown }).bboxes),
         })),
         clipRisks: normalizeClipRisks(timeline.clipRisks),
         pairRisks: normalizePairRisks(timeline.pairRisks),

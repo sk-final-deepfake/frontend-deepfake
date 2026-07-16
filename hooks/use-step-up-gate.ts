@@ -117,6 +117,7 @@ export function useStepUpGate() {
     submitPassword,
     cancelPassword,
     closeSuccessDialog,
+    ensureStepUp,
     fetchEvidenceDetailWithStepUp,
   }
 }

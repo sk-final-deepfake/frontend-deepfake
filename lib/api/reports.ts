@@ -51,39 +51,54 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+const MOCK_CASE_NAMES = [
+  "협박 메시지 영상 분석",
+  "딥페이크 정상/의심 비교 사건",
+  "CCTV 위변조 검증 요청",
+  "인터뷰 클립 진위 확인",
+  "블랙박스 영상 원본성 확인",
+]
+
+const MOCK_ANALYSIS_VERDICTS = ["위험", "주의", "정상"]
+const MOCK_COMPARE_VERDICTS = ["원본 일치", "원본과 차이 확인", "판정 보류"]
+
+function buildMockReportList(): ReportSummary[] {
+  const reports: ReportSummary[] = []
+  for (let index = 0; index < 23; index++) {
+    const isCompare = index % 3 === 1
+    const evidenceId = 2024062700 + index
+    const compareId = isCompare ? 8800 + index : null
+    const day = String(14 - (index % 10)).padStart(2, "0")
+    const hour = String(9 + (index % 9)).padStart(2, "0")
+    const hashPrefix = index.toString(16).padStart(2, "0")
+    reports.push({
+      reportId: 100 - index,
+      reportType: isCompare ? "COMPARE" : "ANALYSIS",
+      evidenceId,
+      compareId,
+      caseId: `CASE-2026${String(700 + index)}`,
+      caseName: MOCK_CASE_NAMES[index % MOCK_CASE_NAMES.length],
+      reportFileName: isCompare
+        ? `ForenShield_Compare_Report_${compareId}.pdf`
+        : `ForenShield_Report_EVD-${evidenceId}.pdf`,
+      verdictLabel: isCompare
+        ? MOCK_COMPARE_VERDICTS[index % MOCK_COMPARE_VERDICTS.length]
+        : MOCK_ANALYSIS_VERDICTS[index % MOCK_ANALYSIS_VERDICTS.length],
+      createdAt: `2026-07-${day}T${hour}:20:00+09:00`,
+      reportHash: `${hashPrefix}f81c09d2e47b16f8c05a913e2d84c7715f0b6a8d94e21c3b7f6a0d5e8c92d4`.slice(0, 64),
+      downloadPath: isCompare
+        ? `/api/v1/compare/${compareId}/reports/pdf`
+        : `/api/v1/evidences/${evidenceId}/reports/pdf`,
+    })
+  }
+  return reports
+}
+
 function buildMockReports(page: number, size: number): ReportListPage {
-  const reports: ReportSummary[] = [
-    {
-      reportId: 12,
-      reportType: "ANALYSIS",
-      evidenceId: 2024062716,
-      compareId: null,
-      caseId: "CASE-20240627",
-      caseName: "협박 메시지 영상 분석",
-      reportFileName: "ForenShield_Report_EVD-2024062716.pdf",
-      verdictLabel: "위험",
-      createdAt: "2026-07-03T13:28:00+09:00",
-      reportHash: "a3f81c09d2e47b16f8c05a913e2d84c7715f0b6a8d94e21c3b7f6a0d5e8c92d4",
-      downloadPath: "/api/v1/evidences/2024062716/reports/pdf",
-    },
-    {
-      reportId: 18,
-      reportType: "COMPARE",
-      evidenceId: 2024062718,
-      compareId: 8802,
-      caseId: "CASE-20240628",
-      caseName: "원본 비교검증",
-      reportFileName: "ForenShield_Compare_Report_8802.pdf",
-      verdictLabel: "원본 일치",
-      createdAt: "2026-07-04T09:45:00+09:00",
-      reportHash: "c4d81c09d2e47b16f8c05a913e2d84c7715f0b6a8d94e21c3b7f6a0d5e8c12a",
-      downloadPath: "/api/v1/compare/8802/reports/pdf",
-    },
-  ]
+  const reports = buildMockReportList()
   const start = page * size
-  const content = reports.slice(start, start + size)
   return {
-    content,
+    content: reports.slice(start, start + size),
     page,
     size,
     totalElements: reports.length,

@@ -3,7 +3,7 @@ import { API_FETCH_CREDENTIALS } from "@/lib/api/interceptor"
 import { ApiError, apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
 
-export type ReportVerifyStatus = "VALID" | "WARNING" | "INVALID"
+export type ReportVerifyStatus = "PENDING" | "VALID" | "WARNING" | "INVALID"
 
 export type ReportVerification = {
   status: ReportVerifyStatus
@@ -11,16 +11,26 @@ export type ReportVerification = {
   message: string
   reportNo: string
   verificationCode?: string | null
+  reportType?: "ANALYSIS" | "COMPARE" | string | null
+  revision?: number | null
+  publicationStatus?: string | null
+  issuedAt?: string | null
+  queriedAt?: string | null
+  pdfSignatureApplied?: boolean | null
   evidenceId: number
   reportFileName: string
   createdAt: string
   reportHash: string
   hashMatched: boolean
   storedFileIntact?: boolean
-  signatureValid: boolean | null
-  signatureStatus: string
+  signatureValid?: boolean | null
+  signatureStatus?: string | null
   signatureAlgorithm?: string | null
   signerCertificateSubject?: string | null
+  evidenceManifestSignatureValid?: boolean | null
+  evidenceManifestSignatureStatus?: string | null
+  evidenceManifestSignatureAlgorithm?: string | null
+  evidenceManifestSignerCertificateSubject?: string | null
   blockchainMatched: boolean | null
   blockchainStatus: string
   blockchainTxHash?: string | null
@@ -56,7 +66,7 @@ export type PublicReportView = {
  * 공개 검증 API. 로그인 없이 접근하므로 인증 헤더를 붙이지 않는다.
  * 목업 모드에서는 토큰 문자열로 상태를 분기한다:
  *  - "invalid" 포함 → INVALID, "warning" 포함 → WARNING
- *  - "notfound" 포함 → 404 오류, 그 외 → VALID
+ *  - "notfound" 포함 → 404 오류, "pending" 또는 "expired" 포함 → 미발행 안내
  */
 export type ReportVerificationLookup = {
   token?: string
@@ -192,15 +202,24 @@ function buildMockVerification(token: string): ReportVerification {
   const normalized = token.toLowerCase()
 
   if (normalized.includes("notfound") || normalized.includes("expired")) {
+    if (normalized.includes("expired")) {
+      return buildPendingVerification()
+    }
     throw new ApiError("등록되지 않은 검증 정보입니다.", 404, "REPORT_VERIFICATION_NOT_FOUND")
   }
 
   const base: ReportVerification = {
     status: "VALID",
     valid: true,
-    message: "이 보고서는 발급 이후 변조되지 않았습니다.",
+    message: "발행 등록정보를 조회했습니다. PDF 파일 자체는 아직 검사하지 않았습니다.",
     reportNo: "RPT-2026-0703-0012",
     verificationCode: "VF-8F3K-29QX",
+    reportType: "ANALYSIS",
+    revision: 1,
+    publicationStatus: "ISSUED",
+    issuedAt: "2026-07-03T13:28:00+09:00",
+    queriedAt: new Date().toISOString(),
+    pdfSignatureApplied: false,
     evidenceId: 2024062716,
     reportFileName: "ForenShield_Report_EVD-2024062716.pdf",
     createdAt: "2026-07-03T13:28:00+09:00",
@@ -211,6 +230,10 @@ function buildMockVerification(token: string): ReportVerification {
     signatureStatus: "SIGNED",
     signatureAlgorithm: "SHA256withRSA",
     signerCertificateSubject: "CN=ForenShield Evidence Authority, O=ForenShield, C=KR",
+    evidenceManifestSignatureValid: true,
+    evidenceManifestSignatureStatus: "VALID",
+    evidenceManifestSignatureAlgorithm: "SHA256withRSA",
+    evidenceManifestSignerCertificateSubject: "CN=ForenShield Evidence Authority, O=ForenShield, C=KR",
     blockchainMatched: true,
     blockchainStatus: "ANCHORED",
     blockchainTxHash: "0x8f3a2c91b7d4e60a5c18f2b9e73d40c6a1f58b02d9e47c3a6b80f15d2e9c74a3",
@@ -228,6 +251,8 @@ function buildMockVerification(token: string): ReportVerification {
       reportHash: "7b02ff41c8a9d3e6b5f21c08a7d94e3f612c8b0a5d7e94f1c3a6b8d20e5f13c9",
       signatureValid: false,
       signatureStatus: "TAMPERED",
+      evidenceManifestSignatureValid: false,
+      evidenceManifestSignatureStatus: "INVALID",
     }
   }
 
@@ -245,7 +270,46 @@ function buildMockVerification(token: string): ReportVerification {
     }
   }
 
+  if (normalized.includes("pending") || normalized.includes("unissued")) {
+    return buildPendingVerification()
+  }
+
   return base
+}
+
+function buildPendingVerification(): ReportVerification {
+  return {
+    status: "PENDING",
+    valid: false,
+    message: "아직 발행되지 않은 보고서입니다. 검토 승인과 발행 등록이 완료된 후 다시 확인해 주세요.",
+    reportNo: "",
+    verificationCode: null,
+    reportType: null,
+    revision: null,
+    publicationStatus: "DRAFT",
+    issuedAt: null,
+    queriedAt: new Date().toISOString(),
+    pdfSignatureApplied: false,
+    evidenceId: 0,
+    reportFileName: "",
+    createdAt: "",
+    reportHash: "",
+    hashMatched: false,
+    storedFileIntact: false,
+    signatureValid: null,
+    signatureStatus: "NOT_ISSUED",
+    signatureAlgorithm: null,
+    signerCertificateSubject: null,
+    evidenceManifestSignatureValid: null,
+    evidenceManifestSignatureStatus: "NOT_ISSUED",
+    evidenceManifestSignatureAlgorithm: null,
+    evidenceManifestSignerCertificateSubject: null,
+    blockchainMatched: null,
+    blockchainStatus: "NOT_ISSUED",
+    blockchainTxHash: null,
+    blockchainNetwork: null,
+    blockchainAnchoredAt: null,
+  }
 }
 
 function buildMockPublicReportView(code: string): PublicReportView {

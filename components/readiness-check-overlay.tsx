@@ -22,6 +22,10 @@ const PHASE_COPY: Record<
     description:
       "Blur, Blockiness, FFT Peak 분석을 시작합니다. 잠시만 기다려 주세요.",
   },
+  aiAnalysis: {
+    title: "AI 분석 중",
+    description: "딥페이크·위변조 분석을 시작하고 있습니다. 잠시만 기다려 주세요.",
+  },
 }
 
 export function ReadinessCheckOverlay({ open, phase = "metadata" }: ReadinessCheckOverlayProps) {
