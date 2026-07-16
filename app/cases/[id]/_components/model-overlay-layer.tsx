@@ -4,14 +4,50 @@ import { useEffect, useMemo, useState, type RefObject } from "react"
 
 import { normalizeResultValue } from "@/lib/api/analysis-result-ui"
 
-import type { ModelOverlayOption } from "../_lib/model-overlays"
+import type { ModelOverlayOption, OverlaySpatialBBox } from "../_lib/model-overlays"
 
 type ModelOverlayLayerProps = {
   option: ModelOverlayOption | null
   videoRef: RefObject<HTMLVideoElement | null>
 }
 
-const SPATIAL_MATCH_SEC = 0.45
+/** TruFor samples ~16 frames — allow wider sync than deepfake per-frame scores. */
+const SPATIAL_MATCH_SEC = 2.5
+
+function normalizeRawBboxes(
+  raw: NonNullable<ModelOverlayOption["spatialMarkers"][number]["rawBboxes"]>,
+  videoWidth: number,
+  videoHeight: number,
+  fallbackScore: number
+): OverlaySpatialBBox[] {
+  if (videoWidth <= 0 || videoHeight <= 0) return []
+  return raw
+    .map((box) => ({
+      x: Math.max(0, Math.min(1, Number(box.x) / videoWidth)),
+      y: Math.max(0, Math.min(1, Number(box.y) / videoHeight)),
+      w: Math.max(0.01, Math.min(1, Number(box.w) / videoWidth)),
+      h: Math.max(0.01, Math.min(1, Number(box.h) / videoHeight)),
+      score: Number(box.score ?? fallbackScore) || 0,
+    }))
+    .filter((box) => box.w > 0 && box.h > 0)
+}
+
+function markerHasBoxes(marker: ModelOverlayOption["spatialMarkers"][number]) {
+  return (marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0
+}
+
+function resolveMarkerBoxes(
+  marker: ModelOverlayOption["spatialMarkers"][number] | null,
+  videoWidth: number,
+  videoHeight: number
+): OverlaySpatialBBox[] {
+  if (!marker) return []
+  if (marker.bboxes?.length) return marker.bboxes
+  if (marker.rawBboxes?.length) {
+    return normalizeRawBboxes(marker.rawBboxes, videoWidth, videoHeight, marker.score)
+  }
+  return []
+}
 
 type BannerTone = {
   border: string
@@ -116,18 +152,26 @@ function riskAtTime(
 
 export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) {
   const [currentTime, setCurrentTime] = useState(0)
+  const [videoSize, setVideoSize] = useState({ width: 0, height: 0 })
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
-    const syncTime = () => setCurrentTime(video.currentTime)
-    syncTime()
-    video.addEventListener("timeupdate", syncTime)
-    video.addEventListener("seeked", syncTime)
+    const sync = () => {
+      setCurrentTime(video.currentTime)
+      const w = video.videoWidth || 0
+      const h = video.videoHeight || 0
+      if (w > 0 && h > 0) setVideoSize({ width: w, height: h })
+    }
+    sync()
+    video.addEventListener("timeupdate", sync)
+    video.addEventListener("seeked", sync)
+    video.addEventListener("loadedmetadata", sync)
     return () => {
-      video.removeEventListener("timeupdate", syncTime)
-      video.removeEventListener("seeked", syncTime)
+      video.removeEventListener("timeupdate", sync)
+      video.removeEventListener("seeked", sync)
+      video.removeEventListener("loadedmetadata", sync)
     }
   }, [videoRef, option?.id])
 
@@ -150,9 +194,11 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
 
   const activeSpatial = useMemo(() => {
     if (!option?.spatialMarkers.length) return null
+    const withBoxes = option.spatialMarkers.filter(markerHasBoxes)
+    const pool = withBoxes.length > 0 ? withBoxes : option.spatialMarkers
     let best: (typeof option.spatialMarkers)[number] | null = null
     let bestDelta = Number.POSITIVE_INFINITY
-    for (const marker of option.spatialMarkers) {
+    for (const marker of pool) {
       const delta = Math.abs(marker.timeSec - currentTime)
       if (delta <= SPATIAL_MATCH_SEC && delta < bestDelta) {
         best = marker
@@ -161,6 +207,11 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
     }
     return best
   }, [option?.spatialMarkers, currentTime])
+
+  const anyTamperBoxes = useMemo(
+    () => option?.spatialMarkers.some(markerHasBoxes) ?? false,
+    [option?.spatialMarkers]
+  )
 
   const cnnRisk = useMemo(() => {
     if (!option) return 0
@@ -217,18 +268,36 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
   if (isForgerySpatial) {
     const score = activeSpatial ? normalizeResultValue(activeSpatial.score) : cnnRisk
     const scorePct = Math.round(score * 100)
+    const boxes = resolveMarkerBoxes(activeSpatial, videoSize.width, videoSize.height)
+    const statusHint = !anyTamperBoxes
+      ? " · bbox 없음(최신 GPU로 재분석 필요)"
+      : boxes.length === 0
+        ? " · 이 구간 샘플 없음"
+        : null
     return (
       <div className="pointer-events-none absolute inset-0">
-        <div
-          className="absolute left-[34%] top-[48%] h-[14%] w-[28%] rounded-sm border-[3px] border-orange-500 bg-orange-500/20"
-          style={{ opacity: 0.4 + score * 0.55 }}
-        />
-        <div
-          className="absolute left-[36%] top-[52%] h-[6%] w-[12%] rounded-sm border border-orange-300/80 bg-orange-300/25"
-          style={{ opacity: 0.35 + score * 0.5 }}
-        />
+        {boxes.length > 0 ? (
+          boxes.map((box, idx) => {
+            const boxScore = normalizeResultValue(box.score)
+            const tone = boxScore >= elevateFloor ? "border-orange-500 bg-orange-500/18" : "border-amber-400 bg-amber-400/12"
+            return (
+              <div
+                key={`${box.x}-${box.y}-${idx}`}
+                className={`absolute rounded-sm border-2 ${tone}`}
+                style={{
+                  left: `${box.x * 100}%`,
+                  top: `${box.y * 100}%`,
+                  width: `${box.w * 100}%`,
+                  height: `${box.h * 100}%`,
+                  opacity: 0.45 + boxScore * 0.5,
+                }}
+              />
+            )
+          })
+        ) : null}
         <div className="absolute bottom-4 left-4 rounded-md bg-orange-600/95 px-2.5 py-1 text-xs font-bold text-white">
           {label} · risk {scorePct}점
+          {statusHint}
         </div>
       </div>
     )

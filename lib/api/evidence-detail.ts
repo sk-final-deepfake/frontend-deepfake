@@ -88,13 +88,16 @@ export type FrameScore = {
   score: number
 }
 
-export type TamperBBox = {
+export type FaceBBox = {
   x: number
   y: number
   w: number
   h: number
-  /** 0.0 ~ 1.0 */
-  score?: number
+}
+
+export type TamperBBox = FaceBBox & {
+  /** region confidence from TruFor map (0..1) */
+  score?: number | null
 }
 
 export type FrameRisk = {
@@ -102,15 +105,8 @@ export type FrameRisk = {
   timestampSec: number
   /** 0.0 ~ 1.0 */
   riskScore: number
-  /** TruFor localization boxes (video pixel space) */
+  /** TruFor localization → connected-component boxes (video pixel space) */
   bboxes?: TamperBBox[] | null
-}
-
-export type FaceBBox = {
-  x: number
-  y: number
-  w: number
-  h: number
 }
 
 /** Late fusion per-face score (frameRisks is max-collapsed per frame). */

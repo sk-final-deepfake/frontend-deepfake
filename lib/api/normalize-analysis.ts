@@ -322,7 +322,7 @@ function normalizeModuleTimelines(timelines: ModuleTimeline[] | null | undefined
           frameIndex: Math.max(0, Math.round(Number(risk.frameIndex) || index)),
           timestampSec: normalizeTimeSec(risk.timestampSec, index) ?? index,
           riskScore: normalizeUnitScore(risk.riskScore),
-          bboxes: normalizeTamperBBoxes(risk.bboxes),
+          bboxes: normalizeTamperBBoxes((risk as { bboxes?: unknown }).bboxes),
         })),
         clipRisks: normalizeClipRisks(timeline.clipRisks),
         pairRisks: normalizePairRisks(timeline.pairRisks),
