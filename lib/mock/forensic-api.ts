@@ -1612,34 +1612,6 @@ export async function mockRequestCaseReview(
   return mockFetchCaseDetail(resolvedCaseId)
 }
 
-export async function mockRequestCaseReview(
-  caseId: string,
-  _memo?: string
-): Promise<CaseDetailData> {
-  await delay(180)
-
-  const resolvedCaseId = resolveMockCaseId(caseId)
-  const store = materializeReviewQueueSeedCase(
-    materializeSampleCase(readStore(), resolvedCaseId),
-    resolvedCaseId
-  )
-  const targetCase = findCaseRecord(store, resolvedCaseId)
-  if (!targetCase) {
-    throw new Error("검토 요청할 사건을 찾을 수 없습니다.")
-  }
-
-  const reviewStatus: ReviewStatus = "REVIEW_REQUESTED"
-  const reviewRequestedAt = new Date().toISOString()
-  const cases = store.cases.some((item) => item.caseId === resolvedCaseId)
-    ? store.cases.map((item) =>
-        item.caseId === resolvedCaseId ? { ...item, reviewStatus, reviewRequestedAt } : item
-      )
-    : [{ ...targetCase, reviewStatus, reviewRequestedAt }, ...store.cases]
-
-  writeStore({ ...store, cases })
-  return mockFetchCaseDetail(resolvedCaseId)
-}
-
 export async function mockFetchMyAnalysisHistory(options?: {
   sort?: "newest" | "status"
   page?: number
