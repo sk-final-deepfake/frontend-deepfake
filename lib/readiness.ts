@@ -149,6 +149,25 @@ export const READINESS_THRESHOLDS = {
   fftPeakHighGt: 0.4,
 } as const
 
+/** backend `video_readiness.py` `_effective_blur_gates` 와 동일 */
+export function resolveBlurThresholds(
+  width?: number | null,
+  height?: number | null
+): { poorLt: number; cautionLt: number; recommendGte: number } {
+  const pixels = (width ?? 0) * (height ?? 0)
+  if (pixels >= 7680 * 4320) {
+    return { poorLt: 20, cautionLt: 35, recommendGte: 35 }
+  }
+  if (pixels >= 3840 * 2160) {
+    return { poorLt: 40, cautionLt: 60, recommendGte: 60 }
+  }
+  return {
+    poorLt: READINESS_THRESHOLDS.blurPoorLt,
+    cautionLt: READINESS_THRESHOLDS.blurCautionLt,
+    recommendGte: READINESS_THRESHOLDS.blurRecommendGte,
+  }
+}
+
 export type ReadinessMetricVerdict = "good" | "caution" | "poor" | "unknown"
 
 const READINESS_VERDICT_LABELS: Record<ReadinessMetricVerdict, string> = {
@@ -158,10 +177,13 @@ const READINESS_VERDICT_LABELS: Record<ReadinessMetricVerdict, string> = {
   unknown: "미측정",
 }
 
-function evaluateBlurVerdict(value: number | null | undefined): ReadinessMetricVerdict {
+function evaluateBlurVerdict(
+  value: number | null | undefined,
+  gates: { poorLt: number; cautionLt: number }
+): ReadinessMetricVerdict {
   if (value == null || Number.isNaN(value)) return "unknown"
-  if (value < READINESS_THRESHOLDS.blurPoorLt) return "poor"
-  if (value < READINESS_THRESHOLDS.blurCautionLt) return "caution"
+  if (value < gates.poorLt) return "poor"
+  if (value < gates.cautionLt) return "caution"
   return "good"
 }
 
@@ -173,19 +195,23 @@ function evaluateUpperBoundVerdict(
   return value > threshold ? "caution" : "good"
 }
 
-function buildBlurVerdictExplanation(verdict: ReadinessMetricVerdict, evaluatedValue: number | null): string {
-  const threshold = READINESS_THRESHOLDS.blurRecommendGte
+function buildBlurVerdictExplanation(
+  verdict: ReadinessMetricVerdict,
+  evaluatedValue: number | null,
+  recommendGte: number,
+  poorLt: number
+): string {
   switch (verdict) {
     case "good":
-      return `평균 선명도가 권장 기준 ${threshold} 이상이라 분석에 적합합니다.`
+      return `평균 선명도가 권장 기준 ${recommendGte} 이상이라 분석에 적합합니다.`
     case "caution":
-      return `평균 선명도가 ${threshold} 미만입니다. 전반적으로 흐려 분석 신뢰도가 제한될 수 있습니다.`
+      return `평균 선명도가 ${recommendGte} 미만입니다. 전반적으로 흐려 분석 신뢰도가 제한될 수 있습니다.`
     case "poor":
-      return `평균 선명도가 ${READINESS_THRESHOLDS.blurPoorLt} 미만입니다. 화질이 분석에 충분히 적합하지 않을 수 있습니다.`
+      return `평균 선명도가 ${poorLt} 미만입니다. 화질이 분석에 충분히 적합하지 않을 수 있습니다.`
     default:
       return evaluatedValue == null
         ? "선명도 측정값이 없습니다."
-        : `권장 기준은 ${threshold} 이상입니다.`
+        : `권장 기준은 ${recommendGte} 이상입니다.`
   }
 }
 
@@ -213,7 +239,8 @@ function buildFftPeakVerdictExplanation(verdict: ReadinessMetricVerdict): string
 
 function buildMetricItem(
   key: UiReadinessMetricItem["key"],
-  aggregate: { mean?: number | null; min?: number | null; max?: number | null } | null | undefined
+  aggregate: { mean?: number | null; min?: number | null; max?: number | null } | null | undefined,
+  resolution?: { width?: number | null; height?: number | null }
 ): UiReadinessMetricItem {
   const definition = READINESS_METRIC_DEFINITIONS[key]
   const mean = aggregate?.mean
@@ -224,9 +251,15 @@ function buildMetricItem(
 
   if (key === "blur") {
     const evaluatedValue = mean ?? null
-    verdict = evaluateBlurVerdict(evaluatedValue)
-    thresholdLabel = `권장 ${READINESS_THRESHOLDS.blurRecommendGte} 이상`
-    verdictExplanation = buildBlurVerdictExplanation(verdict, evaluatedValue)
+    const blurGates = resolveBlurThresholds(resolution?.width, resolution?.height)
+    verdict = evaluateBlurVerdict(evaluatedValue, blurGates)
+    thresholdLabel = `권장 ${blurGates.recommendGte} 이상`
+    verdictExplanation = buildBlurVerdictExplanation(
+      verdict,
+      evaluatedValue,
+      blurGates.recommendGte,
+      blurGates.poorLt
+    )
   } else if (key === "blockiness") {
     const evaluatedValue = aggregate?.max ?? mean ?? null
     verdict = evaluateUpperBoundVerdict(evaluatedValue, READINESS_THRESHOLDS.blockinessHighGt)
@@ -293,8 +326,12 @@ export function buildReadinessMetricItems(
   if (!readiness) return []
 
   const metrics = readiness.frameMetrics
+  const resolution = {
+    width: readiness.videoMetadata?.width,
+    height: readiness.videoMetadata?.height,
+  }
 
-  return READINESS_METRIC_KEYS.map((key) => buildMetricItem(key, metrics?.[key]))
+  return READINESS_METRIC_KEYS.map((key) => buildMetricItem(key, metrics?.[key], resolution))
 }
 
 export function getReadinessFrameCheckNote(
