@@ -25,9 +25,19 @@ export type OverlayClipWindow = {
   riskScore: number
 }
 
+export type OverlaySpatialBBox = {
+  /** normalized 0..1 relative to video frame */
+  x: number
+  y: number
+  w: number
+  h: number
+  score: number
+}
+
 export type OverlaySpatialMarker = {
   timeSec: number
   score: number
+  bboxes?: OverlaySpatialBBox[]
 }
 
 export type ModelOverlayOption = {
@@ -102,15 +112,15 @@ const FORGERY_OVERLAY_META = {
   spatial: {
     label: "TruFor (Spatial)",
     shortLabel: "TruFor",
-    badge: "국소 변조 · heatmap/bbox",
-    description: "TruFor가 의심하는 국소 변조 영역을 프레임 위에 표시합니다.",
+    badge: "변조 영역 bbox · 위험도 컬러",
+    description: "TruFor localization map에서 뽑은 변조 영역을 네모칸으로 추적합니다.",
     pendingMessage: "오버레이 탭을 열면 TruFor baked 오버레이를 생성한 뒤 재생합니다.",
   },
   temporal: {
     label: "TimeSformer (Temporal)",
     shortLabel: "TimeSformer",
-    badge: "클립 구간 테두리",
-    description: "TimeSformer가 의심하는 시간축 클립 구간을 영상 테두리로 표시합니다.",
+    badge: "상단 배너 · 화면 테두리",
+    description: "TimeSformer가 의심하는 시간축 클립 구간을 상단 배너와 화면 테두리로 표시합니다.",
     pendingMessage: "오버레이 탭을 열면 TimeSformer baked 오버레이를 생성한 뒤 재생합니다.",
   },
 } as const
@@ -121,6 +131,7 @@ export function overlayModuleApiPath(optionId: string): string | null {
   if (optionId === "deepfake:temporal") return "temporal"
   if (optionId === "deepfake:optical") return "optical"
   if (optionId === "forgery:forgery_spatial") return "forgery_spatial"
+  if (optionId === "forgery:forgery_temporal") return "forgery_temporal"
   return null
 }
 export function buildModelOverlayOptions(data: EvidenceDetailData | null): ModelOverlayOption[] {
@@ -194,7 +205,8 @@ function buildDeepfakeOverlayOption(
     module === "optical"
       ? extractOpticalWindows(timeline?.pairRisks, timeline?.suspiciousSegments)
       : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments)
-  const spatialMarkers = extractSpatialMarkers(timeline?.frameRisks)
+  const metaSize = data.evidenceInfo.technicalMetadata
+  const spatialMarkers = extractSpatialMarkers(timeline?.frameRisks, [], metaSize?.width, metaSize?.height)
   const timelineScores = timelineTab?.points ?? []
   const advisoryMessage = resolveDeepfakeOverlayAdvisory(data.analysisInfo.errorCode)
   const ready =
@@ -252,8 +264,9 @@ function buildForgeryOverlayOption(
   const clipWindows = isSpatial
     ? []
     : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments ?? tab.segments)
+  const metaSize = data.evidenceInfo.technicalMetadata
   const spatialMarkers = isSpatial
-    ? extractSpatialMarkers(timeline?.frameRisks, tab.points)
+    ? extractSpatialMarkers(timeline?.frameRisks, tab.points, metaSize?.width, metaSize?.height)
     : []
   const timelineScores = tab.points
   const ready =
@@ -365,12 +378,17 @@ function extractOpticalWindows(
 
 function extractSpatialMarkers(
   frameRisks: FrameRisk[] | null | undefined,
-  fallbackPoints: FrameScore[] = []
+  fallbackPoints: FrameScore[] = [],
+  videoWidth?: number | null,
+  videoHeight?: number | null
 ): OverlaySpatialMarker[] {
   if (frameRisks && frameRisks.length > 0) {
+    const vw = videoWidth && videoWidth > 0 ? videoWidth : 0
+    const vh = videoHeight && videoHeight > 0 ? videoHeight : 0
     return frameRisks.map((risk) => ({
       timeSec: risk.timestampSec,
       score: risk.riskScore,
+      bboxes: normalizeRiskBboxes(risk.bboxes, vw, vh, risk.riskScore),
     }))
   }
   return fallbackPoints
@@ -379,6 +397,29 @@ function extractSpatialMarkers(
       timeSec: point.timeSec as number,
       score: point.score,
     }))
+}
+
+function normalizeRiskBboxes(
+  bboxes: FrameRisk["bboxes"],
+  videoWidth: number,
+  videoHeight: number,
+  fallbackScore: number
+): OverlaySpatialBBox[] | undefined {
+  if (!bboxes?.length || videoWidth <= 0 || videoHeight <= 0) return undefined
+  const out: OverlaySpatialBBox[] = []
+  for (const box of bboxes) {
+    const w = Number(box.w)
+    const h = Number(box.h)
+    if (!(w > 0) || !(h > 0)) continue
+    out.push({
+      x: Math.max(0, Math.min(1, Number(box.x) / videoWidth)),
+      y: Math.max(0, Math.min(1, Number(box.y) / videoHeight)),
+      w: Math.max(0.01, Math.min(1, w / videoWidth)),
+      h: Math.max(0.01, Math.min(1, h / videoHeight)),
+      score: Number(box.score ?? fallbackScore) || 0,
+    })
+  }
+  return out.length ? out : undefined
 }
 
 function indexOverlayArtifacts(artifacts: ModelOverlayArtifact[] | null | undefined) {

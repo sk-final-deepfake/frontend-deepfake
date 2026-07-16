@@ -27,6 +27,7 @@ import {
   type OverlayCategory,
   type ResultMediaView,
 } from "../_lib/model-overlays"
+import { ModelOverlayLayer } from "./model-overlay-layer"
 
 type ResultEvidenceMediaProps = {
   evidenceDetail: EvidenceDetailData
@@ -233,7 +234,15 @@ export function ResultEvidenceMedia({
     }
   }, [applyJobStatus, jobByModule, onOverlayReady, selectedEvidenceId])
 
-  // Overlay tab / model selection: request baked MP4 when missing (no CSS preview).
+  const canLivePreview = Boolean(
+    activeOverlay &&
+      (activeOverlay.clipWindows.length > 0 ||
+        activeOverlay.spatialMarkers.length > 0 ||
+        (activeOverlay.id === "deepfake:cnn" && activeOverlay.timelineScores.length > 0))
+  )
+
+  // Overlay tab / model selection: request baked MP4 when missing.
+  // Live CSS preview can show immediately when timeline risks exist.
   useEffect(() => {
     if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
@@ -286,6 +295,7 @@ export function ResultEvidenceMedia({
   const showProgressModal =
     useOverlaySrc &&
     !activeOverlayUrl &&
+    !canLivePreview &&
     !showDeepfakeAdvisory &&
     (isRequesting || isGenerating || isFailed)
 
@@ -360,7 +370,7 @@ export function ResultEvidenceMedia({
             onSecurityEvent={onSecurityEvent}
           >
             {!useOverlayMp4 ? renderWatermark : null}
-            {useOverlayMp4 && activeOverlay ? (
+            {useOverlaySrc && activeOverlay ? (
               <div className="absolute left-4 top-4 z-20 max-w-[70%] space-y-1">
                 <div className="rounded-md bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
                   {activeOverlay.label} 오버레이
@@ -377,6 +387,10 @@ export function ResultEvidenceMedia({
             미리보기 가능한 영상이 없습니다.
           </div>
         )}
+
+        {useOverlaySrc && !useOverlayMp4 && activeOverlay && canLivePreview ? (
+          <ModelOverlayLayer option={activeOverlay} videoRef={videoRef} />
+        ) : null}
 
         {showProgressModal ? (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
@@ -434,6 +448,11 @@ export function ResultEvidenceMedia({
       ) : useOverlayMp4 ? (
         <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold leading-5 text-teal-800 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
           baked 오버레이 MP4를 재생 중입니다.
+        </p>
+      ) : useOverlaySrc && canLivePreview ? (
+        <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold leading-5 text-teal-800 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
+          타임라인 점수 기반 라이브 오버레이를 표시 중입니다.
+          {activeModulePath ? " baked MP4 생성이 완료되면 자동 전환됩니다." : ""}
         </p>
       ) : null}
 

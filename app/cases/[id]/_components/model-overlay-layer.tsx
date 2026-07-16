@@ -217,16 +217,33 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
   if (isForgerySpatial) {
     const score = activeSpatial ? normalizeResultValue(activeSpatial.score) : cnnRisk
     const scorePct = Math.round(score * 100)
+    const boxes = activeSpatial?.bboxes ?? []
     return (
       <div className="pointer-events-none absolute inset-0">
-        <div
-          className="absolute left-[34%] top-[48%] h-[14%] w-[28%] rounded-sm border-[3px] border-orange-500 bg-orange-500/20"
-          style={{ opacity: 0.4 + score * 0.55 }}
-        />
-        <div
-          className="absolute left-[36%] top-[52%] h-[6%] w-[12%] rounded-sm border border-orange-300/80 bg-orange-300/25"
-          style={{ opacity: 0.35 + score * 0.5 }}
-        />
+        {boxes.length > 0 ? (
+          boxes.map((box, idx) => {
+            const boxScore = normalizeResultValue(box.score)
+            const tone = boxScore >= elevateFloor ? "border-orange-500 bg-orange-500/18" : "border-amber-400 bg-amber-400/12"
+            return (
+              <div
+                key={`${box.x}-${box.y}-${idx}`}
+                className={`absolute rounded-sm border-2 ${tone}`}
+                style={{
+                  left: `${box.x * 100}%`,
+                  top: `${box.y * 100}%`,
+                  width: `${box.w * 100}%`,
+                  height: `${box.h * 100}%`,
+                  opacity: 0.45 + boxScore * 0.5,
+                }}
+              />
+            )
+          })
+        ) : (
+          <div
+            className="absolute inset-0 border-[3px] border-orange-500/70"
+            style={{ opacity: 0.25 + score * 0.45 }}
+          />
+        )}
         <div className="absolute bottom-4 left-4 rounded-md bg-orange-600/95 px-2.5 py-1 text-xs font-bold text-white">
           {label} · risk {scorePct}점
         </div>
