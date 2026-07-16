@@ -184,7 +184,7 @@ import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
 import { addAppNotification } from "@/lib/notifications"
-import { readinessTargetFromCaseEvidence } from "@/lib/readiness"
+import { readinessTargetFromCaseEvidence, resolveDisplayReadinessTier } from "@/lib/readiness"
 import { cn } from "@/lib/utils"
 import { formatDateTime, formatDateTimeWithSeconds, formatDuration } from "@/lib/formatters"
 
@@ -2738,9 +2738,10 @@ function CaseWorkflowPanel({
     void fetchEvidenceReadiness(evidenceId)
       .then((readiness) => {
         if (cancelled) return
-        setReadinessByEvidenceId((current) =>
-          current[evidenceId] ? current : { ...current, [evidenceId]: readiness }
-        )
+        setReadinessByEvidenceId((current) => ({
+          ...current,
+          [evidenceId]: readiness,
+        }))
       })
       .catch(() => {})
 
@@ -2748,6 +2749,23 @@ function CaseWorkflowPanel({
       cancelled = true
     }
   }, [selectedEvidence?.evidenceId])
+
+  useEffect(() => {
+    if (!selectedEvidenceId) return
+    const hlsStatus = evidenceDetail?.hlsPlayback?.hlsStatus
+    if (hlsStatus !== "PENDING" && hlsStatus !== "PACKAGING") return
+
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
+    }, 4000)
+
+    return () => window.clearInterval(timer)
+  }, [
+    evidenceDetail?.hlsPlayback?.hlsStatus,
+    refreshEvidenceDetail,
+    selectedEvidenceId,
+  ])
 
   useEffect(() => {
     if (message?.type !== "success") return
@@ -3432,7 +3450,12 @@ function CaseWorkflowPanel({
                 {readinessByEvidenceId[selectedEvidence.evidenceId] ? (
                   <div className="mb-3">
                     <ReadinessBadge
-                      tier={readinessByEvidenceId[selectedEvidence.evidenceId].readinessTier}
+                      tier={
+                        resolveDisplayReadinessTier(
+                          readinessByEvidenceId[selectedEvidence.evidenceId]
+                        ) ??
+                        readinessByEvidenceId[selectedEvidence.evidenceId].readinessTier
+                      }
                     />
                   </div>
                 ) : null}

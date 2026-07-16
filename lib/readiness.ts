@@ -168,6 +168,70 @@ export function resolveBlurThresholds(
   }
 }
 
+const CAUTION_MIN_PIXELS = 640 * 480
+const POOR_MIN_PIXELS = 426 * 240
+const MIN_DURATION_SEC = 3
+const MIN_FPS = 15
+
+function maxReadinessTier(current: ReadinessTier, candidate: ReadinessTier): ReadinessTier {
+  return compareReadinessTier(current, candidate) >= 0 ? current : candidate
+}
+
+/**
+ * 저장된 readinessTier가 구버전 blur 게이트로 POOR여도,
+ * frameMetrics + videoMetadata가 있으면 해상도 보정 기준으로 다시 판정한다.
+ * (분석 조회 안쪽 Blur 카드 판정과 바깥 배지를 맞추기 위함)
+ */
+export function resolveDisplayReadinessTier(
+  readiness: EvidenceReadinessResponse | null | undefined
+): ReadinessTier | null {
+  if (!readiness) return null
+  if (readiness.readinessTier === "BLOCK") return "BLOCK"
+
+  const blurMean = readiness.frameMetrics?.blur?.mean
+  const blockinessMax = readiness.frameMetrics?.blockiness?.max
+  const fftPeakMax = readiness.frameMetrics?.fftPeak?.max
+  const hasFrameMetrics =
+    (blurMean != null && !Number.isNaN(blurMean)) ||
+    (blockinessMax != null && !Number.isNaN(blockinessMax)) ||
+    (fftPeakMax != null && !Number.isNaN(fftPeakMax))
+
+  if (!hasFrameMetrics) return readiness.readinessTier
+
+  const width = readiness.videoMetadata?.width ?? null
+  const height = readiness.videoMetadata?.height ?? null
+  const fps = readiness.videoMetadata?.fps ?? null
+  const durationSec = readiness.videoMetadata?.durationSec ?? null
+
+  let tier: ReadinessTier = "GOOD"
+  const pixels = (width ?? 0) * (height ?? 0)
+
+  if (width != null && height != null) {
+    if (pixels < POOR_MIN_PIXELS) tier = "POOR"
+    else if (pixels < CAUTION_MIN_PIXELS) tier = maxReadinessTier(tier, "CAUTION")
+  }
+
+  if (durationSec != null && durationSec < MIN_DURATION_SEC) tier = "POOR"
+
+  if (fps != null && fps > 0 && fps < MIN_FPS) tier = maxReadinessTier(tier, "CAUTION")
+
+  const blurGates = resolveBlurThresholds(width, height)
+  if (blurMean != null && !Number.isNaN(blurMean)) {
+    if (blurMean < blurGates.poorLt) tier = "POOR"
+    else if (blurMean < blurGates.cautionLt) tier = maxReadinessTier(tier, "CAUTION")
+  }
+
+  if (blockinessMax != null && blockinessMax > READINESS_THRESHOLDS.blockinessHighGt) {
+    tier = maxReadinessTier(tier, "CAUTION")
+  }
+
+  if (fftPeakMax != null && fftPeakMax > READINESS_THRESHOLDS.fftPeakHighGt) {
+    tier = maxReadinessTier(tier, "CAUTION")
+  }
+
+  return tier
+}
+
 export type ReadinessMetricVerdict = "good" | "caution" | "poor" | "unknown"
 
 const READINESS_VERDICT_LABELS: Record<ReadinessMetricVerdict, string> = {
