@@ -3511,26 +3511,6 @@ function CaseWorkflowPanel({
                       </span>
                     </button>
 
-                    {reviewRequestAllowed ? (
-                      <section
-                        aria-live="polite"
-                        className="flex flex-col gap-3 border-l-[3px] border-amber-500 bg-amber-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="flex min-w-0 items-center gap-2 text-sm font-bold text-amber-700">
-                          <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
-                          <p>검토 요청을 진행해주세요</p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9 shrink-0 border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                          disabled={isWorking}
-                          onClick={() => onReviewRequestOpenChange(true)}
-                        >
-                          검토 요청
-                        </Button>
-                      </section>
-                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -3691,6 +3671,17 @@ function CaseWorkflowPanel({
                   onClick={() => setAssignmentOpen(true)}
                 >
                   검토자 배정
+                </Button>
+              ) : null}
+              {reviewRequestAllowed && !isReviewerMode && !selectedEvidenceRunning ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 w-full rounded-lg border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 shadow-none hover:bg-slate-50 sm:w-auto dark:bg-transparent dark:text-slate-200 dark:hover:bg-slate-800"
+                  disabled={isWorking}
+                  onClick={() => onReviewRequestOpenChange(true)}
+                >
+                  검토 요청
                 </Button>
               ) : null}
               {!isReviewerMode && selectedEvidenceRunning ? (
