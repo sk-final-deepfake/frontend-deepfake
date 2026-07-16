@@ -7,6 +7,7 @@ import type {
   ModuleTimelineKind,
   PairRisk,
   SuspiciousSegment,
+  TamperBBox,
 } from "@/lib/api/evidence-detail"
 
 import {
@@ -38,6 +39,8 @@ export type OverlaySpatialMarker = {
   timeSec: number
   score: number
   bboxes?: OverlaySpatialBBox[]
+  /** Pixel-space boxes when video width/height were unknown at build time. */
+  rawBboxes?: TamperBBox[]
 }
 
 export type ModelOverlayOption = {
@@ -263,7 +266,9 @@ function buildForgeryOverlayOption(
   const spatialMarkers = isSpatial
     ? extractSpatialMarkers(timeline?.frameRisks, tab.points, metaSize?.width, metaSize?.height)
     : []
-  const hasTamperBboxes = spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
+  const hasTamperBboxes = spatialMarkers.some(
+    (marker) => (marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0
+  )
   const cachedOverlayUrl =
     normalizeUrl(artifact?.overlayVideoUrl) ??
     normalizeUrl(timeline?.overlayVideoUrl) ??
@@ -394,11 +399,19 @@ function extractSpatialMarkers(
   if (frameRisks && frameRisks.length > 0) {
     const vw = videoWidth && videoWidth > 0 ? videoWidth : 0
     const vh = videoHeight && videoHeight > 0 ? videoHeight : 0
-    return frameRisks.map((risk) => ({
-      timeSec: risk.timestampSec,
-      score: risk.riskScore,
-      bboxes: normalizeRiskBboxes(risk.bboxes, vw, vh, risk.riskScore),
-    }))
+    return frameRisks.map((risk) => {
+      const normalized = normalizeRiskBboxes(risk.bboxes, vw, vh, risk.riskScore)
+      const rawBboxes =
+        normalized == null && risk.bboxes?.length
+          ? risk.bboxes.filter((box) => Number(box.w) > 0 && Number(box.h) > 0)
+          : undefined
+      return {
+        timeSec: risk.timestampSec,
+        score: risk.riskScore,
+        bboxes: normalized,
+        rawBboxes: rawBboxes?.length ? rawBboxes : undefined,
+      }
+    })
   }
   return fallbackPoints
     .filter((point) => point.timeSec != null)
