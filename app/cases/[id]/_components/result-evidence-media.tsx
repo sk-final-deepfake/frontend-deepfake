@@ -149,14 +149,21 @@ export function ResultEvidenceMedia({
     })
   }, [])
 
+  const hasLiveTruForBboxes = useCallback((option: ModelOverlayOption | null | undefined) => {
+    if (!option || option.id !== "forgery:forgery_spatial") return false
+    return option.spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
+  }, [])
+
   const needsOverlayGeneration = useCallback(
     (option: ModelOverlayOption | null | undefined) => {
       if (!option) return false
       if (option.overlayVideoUrl) return false
+      // Live CSS boxes are enough — do not spin a baked-MP4 job (avoids stuck 2%).
+      if (hasLiveTruForBboxes(option)) return false
       if (option.category === "deepfake" && deepfakeOverlayBlocked) return false
       return true
     },
-    [deepfakeOverlayBlocked]
+    [deepfakeOverlayBlocked, hasLiveTruForBboxes]
   )
 
   const handleGenerateOverlay = useCallback(async () => {
@@ -292,14 +299,19 @@ export function ResultEvidenceMedia({
   useEffect(() => {
     if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
-    if (activeOverlay.overlayVideoUrl) return
-    if (
-      activeOverlay.id === "forgery:forgery_spatial" &&
-      activeOverlay.spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
-    ) {
+    if (activeOverlay.overlayVideoUrl) {
+      setIsRequesting(false)
       return
     }
-    if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
+    if (hasLiveTruForBboxes(activeOverlay)) {
+      // Must clear optimistic spinner — generate POST is intentionally skipped.
+      setIsRequesting(false)
+      return
+    }
+    if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) {
+      setIsRequesting(false)
+      return
+    }
     if (isGenerating) return
     if (activeJob?.status === "FAILED") return
     if (activeJob?.status === "COMPLETED") return
@@ -313,6 +325,7 @@ export function ResultEvidenceMedia({
     deepfakeOverlayBlocked,
     generateError,
     handleGenerateOverlay,
+    hasLiveTruForBboxes,
     isGenerating,
     mediaView,
     selectedEvidenceId,
