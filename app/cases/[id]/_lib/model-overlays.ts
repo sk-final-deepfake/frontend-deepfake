@@ -255,11 +255,6 @@ function buildForgeryOverlayOption(
   const topLevelUrl = isSpatial
     ? normalizeUrl(data.analysisInfo.spatialOverlayVideoUrl)
     : normalizeUrl(data.analysisInfo.temporalOverlayVideoUrl)
-  const overlayVideoUrl =
-    normalizeUrl(artifact?.overlayVideoUrl) ??
-    normalizeUrl(timeline?.overlayVideoUrl) ??
-    topLevelUrl ??
-    normalizeUrl(moduleResult?.overlayVideoUrl)
 
   const clipWindows = isSpatial
     ? []
@@ -268,9 +263,19 @@ function buildForgeryOverlayOption(
   const spatialMarkers = isSpatial
     ? extractSpatialMarkers(timeline?.frameRisks, tab.points, metaSize?.width, metaSize?.height)
     : []
+  const hasTamperBboxes = spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
+  const cachedOverlayUrl =
+    normalizeUrl(artifact?.overlayVideoUrl) ??
+    normalizeUrl(timeline?.overlayVideoUrl) ??
+    topLevelUrl ??
+    normalizeUrl(moduleResult?.overlayVideoUrl)
+  // When localization bboxes exist, prefer live CSS boxes over a possibly stale
+  // full-frame border MP4 baked before the bbox pipeline.
+  const overlayVideoUrl = isSpatial && hasTamperBboxes ? null : cachedOverlayUrl
   const timelineScores = tab.points
   const ready =
     Boolean(overlayVideoUrl) ||
+    hasTamperBboxes ||
     artifact?.status === "ready" ||
     timelineScores.length > 0 ||
     clipWindows.length > 0 ||
@@ -283,14 +288,18 @@ function buildForgeryOverlayOption(
     shortLabel: meta.shortLabel,
     overlayVideoUrl,
     ready,
-    overlayBadge: meta.badge,
+    overlayBadge: isSpatial && hasTamperBboxes ? "변조 영역 bbox · 위험도 컬러" : meta.badge,
     timelineCaption: `${tab.label || meta.label} 구간 위험도`,
     timelineScores,
     clipWindows,
     spatialMarkers,
     detectionThreshold: tab.threshold,
-    description: artifact?.description?.trim() || meta.description,
-    pendingMessage: meta.pendingMessage,
+    description: hasTamperBboxes
+      ? "TruFor localization 박스를 영상에 표시합니다."
+      : artifact?.description?.trim() || meta.description,
+    pendingMessage: hasTamperBboxes
+      ? "localization 박스를 표시 중입니다."
+      : "bbox 데이터가 없습니다. 최신 GPU 코드로 재분석한 뒤 다시 열어 주세요.",
   }
 }
 

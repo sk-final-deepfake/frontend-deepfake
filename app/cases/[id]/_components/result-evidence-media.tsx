@@ -242,11 +242,17 @@ export function ResultEvidenceMedia({
   )
 
   // Overlay tab / model selection: request baked MP4 when missing.
-  // Live CSS preview can show immediately when timeline risks exist.
+  // TruFor with localization bboxes uses live CSS boxes — skip stale border MP4 jobs.
   useEffect(() => {
     if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
     if (activeOverlay.overlayVideoUrl) return
+    if (
+      activeOverlay.id === "forgery:forgery_spatial" &&
+      activeOverlay.spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
+    ) {
+      return
+    }
     if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
     if (isRequesting || isGenerating) return
     if (activeJob?.status === "FAILED") return
