@@ -88,11 +88,22 @@ export type FrameScore = {
   score: number
 }
 
+export type TamperBBox = {
+  x: number
+  y: number
+  w: number
+  h: number
+  /** 0.0 ~ 1.0 */
+  score?: number
+}
+
 export type FrameRisk = {
   frameIndex: number
   timestampSec: number
   /** 0.0 ~ 1.0 */
   riskScore: number
+  /** TruFor localization boxes (video pixel space) */
+  bboxes?: TamperBBox[] | null
 }
 
 export type FaceBBox = {
