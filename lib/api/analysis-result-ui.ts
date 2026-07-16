@@ -461,8 +461,11 @@ function cleanModelVersion(version: string | null | undefined) {
 }
 
 function buildMethodologyModels(data: EvidenceDetailData | null, threshold: number): UiMethodologyModel[] {
-  const modelScores = data?.analysisInfo.modelScores ?? []
-  const visibleModelScores = modelScores.filter((model) => model.moduleName?.toLowerCase() !== TIMELINE_MODULE)
+  const modelScores = (data?.analysisInfo.modelScores ?? []).filter(
+    (model) =>
+      model.moduleName?.toLowerCase() !== TIMELINE_MODULE && !isForgeryLaneModelScore(model)
+  )
+  const visibleModelScores = modelScores
 
   if (visibleModelScores.length > 0) {
     return buildCanonicalModelScoreMethodologyModels(visibleModelScores, data, threshold)
@@ -482,6 +485,7 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
   >()
 
   for (const detectionModule of getDetectionModules(data?.analysisInfo.moduleResults ?? [])) {
+    if (isForgeryLaneModuleName(detectionModule.moduleName, detectionModule.modelName)) continue
     const name = detectionModule.modelName?.trim()
     if (!name) continue
     const version = cleanModelVersion(detectionModule.modelVersion)
@@ -526,6 +530,21 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
     overThreshold: entry.overThreshold,
     benchmark: entry.benchmark,
   }))
+}
+
+/** TruFor / forgery TimeSformer — 딥페이크 방법론 카드에서 제외 (deepfake_temporal 제외) */
+function isForgeryLaneModuleName(moduleName?: string | null, modelName?: string | null) {
+  const module = (moduleName ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+  const model = (modelName ?? "").trim().toLowerCase()
+  if (module.startsWith("deepfake")) return false
+  if (module === "forgery_spatial" || module === "forgery_temporal") return true
+  if (module.includes("forgery") || module.includes("tamper")) return true
+  if (model.includes("trufor")) return true
+  return false
+}
+
+function isForgeryLaneModelScore(model: ModelScore) {
+  return isForgeryLaneModuleName(model.moduleName, model.modelName)
 }
 
 function buildCanonicalModelScoreMethodologyModels(
@@ -593,9 +612,8 @@ function getCanonicalModelScoreKey(model: ModelScore): CanonicalModelScoreKey {
 
   if (
     moduleName.includes("lip") ||
-    moduleName.includes("frame") ||
-    moduleName.includes("splice") ||
-    moduleName.includes("temporal")
+    (moduleName.includes("frame") && !moduleName.includes("forgery")) ||
+    moduleName.includes("splice")
   ) {
     return "deepfake_temporal"
   }

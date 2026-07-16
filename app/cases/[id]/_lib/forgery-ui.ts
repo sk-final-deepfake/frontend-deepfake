@@ -16,7 +16,7 @@ export const FORGERY_TEMPORAL_MODULE = "forgery_temporal"
 
 export const DEFAULT_FORGERY_THRESHOLDS = {
   spatial: 0.515,
-  temporal: 0.12,
+  temporal: 0.173386,
 } as const
 
 export const MIN_SUSPICIOUS_SEGMENT_SEC = 1
@@ -354,15 +354,29 @@ function estimateMediaDurationSec(
   return max > 0 ? max + 0.5 : null
 }
 
-/** TruFor 고위험 프레임 — API 이미지·히트맵 우선, 없으면 시점만 (UI에서 영상 캡처) */
+/** 고위험 프레임/클립 — 선택 모듈의 임계값 초과 시점만(최대 maxFrames). 없으면 빈 배열. */
 export function buildForgeryRepresentativeFrames(
   data: EvidenceDetailData | null,
-  maxFrames = 2
+  options?: { moduleKey?: ForgeryModuleKey | string | null; maxFrames?: number }
 ): RepresentativeFrame[] {
-  const spatialTab = getForgerySpatialTimeline(data)
-  if (!spatialTab || spatialTab.points.length === 0) return []
+  const maxFrames = options?.maxFrames ?? 2
+  const moduleKey =
+    options?.moduleKey === FORGERY_TEMPORAL_MODULE
+      ? FORGERY_TEMPORAL_MODULE
+      : FORGERY_SPATIAL_MODULE
+  const tab =
+    moduleKey === FORGERY_TEMPORAL_MODULE
+      ? getForgeryTemporalTimeline(data)
+      : getForgerySpatialTimeline(data)
+  if (!tab || tab.points.length === 0) return []
 
-  const topPoints = [...spatialTab.points]
+  const threshold = tab.threshold
+  const overThreshold = tab.points.filter(
+    (point) => normalizeResultValue(point.score) >= threshold
+  )
+  if (overThreshold.length === 0) return []
+
+  const topPoints = [...overThreshold]
     .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
     .slice(0, maxFrames)
 
@@ -370,7 +384,8 @@ export function buildForgeryRepresentativeFrames(
 
   return topPoints.map((point, index) => {
     const timeSec = point.timeSec ?? 0
-    const matched = findClosestApiFrame(apiFrames, timeSec)
+    const matched =
+      moduleKey === FORGERY_SPATIAL_MODULE ? findClosestApiFrame(apiFrames, timeSec) : null
     const imageUrl =
       matched?.imageUrl?.trim() ||
       matched?.heatmapImageUrl?.trim() ||
@@ -384,9 +399,24 @@ export function buildForgeryRepresentativeFrames(
       score: normalizeResultValue(point.score),
       imageUrl,
       heatmapImageUrl,
-      module: matched?.module ?? "forgery_spatial",
+      module: matched?.module ?? moduleKey,
     }
   })
+}
+
+export function forgeryHighRiskGalleryCopy(moduleKey: ForgeryModuleKey | string | null | undefined) {
+  if (moduleKey === FORGERY_TEMPORAL_MODULE) {
+    return {
+      title: "고위험 클립",
+      description: "TimeSformer clipRisks 중 임계값 초과 상위 시점입니다(최대 2개). 서버 이미지가 없으면 영상에서 캡처합니다.",
+      empty: "임계값을 넘긴 고위험 클립이 없습니다.",
+    }
+  }
+  return {
+    title: "고위험 프레임",
+    description: "TruFor frameRisks 중 임계값 초과 상위 시점입니다(최대 2개). 서버 이미지가 없으면 영상에서 캡처합니다.",
+    empty: "임계값을 넘긴 고위험 프레임이 없습니다.",
+  }
 }
 
 function findClosestApiFrame(frames: RepresentativeFrame[], timeSec: number) {

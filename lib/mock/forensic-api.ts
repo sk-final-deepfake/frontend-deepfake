@@ -4,6 +4,7 @@ import type {
   AnalysisType,
   CaseDetailData,
   CaseEvidenceSummary,
+  CaseReviewRound,
   EvidenceDetailData,
   EvidenceLifecycleStatus,
   EvidenceRole,
@@ -90,6 +91,8 @@ type MockCaseRecord = {
   reviewerComment?: string | null
   aiResult?: AiResult | null
   reviewRequestedAt?: string | null
+  reviewAssignedAt?: string | null
+  reviewRounds?: CaseReviewRound[]
 }
 
 type MockStore = {
@@ -1500,6 +1503,7 @@ export async function mockAssignReviewerToCase(caseId: string, reviewerId: strin
               reviewerId,
               reviewStatus: "REVIEW_ASSIGNED" as const,
               reviewRequestedAt: item.reviewRequestedAt ?? new Date().toISOString(),
+              reviewAssignedAt: new Date().toISOString(),
             }
           : item
       )
@@ -1509,6 +1513,7 @@ export async function mockAssignReviewerToCase(caseId: string, reviewerId: strin
           reviewerId,
           reviewStatus: "REVIEW_ASSIGNED" as const,
           reviewRequestedAt: targetCase.reviewRequestedAt ?? new Date().toISOString(),
+          reviewAssignedAt: new Date().toISOString(),
         },
         ...store.cases,
       ]
@@ -1536,13 +1541,72 @@ export async function mockRecordCaseReviewDecision(
   const reviewStatus: ReviewStatus =
     decision === "APPROVED" ? "REPORT_APPROVED" : "REVIEW_SUPPLEMENT_REQUESTED"
   const reviewerComment = memo?.trim() || null
+  const previousRounds = targetCase.reviewRounds ?? []
+  const reviewerName =
+    mockUsers.find((user) => user.id === targetCase.reviewerId)?.name ?? null
+  const reviewRound: CaseReviewRound = {
+    round: previousRounds.length + 1,
+    decision,
+    reviewerId: targetCase.reviewerId ?? null,
+    reviewerName,
+    requestedAt: targetCase.reviewRequestedAt ?? null,
+    assignedAt: targetCase.reviewAssignedAt ?? null,
+    decidedAt: new Date().toISOString(),
+    reason: reviewerComment,
+  }
   const cases = store.cases.some((item) => item.caseId === resolvedCaseId)
     ? store.cases.map((item) =>
         item.caseId === resolvedCaseId
-          ? { ...item, reviewStatus, reviewerComment }
+          ? {
+              ...item,
+              reviewStatus,
+              reviewerComment,
+              reviewRounds: [...previousRounds, reviewRound],
+            }
           : item
       )
-    : [{ ...targetCase, reviewStatus, reviewerComment }, ...store.cases]
+    : [
+        {
+          ...targetCase,
+          reviewStatus,
+          reviewerComment,
+          reviewRounds: [...previousRounds, reviewRound],
+        },
+        ...store.cases,
+      ]
+
+  writeStore({ ...store, cases })
+  return mockFetchCaseDetail(resolvedCaseId)
+}
+
+export async function mockRequestCaseReview(
+  caseId: string,
+  _memo?: string
+): Promise<CaseDetailData> {
+  await delay(180)
+
+  const resolvedCaseId = resolveMockCaseId(caseId)
+  const store = materializeReviewQueueSeedCase(
+    materializeSampleCase(readStore(), resolvedCaseId),
+    resolvedCaseId
+  )
+  const targetCase = findCaseRecord(store, resolvedCaseId)
+  if (!targetCase) {
+    throw new Error("검토 요청할 사건을 찾을 수 없습니다.")
+  }
+
+  const reviewStatus: ReviewStatus = "REVIEW_REQUESTED"
+  const reviewRequestedAt = new Date().toISOString()
+  const cases = store.cases.some((item) => item.caseId === resolvedCaseId)
+    ? store.cases.map((item) =>
+        item.caseId === resolvedCaseId
+          ? { ...item, reviewStatus, reviewRequestedAt, reviewAssignedAt: null }
+          : item
+      )
+    : [
+        { ...targetCase, reviewStatus, reviewRequestedAt, reviewAssignedAt: null },
+        ...store.cases,
+      ]
 
   writeStore({ ...store, cases })
   return mockFetchCaseDetail(resolvedCaseId)
@@ -2514,7 +2578,10 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
         assigneeId: storedCase.assigneeId ?? defaultCaseAccessFields().assigneeId,
         reviewerId: storedCase.reviewerId ?? null,
         reviewStatus: storedCase.reviewStatus ?? "NONE",
+        reviewRequestedAt: storedCase.reviewRequestedAt ?? null,
+        reviewAssignedAt: storedCase.reviewAssignedAt ?? null,
         reviewerComment: storedCase.reviewerComment ?? null,
+        reviewRounds: storedCase.reviewRounds ?? [],
         evidences: [],
       }
     }
@@ -2543,7 +2610,10 @@ export async function mockFetchCaseDetail(caseId: string): Promise<CaseDetailDat
     assigneeId: caseRecord?.assigneeId ?? defaultCaseAccessFields().assigneeId,
     reviewerId: caseRecord?.reviewerId ?? null,
     reviewStatus: caseRecord?.reviewStatus ?? "NONE",
+    reviewRequestedAt: caseRecord?.reviewRequestedAt ?? null,
+    reviewAssignedAt: caseRecord?.reviewAssignedAt ?? null,
     reviewerComment: caseRecord?.reviewerComment ?? null,
+    reviewRounds: caseRecord?.reviewRounds ?? [],
     evidences,
   }
 }
@@ -2580,14 +2650,16 @@ function mapRecordToCaseEvidence(record: MockEvidenceRecord, index: number): Cas
 
 function defaultProfile(): UserProfile {
   const session = getSession()
+  const appUser = getAppUserFromSession(session)
+  const loginId = session?.loginId ?? "hong_gildong"
 
   return {
     userId: Number(session?.userId) || 1001,
-    loginId: session?.loginId ?? "hong_gildong",
-    email: "hong@forenshield.go.kr",
-    name: session?.name ?? "홍길동",
-    department: "디지털포렌식센터",
-    role: "USER",
+    loginId,
+    email: `${loginId}@local.dev`,
+    name: appUser?.name ?? session?.name ?? "홍길동",
+    department: appUser?.department ?? "디지털포렌식센터",
+    role: appUser?.role ?? "INVESTIGATOR",
     status: "APPROVED",
     darkMode: false,
     createdAt: "2026-01-02T09:00:00",
@@ -2601,7 +2673,14 @@ function readProfile(): UserProfile {
   if (!raw) return defaultProfile()
 
   try {
-    return { ...defaultProfile(), ...(JSON.parse(raw) as Partial<UserProfile>) }
+    const defaults = defaultProfile()
+    const saved = JSON.parse(raw) as Partial<UserProfile>
+    return {
+      ...defaults,
+      ...saved,
+      email: saved.email?.trim() || defaults.email,
+      department: saved.department?.trim() || defaults.department,
+    }
   } catch {
     return defaultProfile()
   }
@@ -2625,7 +2704,6 @@ export async function mockUpdateMyProfile(
   const next: UserProfile = {
     ...readProfile(),
     loginId: payload.loginId,
-    department: payload.department,
   }
 
   writeProfile(next)

@@ -42,6 +42,9 @@ export type AdminReviewer = {
   organizationId?: string | null
   organizationName?: string | null
   organizationType?: string | null
+  specialties?: string[]
+  activeCaseCount?: number
+  averageDays?: number
 }
 
 type AdminReviewerListResponse = {
@@ -705,12 +708,18 @@ export async function fetchAdminReviewers(
         .filter(
           (user) => !organizationIdFilter || user.organizationId === organizationIdFilter
         )
-        .map((user) => ({
+        .map((user, index) => ({
           id: user.id,
           name: user.name,
           department: user.department,
           organizationId: user.organizationId,
           organizationName: user.organizationName,
+          specialties:
+            index % 2 === 0
+              ? ["영상 포렌식", "딥페이크 탐지"]
+              : ["위변조 분석", "영상 포렌식"],
+          activeCaseCount: index % 2 === 0 ? 3 : 4,
+          averageDays: index % 2 === 0 ? 1.8 : 2.4,
         }))
     }
   )

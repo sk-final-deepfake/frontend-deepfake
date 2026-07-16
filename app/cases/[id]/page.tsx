@@ -38,6 +38,7 @@ import {
   Download,
   FileSearch,
   FileVideo,
+  Flag,
   GitCompare,
   Home,
   Loader2,
@@ -69,6 +70,11 @@ import { ReadinessBadge } from "@/components/readiness-badge"
 import { useAnalyzeWithReadiness } from "@/hooks/use-analyze-with-readiness"
 import { isStepUpCancelledError, useStepUpGate } from "@/hooks/use-step-up-gate"
 import { CaseHero } from "./_components/case-hero"
+import {
+  ReviewDecisionDialog,
+  ReviewRequestDialog,
+  ReviewerAssignmentDialog,
+} from "./_components/review-workflow-dialogs"
 import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
 import { ResultEvidenceMedia } from "./_components/result-evidence-media"
 import { ResultFrameAnalysis } from "./_components/result-frame-analysis"
@@ -87,7 +93,10 @@ import { getXceptionFrameScores } from "./_lib/module-timelines"
 import {
   buildForgeryRepresentativeFrames,
   buildForgeryResultTabSignals,
+  DEFAULT_FORGERY_THRESHOLDS,
   formatForgeryDualScoreSub,
+  forgeryHighRiskGalleryCopy,
+  FORGERY_SPATIAL_MODULE,
   getForgeryPriorityReviewRange,
   getForgeryScoreSummary,
 } from "./_lib/forgery-ui"
@@ -133,6 +142,11 @@ import {
   type RepresentativeFrame,
 } from "@/lib/api/evidence-detail"
 import {
+  assignAdminCaseReviewer,
+  fetchAdminReviewers,
+  type AdminReviewer,
+} from "@/lib/api/admin"
+import {
   cancelCaseAnalysis,
   markEvidenceExcluded,
   recordCaseReviewDecision,
@@ -157,7 +171,15 @@ import {
   saveCompareResultSummary,
   type StoredCompareResultSummary,
 } from "@/lib/compare-history"
-import { getAppUserFromSession, mockUsers, roleLabelMap, canRequestReview, reviewStatusLabelMap, type AppUser } from "@/lib/permissions"
+import {
+  canAssignReviewer,
+  getAppUserFromSession,
+  isAssignedReviewer,
+  isCaseOwner,
+  mockUsers,
+  roleLabelMap,
+  type AppUser,
+} from "@/lib/permissions"
 import { getAnalysisStatusLabel } from "@/lib/status-labels"
 import { buildCaseDetailPath, decodeRouteParam } from "@/lib/route-params"
 import { normalizeAnalysisStatus, normalizeEvidenceDetailForUi, normalizeScore } from "@/lib/api/normalize-analysis"
@@ -203,6 +225,21 @@ function clampAnalysisProgress(progress: number | null | undefined) {
   return Math.max(0, Math.min(100, Math.round(progress ?? 0)))
 }
 
+function isDeepfakeAnalysisReady(evidences: CaseEvidenceSummary[]) {
+  const activeEvidences = evidences.filter((evidence) => (evidence.lifecycleStatus ?? "ACTIVE") === "ACTIVE")
+  return (
+    activeEvidences.length > 0 &&
+    activeEvidences.some(
+      (evidence) => normalizeStatus(evidence.analysisStatus ?? "PENDING") === "COMPLETED"
+    ) &&
+    activeEvidences.every((evidence) =>
+      ["COMPLETED", "FAILED"].includes(
+        normalizeStatus(evidence.analysisStatus ?? "PENDING")
+      )
+    )
+  )
+}
+
 function getFileExtension(fileName: string, mediaType?: string) {
   const extension = fileName.split(".").pop()
   if (extension) return extension.toUpperCase()
@@ -219,10 +256,10 @@ function getCaseActorName(userId?: string | null) {
 }
 
 function getCaseStatusLabel(status: string) {
-  if (status === "COMPLETED") return "COMPLETED"
-  if (status === "PROCESSING") return "PROCESSING"
-  if (status === "FAILED") return "FAILED"
-  return status || "PENDING"
+  if (status === "COMPLETED") return "분석 완료"
+  if (status === "PROCESSING") return "분석 중"
+  if (status === "FAILED") return "분석 실패"
+  return "분석 대기"
 }
 
 function sortEvidences(evidences: CaseEvidenceSummary[]) {
@@ -310,12 +347,20 @@ export default function CaseDetailPage() {
   const [caseRefreshKey, setCaseRefreshKey] = useState(0)
   const isInitialCaseLoad = useRef(true)
   const selectedEvidenceIdRef = useRef<number | null>(null)
+  const reviewRequestPromptedForAnalysisRef = useRef<string | null>(null)
   const [showResultDashboard, setShowResultDashboard] = useState(false)
   const [showIntegrityDashboard, setShowIntegrityDashboard] = useState(false)
   const [session, setSession] = useState<AuthSession | null>(() => getSession())
   const [analysisProgressOverrides, setAnalysisProgressOverrides] = useState<AnalysisProgressOverrides>({})
   const [analysisPollingMessage, setAnalysisPollingMessage] = useState<WorkflowMessage | null>(null)
+  const [reviewPopoverOpen, setReviewPopoverOpen] = useState(false)
+  const [reviewRequestDialogOpen, setReviewRequestDialogOpen] = useState(false)
   const isReviewer = isReviewerSession(session)
+  const currentUser = getAppUserFromSession(session)
+  const canPromptReviewForCurrentCase =
+    caseData != null &&
+    currentUser?.role === "INVESTIGATOR" &&
+    isCaseOwner(currentUser, caseData)
   const refreshCase = useCallback(() => {
     setCaseRefreshKey((key) => key + 1)
   }, [])
@@ -327,6 +372,7 @@ export default function CaseDetailPage() {
     submitPassword,
     cancelPassword,
     closeSuccessDialog,
+    ensureStepUp,
     fetchEvidenceDetailWithStepUp,
   } = useStepUpGate()
 
@@ -489,7 +535,7 @@ export default function CaseDetailPage() {
 
         if (status === "PROCESSING") {
           const previous = next[evidence.evidenceId]
-          const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+          const nextProgress = Math.max(previous?.progress ?? 0, progress)
           if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
             next[evidence.evidenceId] = { status: "PROCESSING", progress: nextProgress }
             changed = true
@@ -509,37 +555,11 @@ export default function CaseDetailPage() {
   }, [caseData])
 
   useEffect(() => {
-    const hasRunningOverride = Object.values(analysisProgressOverrides).some(
-      (item) => item.status === "PROCESSING" && item.progress < 92
-    )
-    if (!hasRunningOverride) return
-
-    const timer = window.setInterval(() => {
-      setAnalysisProgressOverrides((current) => {
-        let changed = false
-        const next = { ...current }
-
-        for (const [rawId, item] of Object.entries(current)) {
-          if (item.status !== "PROCESSING" || item.progress >= 92) continue
-
-          const increment = item.progress < 18 ? 3 : item.progress < 55 ? 2 : 1
-          const progress = Math.min(92, item.progress + increment)
-          if (progress !== item.progress) {
-            next[Number(rawId)] = { ...item, progress }
-            changed = true
-          }
-        }
-
-        return changed ? next : current
-      })
-    }, 1500)
-
-    return () => window.clearInterval(timer)
-  }, [analysisProgressOverrides])
-
-  useEffect(() => {
     if (!trackedAnalysisIdsKey) {
-      setAnalysisPollingMessage(null)
+      const promptPrefix = caseData ? `${caseData.caseId}|` : ""
+      if (!reviewRequestPromptedForAnalysisRef.current?.startsWith(promptPrefix)) {
+        setAnalysisPollingMessage(null)
+      }
       return
     }
 
@@ -573,7 +593,10 @@ export default function CaseDetailPage() {
       }
 
       failedPollCount = 0
-      setAnalysisPollingMessage(null)
+      const promptKey = caseData ? `${caseData.caseId}|${trackedAnalysisIdsKey}` : trackedAnalysisIdsKey
+      if (reviewRequestPromptedForAnalysisRef.current !== promptKey) {
+        setAnalysisPollingMessage(null)
+      }
       setAnalysisProgressOverrides((current) => {
         let changed = false
         const next = { ...current }
@@ -594,7 +617,7 @@ export default function CaseDetailPage() {
 
           if (status === "PROCESSING" || progress > 0) {
             const previous = next[statusUpdate.evidenceId]
-            const nextProgress = Math.max(previous?.progress ?? 0, progress, 6)
+            const nextProgress = Math.max(previous?.progress ?? 0, progress)
             if (!previous || previous.status !== "PROCESSING" || previous.progress !== nextProgress) {
               next[statusUpdate.evidenceId] = { status: "PROCESSING", progress: nextProgress }
               changed = true
@@ -609,6 +632,15 @@ export default function CaseDetailPage() {
         (status) =>
           normalizeStatus(status?.status) === "COMPLETED" || normalizeStatus(status?.status) === "FAILED"
       )
+      const allTrackedAnalysesTerminal =
+        validStatuses.length === pollIds.length &&
+        validStatuses.every((status) => {
+          const analysisStatus = normalizeStatus(status.status)
+          return analysisStatus === "COMPLETED" || analysisStatus === "FAILED"
+        })
+      const canPromptForReview =
+        canPromptReviewForCurrentCase &&
+        validStatuses.some((status) => normalizeStatus(status.status) === "COMPLETED")
       const now = Date.now()
       const selectedId = selectedEvidenceIdRef.current
 
@@ -636,6 +668,15 @@ export default function CaseDetailPage() {
         refreshCase()
       }
 
+      if (
+        allTrackedAnalysesTerminal &&
+        canPromptForReview &&
+        reviewRequestPromptedForAnalysisRef.current !== promptKey
+      ) {
+        reviewRequestPromptedForAnalysisRef.current = promptKey
+        setAnalysisPollingMessage({ type: "info", text: "검토 요청을 진행해주세요" })
+      }
+
       if (!timeoutNotified && now - pollingStartedAt > 60000 && !hasTerminalStatus) {
         timeoutNotified = true
         setAnalysisPollingMessage({ type: "error", text: ANALYSIS_STATUS_POLL_TIMEOUT_TEXT })
@@ -647,13 +688,19 @@ export default function CaseDetailPage() {
     const interval = window.setInterval(() => {
       if (document.hidden) return
       void pollAnalysisStatuses()
-    }, 4000)
+    }, 2000)
 
     return () => {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [refreshCase, refreshEvidenceDetail, trackedAnalysisIdsKey])
+  }, [
+    canPromptReviewForCurrentCase,
+    caseData,
+    refreshCase,
+    refreshEvidenceDetail,
+    trackedAnalysisIdsKey,
+  ])
 
   useEffect(() => {
     if (!caseData || !selectedEvidenceId) return
@@ -783,7 +830,15 @@ export default function CaseDetailPage() {
             {!showResultDashboard && !showIntegrityDashboard ? (
               <>
                 <CaseBreadcrumb />
-                <CaseHero data={caseData} getStatusLabel={getCaseStatusLabel} />
+                <CaseHero
+                  data={caseData}
+                  getStatusLabel={getCaseStatusLabel}
+                  reviewerName={getCaseActorName(caseData.reviewerId)}
+                  requesterName={getCaseActorName(caseData.createdBy)}
+                  viewerIsReviewer={isReviewer}
+                  reviewOpen={reviewPopoverOpen}
+                  onReviewOpenChange={setReviewPopoverOpen}
+                />
               </>
             ) : null}
 
@@ -798,6 +853,9 @@ export default function CaseDetailPage() {
                     detailError={detailError}
                     currentSession={session}
                     onBack={() => setShowResultDashboard(false)}
+                    onRefreshEvidenceDetail={(evidenceId) =>
+                      void refreshEvidenceDetail(evidenceId, { silent: true })
+                    }
                   />
                 ) : showIntegrityDashboard ? (
                   <CaseIntegrityView
@@ -826,9 +884,17 @@ export default function CaseDetailPage() {
                     analysisProgressOverrides={analysisProgressOverrides}
                     setAnalysisProgressOverrides={setAnalysisProgressOverrides}
                     analysisPollingMessage={analysisPollingMessage}
-                    currentUserName={getAppUserFromSession(session)?.name ?? null}
-                    currentUser={getAppUserFromSession(session)}
+                    reviewRequestOpen={reviewRequestDialogOpen}
+                    onReviewRequestOpenChange={setReviewRequestDialogOpen}
+                    currentUserName={currentUser?.name ?? null}
+                    currentUser={currentUser}
                     readOnly={isReviewer}
+                    onReauthenticate={async () => {
+                      await ensureStepUp()
+                      if (selectedEvidenceId) {
+                        await refreshEvidenceDetail(selectedEvidenceId)
+                      }
+                    }}
                   />
                 )}
               </div>
@@ -977,6 +1043,7 @@ function CaseResultView({
   detailError,
   currentSession,
   onBack,
+  onRefreshEvidenceDetail,
 }: {
   caseData: CaseDetailData
   evidenceDetail: EvidenceDetailData | null
@@ -985,6 +1052,7 @@ function CaseResultView({
   detailError: string | null
   currentSession: AuthSession | null
   onBack: () => void
+  onRefreshEvidenceDetail?: (evidenceId: number) => void
 }) {
   const [mediaContext, setMediaContext] = useState("original")
   const [resultTab, setResultTab] = useState<ResultTab>("summary")
@@ -1013,7 +1081,10 @@ function CaseResultView({
   const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
   const forgeryScoreSummary = getForgeryScoreSummary(evidenceDetail)
   const forgeryPriorityRange = getForgeryPriorityReviewRange(evidenceDetail)
-  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail)
+  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail, {
+    moduleKey: FORGERY_SPATIAL_MODULE,
+  })
+  const forgeryGalleryCopy = forgeryHighRiskGalleryCopy(FORGERY_SPATIAL_MODULE)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
@@ -1123,6 +1194,11 @@ function CaseResultView({
               onSecurityEvent={reportSecurityEvent}
               onSeek={seekResultVideo}
               onMediaContextChange={setMediaContext}
+              onOverlayReady={() => {
+                if (selectedEvidenceId) {
+                  onRefreshEvidenceDetail?.(selectedEvidenceId)
+                }
+              }}
               renderHeatStrip={({ scores, caption, onSeek: seek }) => (
                 <FrameRiskHeatStrip scores={scores} onSeek={seek} caption={caption} />
               )}
@@ -1234,6 +1310,14 @@ function CaseResultView({
                       tone={overThresholdSignalCount > 0 ? "danger" : "neutral"}
                     />
                   </div>
+
+                  <ModelConsensusCard
+                    models={methodology.models}
+                    thresholdPercent={Math.round(detectionThreshold * 100)}
+                    summary={sanitizeAnalysisSummaryForUi(evidenceDetail.analysisInfo.summary)}
+                  />
+
+                  <TrustChecklistCard data={evidenceDetail} />
 
                   <ReadinessMetricSection
                     evidenceId={evidenceDetail.evidenceInfo.evidenceId}
@@ -1399,32 +1483,39 @@ function CaseResultView({
                     </p>
                   )}
 
-                  {forgeryRepresentativeFrames.length > 0 ? (
-                    <section className="mt-5">
+                  <section className="mt-5">
                       <div>
-                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">고위험 프레임</h4>
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">
+                          {forgeryGalleryCopy.title}
+                        </h4>
                         <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                          TruFor frameRisks 상위 시점입니다. 서버 이미지가 없으면 영상에서 해당 시각을 캡처합니다.
+                          {forgeryGalleryCopy.description}
                         </p>
                       </div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        {forgeryRepresentativeFrames.slice(0, 2).map((frame, index) => (
-                          <RepresentativeFrameDetailCard
-                            key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
-                            frame={frame}
-                            index={index}
-                            videoRef={videoRef}
-                          />
-                        ))}
-                      </div>
+                      {forgeryRepresentativeFrames.length > 0 ? (
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {forgeryRepresentativeFrames.slice(0, 2).map((frame, index) => (
+                            <RepresentativeFrameDetailCard
+                              key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
+                              frame={frame}
+                              index={index}
+                              videoRef={videoRef}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
+                          {forgeryGalleryCopy.empty}
+                        </p>
+                      )}
                     </section>
-                  ) : null}
                 </section>
               ) : resultTab === "frames" ? (
                 <ResultFrameAnalysis
                   evidenceDetail={evidenceDetail}
                   detectionThreshold={detectionThreshold}
                   representativeFrames={representativeFrames}
+                  videoRef={videoRef}
                   onSeek={seekResultVideo}
                 />
               ) : (
@@ -1496,16 +1587,27 @@ function CaseResultView({
                       {forgeryMethodologyItems.map((item) => (
                         <div key={item.name} className="px-5 py-3.5">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">{item.name}</p>
+                            <p className="text-sm font-bold text-slate-950 dark:text-foreground">
+                              {item.name}
+                              {item.version ? (
+                                <span className="ml-1.5 font-mono text-xs font-semibold text-slate-400">
+                                  {item.version}
+                                </span>
+                              ) : null}
+                            </p>
                             <span
                               className={cn(
                                 "rounded-full px-2.5 py-1 text-[11px] font-bold",
-                                item.available
-                                  ? "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300"
+                                item.score != null && item.overThreshold
+                                  ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
                                   : "bg-slate-100 text-slate-500 dark:bg-secondary dark:text-muted-foreground"
                               )}
                             >
-                              {item.available ? "결과 수신" : "대기"}
+                              {item.score == null
+                                ? "정보 없음"
+                                : item.overThreshold
+                                  ? `기준 ${Math.round(item.threshold * 100)} 초과`
+                                  : `기준 ${Math.round(item.threshold * 100)} 미만`}
                             </span>
                           </div>
                           <p className="mt-1 text-xs font-semibold text-slate-500">분석 목적: {item.role}</p>
@@ -2272,7 +2374,7 @@ function BlockchainAnchorCard({
           </div>
           {anchor.analysisModel || anchor.analysisModules.length > 0 ? (
             <div className="mt-4 border-t border-slate-200/80 pt-4 dark:border-border">
-              <p className="text-xs font-bold text-slate-400">AI 분석 모델 스냅샷 (원장)</p>
+              <p className="text-xs font-bold text-slate-400">AI·위변조 분석 모델 스냅샷 (원장)</p>
               {anchor.analysisModel ? (
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <IntegrityInfoRow label="모델명" value={anchor.analysisModel.name} />
@@ -2372,9 +2474,12 @@ function CaseWorkflowPanel({
   analysisProgressOverrides,
   setAnalysisProgressOverrides,
   analysisPollingMessage,
+  reviewRequestOpen,
+  onReviewRequestOpenChange,
   currentUserName,
   currentUser = null,
   readOnly = false,
+  onReauthenticate,
 }: {
   caseData: CaseDetailData
   selectedEvidenceId: number | null
@@ -2394,9 +2499,12 @@ function CaseWorkflowPanel({
   analysisProgressOverrides: AnalysisProgressOverrides
   setAnalysisProgressOverrides: Dispatch<SetStateAction<AnalysisProgressOverrides>>
   analysisPollingMessage: WorkflowMessage | null
+  reviewRequestOpen: boolean
+  onReviewRequestOpenChange: (open: boolean) => void
   currentUserName?: string | null
   currentUser?: AppUser | null
   readOnly?: boolean
+  onReauthenticate: () => Promise<void>
 }) {
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const [actionMode, setActionMode] = useState<"idle" | "analyze" | "exclude" | "replace">("idle")
@@ -2414,12 +2522,14 @@ function CaseWorkflowPanel({
   )
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [analystCommentsByEvidence, setAnalystCommentsByEvidence] = useState<Record<number, string>>({})
-  const [reviewerCommentDraft, setReviewerCommentDraft] = useState(caseData.reviewerComment ?? "")
+  const [reviewerCommentsByEvidence, setReviewerCommentsByEvidence] = useState<Record<number, string>>({})
   const [message, setMessage] = useState<WorkflowMessage | null>(null)
-  const [reviewDecision, setReviewDecision] = useState<"PENDING" | "APPROVED" | "REVISION">("PENDING")
-  const [reviewRequestOpen, setReviewRequestOpen] = useState(false)
-  const [reviewRequestMemo, setReviewRequestMemo] = useState("")
+  const [assignmentOpen, setAssignmentOpen] = useState(false)
+  const [decisionDialog, setDecisionDialog] = useState<"APPROVED" | "REVISION" | null>(null)
+  const [reviewers, setReviewers] = useState<AdminReviewer[]>([])
+  const [reviewersLoading, setReviewersLoading] = useState(false)
   const [isWorking, setIsWorking] = useState(false)
+  const [reviewedEvidenceIds, setReviewedEvidenceIds] = useState<number[]>([])
   const [readinessByEvidenceId, setReadinessByEvidenceId] = useState<
     Record<number, EvidenceReadinessResponse>
   >({})
@@ -2438,28 +2548,6 @@ function CaseWorkflowPanel({
   const analysisBusy = isWorking || isCheckingReadiness || qualityDialogOpen
   const [selectedCompareResult, setSelectedCompareResult] = useState<StoredCompareResultSummary | null>(null)
   const [statusFilter, setStatusFilter] = useState<EvidenceStatusBucket | "all">("all")
-
-  useEffect(() => {
-    if (caseData.reviewStatus === "REPORT_APPROVED") {
-      setReviewDecision("APPROVED")
-      return
-    }
-    if (
-      caseData.reviewStatus === "REVIEW_SUPPLEMENT_REQUESTED" ||
-      caseData.reviewStatus === "SUPPLEMENT_REQUESTED" ||
-      caseData.reviewStatus === "REVIEW_REVISION_REQUESTED" ||
-      caseData.reviewStatus === "REVISION_REQUESTED" ||
-      caseData.reviewStatus === "REVIEW_NEEDS_CHANGES"
-    ) {
-      setReviewDecision("REVISION")
-      return
-    }
-    setReviewDecision("PENDING")
-  }, [caseData.reviewStatus])
-
-  useEffect(() => {
-    setReviewerCommentDraft(caseData.reviewerComment ?? "")
-  }, [caseData.caseId, caseData.reviewerComment])
 
   const evidences = useMemo(
     () =>
@@ -2531,14 +2619,15 @@ function CaseWorkflowPanel({
   const allSelectableAnalysisSelected =
     selectableAnalysisEvidences.length > 0 &&
     selectableAnalysisEvidences.every((evidence) => selectedAnalysisIdSet.has(evidence.evidenceId))
-  const showEvidenceActionFooter = !readOnly || selectedEvidenceCompleted
   const showSelectedEvidenceResultAction = selectedAnalysisCount === 0 && selectedEvidenceCompleted
   const selectedHlsPlayback = evidenceDetail?.hlsPlayback ?? null
   const selectedMetadata = evidenceDetail?.evidenceInfo.technicalMetadata ?? null
   const selectedAnalystComment = selectedEvidence
     ? analystCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
     : ""
-  const selectedReviewComment = reviewerCommentDraft
+  const selectedReviewerComment = selectedEvidence
+    ? reviewerCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
+    : ""
   const analystName =
     (!readOnly ? currentUserName : null) ??
     getCaseActorName(caseData.assigneeId ?? caseData.createdBy)
@@ -2557,13 +2646,52 @@ function CaseWorkflowPanel({
       : selectedCompareResult.verdict === "TAMPERED" || selectedCompareResult.mismatchCount > 0
         ? "text-red-700 dark:text-red-400"
         : "text-amber-600"
-  const isReviewerMode = readOnly
-  const showReviewRequestButton = !readOnly && canRequestReview(currentUser, caseData)
+  const isReviewerMode = currentUser?.role === "REVIEWER"
+  const isAdminMode = currentUser?.role === "ORG_ADMIN"
   const caseReviewStatus = caseData.reviewStatus ?? "NONE"
-  const showCaseReviewStatus =
-    !readOnly && !showReviewRequestButton && caseReviewStatus !== "NONE"
-  const caseReviewStatusLabel =
-    reviewStatusLabelMap[caseReviewStatus as keyof typeof reviewStatusLabelMap] ?? caseReviewStatus
+  const supplementRequested = isSupplementReviewStatus(caseReviewStatus)
+  const deepfakeAnalysisReady = isDeepfakeAnalysisReady(evidences)
+  const showReviewRequestAction =
+    currentUser?.role === "INVESTIGATOR" &&
+    isCaseOwner(currentUser, caseData) &&
+    caseReviewStatus === "NONE"
+  const reviewRequestAllowed =
+    showReviewRequestAction && deepfakeAnalysisReady
+  const canRequestRereview =
+    currentUser?.role === "INVESTIGATOR" &&
+    isCaseOwner(currentUser, caseData) &&
+    supplementRequested
+  const showSupplementBanner = canRequestRereview
+  const showAssignmentAction =
+    isAdminMode &&
+    caseReviewStatus === "REVIEW_REQUESTED" &&
+    canAssignReviewer(currentUser, caseData)
+  const showDecisionActions =
+    isReviewerMode &&
+    caseReviewStatus === "REVIEW_ASSIGNED" &&
+    isAssignedReviewer(currentUser, caseData)
+  const showEvidenceActionFooter = !readOnly || selectedEvidenceCompleted || isReviewerMode
+  const latestSupplementRound =
+    [...(caseData.reviewRounds ?? [])].reverse().find((round) => round.decision === "REVISION") ?? null
+  const supplementReason = latestSupplementRound?.reason ?? caseData.reviewerComment ?? ""
+  const supplementReviewerName = latestSupplementRound?.reviewerName ?? reviewerName ?? ""
+  const supplementRequestedAt = latestSupplementRound?.decidedAt ?? null
+  const unreadReviewEvidences = activeEvidences.filter(
+    (evidence) => !reviewedEvidenceIds.includes(evidence.evidenceId)
+  )
+  const unreadReviewEvidenceLabels = unreadReviewEvidences.map(
+    (evidence) => `증거 ${activeEvidences.findIndex((item) => item.evidenceId === evidence.evidenceId) + 1}`
+  )
+  const reviewedEvidenceCount = activeEvidences.length - unreadReviewEvidenceLabels.length
+  const caseReviewSummary = `${caseData.caseName} · 증거 ${activeEvidences.length}개`
+
+  useEffect(() => {
+    if (!isReviewerMode || !selectedEvidence || !selectedEvidenceActive) return
+
+    setReviewedEvidenceIds((current) =>
+      current.includes(selectedEvidence.evidenceId) ? current : [...current, selectedEvidence.evidenceId]
+    )
+  }, [isReviewerMode, selectedEvidence?.evidenceId, selectedEvidenceActive])
 
   useEffect(() => {
     if (!selectedEvidence) {
@@ -2573,6 +2701,33 @@ function CaseWorkflowPanel({
 
     setSelectedCompareResult(getLatestCompareResultSummary(selectedEvidence.evidenceId))
   }, [selectedEvidence])
+
+  useEffect(() => {
+    if (!assignmentOpen) return
+    let cancelled = false
+    setReviewersLoading(true)
+
+    void fetchAdminReviewers({ uploaderId: caseData.createdBy })
+      .then((items) => {
+        if (!cancelled) setReviewers(items)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setReviewers([])
+          setMessage({
+            type: "error",
+            text: getApiErrorMessage(error, "검토자 배정"),
+          })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setReviewersLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [assignmentOpen, caseData.createdBy])
 
   useEffect(() => {
     if (!selectedEvidence) return
@@ -2803,7 +2958,7 @@ function CaseWorkflowPanel({
           for (const evidenceId of targetIds) {
             next[evidenceId] = {
               status: "PROCESSING",
-              progress: Math.max(current[evidenceId]?.progress ?? 0, 6),
+              progress: current[evidenceId]?.progress ?? 0,
             }
           }
           return next
@@ -2900,7 +3055,7 @@ function CaseWorkflowPanel({
     setDeleteConfirmOpen(false)
   }
 
-  async function handleReviewDecision(nextDecision: "APPROVED" | "REVISION") {
+  async function handleReviewDecision(nextDecision: "APPROVED" | "REVISION", reason: string) {
     if (isWorking) return
 
     setIsWorking(true)
@@ -2909,13 +3064,17 @@ function CaseWorkflowPanel({
       const updated = await recordCaseReviewDecision(
         caseData.caseId,
         nextDecision,
-        reviewerCommentDraft
+        reason
       )
-      setReviewerCommentDraft(updated.reviewerComment ?? "")
-      setReviewDecision(nextDecision)
+      setDecisionDialog(null)
       setMessage({
         type: "success",
-        text: nextDecision === "APPROVED" ? "검토 승인과 최종 보고서 발행이 완료되었습니다." : "재검토가 요청되었습니다.",
+        text: nextDecision === "APPROVED" ? "검토가 승인되었습니다" : "보완 요청을 보냈습니다",
+      })
+      addAppNotification({
+        title: nextDecision === "APPROVED" ? "검토가 승인되었습니다" : "보완 요청을 보냈습니다",
+        description: caseData.caseName,
+        href: window.location.pathname,
       })
       if (updated.reviewStatus !== caseData.reviewStatus) {
         onRefresh()
@@ -2931,17 +3090,26 @@ function CaseWorkflowPanel({
   }
 
   async function handleRequestReview() {
-    if (isWorking || !showReviewRequestButton) return
+    if (
+      isWorking ||
+      (!reviewRequestAllowed && !canRequestRereview)
+    ) {
+      return
+    }
 
     setIsWorking(true)
     setMessage(null)
     try {
-      await requestCaseReview(caseData.caseId, reviewRequestMemo)
-      setReviewRequestOpen(false)
-      setReviewRequestMemo("")
+      await requestCaseReview(caseData.caseId)
+      onReviewRequestOpenChange(false)
       setMessage({
         type: "success",
-        text: "검토 요청이 접수되었습니다. 기관 관리자가 검토자를 배정합니다.",
+        text: canRequestRereview ? "재검토 요청" : "검토 요청",
+      })
+      addAppNotification({
+        title: canRequestRereview ? "재검토 요청" : "검토 요청",
+        description: caseData.caseName,
+        href: window.location.pathname,
       })
       onRefresh()
     } catch (error) {
@@ -2954,10 +3122,61 @@ function CaseWorkflowPanel({
     }
   }
 
+  async function handleAssignReviewer(reviewer: AdminReviewer) {
+    if (isWorking || !showAssignmentAction) return
+
+    setIsWorking(true)
+    setMessage(null)
+    try {
+      await assignAdminCaseReviewer(caseData.caseId, reviewer.id, caseData.createdBy)
+      setAssignmentOpen(false)
+      setMessage({ type: "success", text: `${reviewer.name}에게 배정` })
+      addAppNotification({
+        title: "검토자 배정",
+        description: `${caseData.caseName} · ${reviewer.name}`,
+        href: window.location.pathname,
+      })
+      onRefresh()
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: getApiErrorMessage(error, "검토자 배정"),
+      })
+    } finally {
+      setIsWorking(false)
+    }
+  }
+
   const visibleMessage = analysisPollingMessage ?? message
 
   return (
-    <section className="relative rounded-xl border border-border bg-card p-3 shadow-sm sm:p-5">
+    <>
+      {showSupplementBanner ? (
+        <section
+          aria-label="보완 요청됨"
+          className="flex min-h-12 flex-col gap-3 border-l-[3px] border-red-600 bg-red-50 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-red-700">
+            <Flag className="size-4 shrink-0" aria-hidden="true" />
+            <p className="min-w-0 truncate">
+              보완 요청됨 — {supplementReason ? `“${supplementReason}”` : ""}
+              {supplementReviewerName ? ` · 검토자 ${supplementReviewerName}` : ""}
+              {supplementRequestedAt ? ` · ${formatReviewEventDate(supplementRequestedAt)}` : ""}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shrink-0 border-red-200 bg-white px-3 text-sm font-bold text-red-700 hover:bg-red-50"
+            disabled={isWorking}
+            onClick={() => onReviewRequestOpenChange(true)}
+          >
+            보완 완료 · 재검토 요청
+          </Button>
+        </section>
+      ) : null}
+
+      <section className="relative rounded-xl border border-border bg-card p-3 shadow-sm sm:p-5">
       {!readOnly ? (
         <input
           ref={uploadInputRef}
@@ -2985,33 +3204,6 @@ function CaseWorkflowPanel({
             <AlertCircle className="size-4" aria-hidden="true" />
           )}
           {visibleMessage.text}
-        </div>
-      ) : null}
-
-      {!readOnly && (showReviewRequestButton || showCaseReviewStatus) ? (
-        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-foreground">사건 검토</p>
-            <p className="mt-1 text-xs font-semibold leading-5 text-muted-foreground">
-              {showReviewRequestButton
-                ? "분석이 완료되었습니다. 검토자 배정을 요청하면 관리자 페이지에서 검토자를 지정합니다."
-                : "검토 요청이 접수되었습니다. 기관 관리자의 검토자 배정을 기다리는 중입니다."}
-            </p>
-          </div>
-          {showReviewRequestButton ? (
-            <Button
-              type="button"
-              className="h-10 shrink-0 bg-teal-600 px-5 font-bold text-white hover:bg-teal-700"
-              disabled={isWorking}
-              onClick={() => setReviewRequestOpen(true)}
-            >
-              검토 요청
-            </Button>
-          ) : (
-            <span className="inline-flex h-10 shrink-0 items-center rounded-full bg-slate-100 px-4 text-sm font-bold text-slate-700">
-              {caseReviewStatusLabel}
-            </span>
-          )}
         </div>
       ) : null}
 
@@ -3214,7 +3406,11 @@ function CaseWorkflowPanel({
                     영상 정보를 불러오는 중
                   </div>
                 ) : selectedHlsPlayback || evidenceDetail ? (
-                  <ProtectedEvidencePlayer playback={selectedHlsPlayback} objectFit="contain">
+                  <ProtectedEvidencePlayer
+                    playback={selectedHlsPlayback}
+                    objectFit="contain"
+                    onReauthenticate={onReauthenticate}
+                  >
                     <EvidenceWatermarkOverlay
                       caseId={caseData.caseId}
                       evidenceId={selectedEvidence.evidenceId}
@@ -3314,6 +3510,27 @@ function CaseWorkflowPanel({
                         />
                       </span>
                     </button>
+
+                    {reviewRequestAllowed ? (
+                      <section
+                        aria-live="polite"
+                        className="flex flex-col gap-3 border-l-[3px] border-amber-500 bg-amber-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex min-w-0 items-center gap-2 text-sm font-bold text-amber-700">
+                          <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+                          <p>검토 요청을 진행해주세요</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9 shrink-0 border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                          disabled={isWorking}
+                          onClick={() => onReviewRequestOpenChange(true)}
+                        >
+                          검토 요청
+                        </Button>
+                      </section>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -3326,12 +3543,10 @@ function CaseWorkflowPanel({
                     className="flex items-center gap-2 text-sm font-bold text-foreground"
                   >
                     <MessageSquareText className="size-4 text-slate-500" aria-hidden="true" />
-                    분석관 코멘트
-                    {analystName ? (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
-                        {analystName}
-                      </span>
-                    ) : null}
+                    {analystName ?? "분석관"}
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                      분석관
+                    </span>
                   </label>
                   <textarea
                     id="caseAnalystComment"
@@ -3345,7 +3560,6 @@ function CaseWorkflowPanel({
                         [selectedEvidence.evidenceId]: event.target.value,
                       }))
                     }}
-                    placeholder="증거 확인 내용이나 분석 요청 메모를 입력하세요."
                     className="mt-2 h-[92px] w-full resize-none overflow-y-auto rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-slate-300 read-only:bg-muted/30"
                   />
                 </div>
@@ -3356,38 +3570,25 @@ function CaseWorkflowPanel({
                     className="flex items-center gap-2 text-sm font-bold text-foreground"
                   >
                     <MessageSquareText className="size-4 text-slate-500" aria-hidden="true" />
-                    검토자 코멘트
-                    {reviewerName ? (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
-                        {reviewerName}
-                      </span>
-                    ) : null}
+                    {reviewerName ?? "검토관"}
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                      검토관
+                    </span>
                   </label>
                   <textarea
                     id="caseReviewerComment"
-                    value={selectedReviewComment}
+                    value={selectedReviewerComment}
                     readOnly={!isReviewerMode}
                     onChange={(event) => {
                       if (!isReviewerMode) return
-                      setReviewerCommentDraft(event.target.value)
+                      setReviewerCommentsByEvidence((current) => ({
+                        ...current,
+                        [selectedEvidence.evidenceId]: event.target.value,
+                      }))
                     }}
-                    placeholder={
-                      isReviewerMode
-                        ? "검토 결과와 재검토 사유를 입력하세요."
-                        : "검토자가 작성한 의견이 여기에 표시됩니다."
-                    }
                     className="mt-2 h-[92px] w-full resize-none overflow-y-auto rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-slate-300 read-only:bg-muted/30"
                   />
                 </div>
-
-                {isReviewerMode ? (
-                  <ReviewerDecisionActions
-                    decision={reviewDecision}
-                    disabled={isWorking}
-                    onApprove={() => handleReviewDecision("APPROVED")}
-                    onRevision={() => handleReviewDecision("REVISION")}
-                  />
-                ) : null}
               </div>
             )}
 
@@ -3438,10 +3639,61 @@ function CaseWorkflowPanel({
                     </Button>
                   ) : null}
                 </>
+              ) : isReviewerMode ? (
+                <p className="px-3 text-sm font-bold text-muted-foreground">
+                  증거 {activeEvidences.length}개 중 {reviewedEvidenceCount}개 열람
+                </p>
               ) : null}
             </div>
             <div className="ml-0 flex w-full shrink-0 flex-col items-stretch justify-end gap-3 sm:ml-auto sm:w-auto sm:flex-row sm:items-center">
-              {selectedEvidenceRunning ? (
+              {isReviewerMode ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 w-full rounded-full border-slate-300 px-5 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+                    disabled={isWorking || !selectedEvidenceCompleted}
+                    onClick={() => {
+                      if (selectedEvidence) onViewResult(selectedEvidence.evidenceId)
+                    }}
+                  >
+                    결과보기
+                  </Button>
+                  {showDecisionActions ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-full rounded-full border-red-200 px-5 text-sm font-bold text-red-700 hover:bg-red-50 sm:w-auto"
+                        disabled={isWorking}
+                        onClick={() => setDecisionDialog("REVISION")}
+                      >
+                        보완 요청
+                      </Button>
+                      <Button
+                        type="button"
+                        className="h-11 w-full rounded-full bg-emerald-700 px-5 text-sm font-bold text-white hover:bg-emerald-800 sm:w-auto"
+                        disabled={isWorking}
+                        onClick={() => setDecisionDialog("APPROVED")}
+                      >
+                        검토 승인
+                      </Button>
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+              {showAssignmentAction ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full rounded-full border-slate-300 px-5 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+                  disabled={isWorking}
+                  onClick={() => setAssignmentOpen(true)}
+                >
+                  검토자 배정
+                </Button>
+              ) : null}
+              {!isReviewerMode && selectedEvidenceRunning ? (
                 <div
                   className="flex w-full min-w-0 flex-col gap-2 sm:min-w-[360px]"
                   aria-label={`AI 분석 진행률 ${selectedEvidenceProgress}%`}
@@ -3479,7 +3731,7 @@ function CaseWorkflowPanel({
                   </div>
                 </div>
               ) : null}
-              {!selectedEvidenceRunning ? (
+              {!isReviewerMode && !selectedEvidenceRunning ? (
                 <Button
                   type="button"
                   className="h-11 w-full rounded-full bg-foreground px-6 text-sm font-bold text-background hover:bg-foreground/90 sm:w-auto"
@@ -3512,69 +3764,37 @@ function CaseWorkflowPanel({
         </div>
       ) : null}
 
-      {!readOnly && reviewRequestOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="reviewRequestTitle"
-            className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 id="reviewRequestTitle" className="text-lg font-bold text-foreground">
-                  검토 요청
-                </h3>
-                <p className="mt-2 text-sm font-bold leading-6 text-muted-foreground">
-                  이 사건의 분석 결과를 검토자에게 전달합니다. 검토자 배정은 기관 관리자가 관리자
-                  페이지에서 진행합니다.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-                aria-label="검토 요청 닫기"
-                disabled={isWorking}
-                onClick={() => setReviewRequestOpen(false)}
-              >
-                <X className="size-5" aria-hidden="true" />
-              </button>
-            </div>
+      {reviewRequestOpen ? (
+        <ReviewRequestDialog
+          processing={isWorking}
+          rereview={canRequestRereview}
+          onClose={() => onReviewRequestOpenChange(false)}
+          onConfirm={() => void handleRequestReview()}
+        />
+      ) : null}
 
-            <label htmlFor="reviewRequestMemo" className="mt-5 block text-sm font-bold text-foreground">
-              요청 메모
-              <span className="ml-1 text-xs font-semibold text-muted-foreground">(선택)</span>
-            </label>
-            <textarea
-              id="reviewRequestMemo"
-              value={reviewRequestMemo}
-              onChange={(event) => setReviewRequestMemo(event.target.value)}
-              placeholder="검토 시 참고할 내용을 입력하세요."
-              className="mt-2 h-24 w-full resize-none rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-slate-300"
-            />
+      {assignmentOpen ? (
+        <ReviewerAssignmentDialog
+          reviewers={reviewers}
+          loading={reviewersLoading}
+          defaultReviewerId={caseData.reviewerId ?? latestSupplementRound?.reviewerId}
+          caseSummary={caseReviewSummary}
+          processing={isWorking}
+          onClose={() => setAssignmentOpen(false)}
+          onAssign={(reviewer) => void handleAssignReviewer(reviewer)}
+        />
+      ) : null}
 
-            <div className="mt-5 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 font-bold"
-                disabled={isWorking}
-                onClick={() => setReviewRequestOpen(false)}
-              >
-                취소
-              </Button>
-              <Button
-                type="button"
-                className="h-10 bg-teal-600 px-5 font-bold text-white hover:bg-teal-700"
-                disabled={isWorking}
-                onClick={() => void handleRequestReview()}
-              >
-                {isWorking ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                검토 요청
-              </Button>
-            </div>
-          </div>
-        </div>
+      {decisionDialog ? (
+        <ReviewDecisionDialog
+          decision={decisionDialog}
+          caseSummary={caseReviewSummary}
+          analystName={analystName}
+          unreadEvidenceLabels={unreadReviewEvidenceLabels}
+          processing={isWorking}
+          onClose={() => setDecisionDialog(null)}
+          onSubmit={(reason) => void handleReviewDecision(decisionDialog, reason)}
+        />
       ) : null}
 
       {!readOnly && editCaseOpen ? (
@@ -3754,7 +3974,8 @@ function CaseWorkflowPanel({
         onConfirm={() => void confirmQualityDialog()}
         onCancel={cancelQualityDialog}
       />
-    </section>
+      </section>
+    </>
   )
 }
 
@@ -3961,59 +4182,6 @@ function CaseMetadataRow({
       >
         {value}
       </dd>
-    </div>
-  )
-}
-
-function ReviewerDecisionActions({
-  decision,
-  disabled,
-  onApprove,
-  onRevision,
-}: {
-  decision: "PENDING" | "APPROVED" | "REVISION"
-  disabled: boolean
-  onApprove: () => void
-  onRevision: () => void
-}) {
-  const statusLabel =
-    decision === "APPROVED" ? "승인" : decision === "REVISION" ? "재검토" : "검토대기"
-  const statusClassName =
-    decision === "APPROVED"
-      ? "bg-emerald-50 text-emerald-700"
-      : decision === "REVISION"
-        ? "bg-amber-50 text-amber-700"
-        : "bg-slate-100 text-slate-600"
-
-  return (
-    <div className="mt-3 border-t border-border pt-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="text-xs font-bold text-muted-foreground">검토 상태</span>
-        <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-bold", statusClassName)}>
-          {statusLabel}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-10 font-bold"
-          disabled={disabled}
-          onClick={onRevision}
-        >
-          재검토
-        </Button>
-        <Button
-          type="button"
-          className="h-10 bg-teal-600 font-bold text-white hover:bg-teal-700"
-          disabled={disabled}
-          onClick={onApprove}
-        >
-          {disabled ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-          승인
-        </Button>
-      </div>
     </div>
   )
 }
@@ -4655,6 +4823,128 @@ function FrameMetricCard({
   )
 }
 
+function ModelConsensusCard({
+  models,
+  thresholdPercent,
+  summary,
+}: {
+  models: UiMethodologyModel[]
+  thresholdPercent: number
+  summary?: string | null
+}) {
+  const scored = models.filter((model) => model.score != null)
+  const overCount = scored.filter((model) => model.overThreshold).length
+  if (models.length === 0) return null
+
+  return (
+    <section className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-base font-bold text-slate-950 dark:text-foreground">모델 판정 합의</h3>
+        <span
+          className={cn(
+            "rounded-full px-3 py-1 text-xs font-bold",
+            overCount > 0
+              ? "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300"
+              : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+          )}
+        >
+          {scored.length}개 모델 중 {overCount}개 기준({thresholdPercent}) 초과
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {models.map((model) => {
+          const percent = model.score != null ? Math.round(model.score * 100) : null
+          return (
+            <div
+              key={`${model.name}-${model.version}`}
+              className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5 dark:border-border dark:bg-background"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="min-w-0 truncate text-sm font-bold text-slate-950 dark:text-foreground">{model.name}</p>
+                {percent != null ? (
+                  <span
+                    className={cn(
+                      "shrink-0 font-mono text-sm font-black",
+                      model.overThreshold ? "text-red-600" : "text-emerald-600"
+                    )}
+                  >
+                    {percent}
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-xs font-semibold text-slate-400">-</span>
+                )}
+              </div>
+              <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800">
+                <div
+                  className={cn("h-full rounded-full", model.overThreshold ? "bg-red-500" : "bg-emerald-500")}
+                  style={{ width: `${percent ?? 0}%` }}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] font-semibold text-slate-400">
+                {percent == null ? "점수 미제공" : model.overThreshold ? "기준 초과 — 우선 확인" : "기준 미만"}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+
+      {summary ? (
+        <p className="mt-4 border-t border-slate-100 pt-3.5 text-sm font-medium leading-6 text-slate-600 dark:border-border dark:text-muted-foreground">
+          <strong className="font-bold text-slate-800 dark:text-foreground">종합 소견</strong> — {summary}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+function TrustChecklistCard({ data }: { data: EvidenceDetailData }) {
+  const chainValid = data.integrityInfo.chainValid
+  const signature = data.signatureInfo ?? null
+  const signatureOk = Boolean(signature?.signatureValid)
+  const blockchain = data.blockchainInfo ?? null
+  const blockchainOk = (blockchain?.status ?? "").toUpperCase() === "ANCHORED"
+  const cocCount = data.cocLogs?.length ?? 0
+
+  const items = [
+    { label: "무결성 해시", ok: chainValid, value: chainValid ? "원본 일치" : "확인 필요" },
+    { label: "전자서명", ok: signatureOk, value: signature ? (signatureOk ? "유효" : "확인 필요") : "미서명" },
+    {
+      label: "블록체인 앵커링",
+      ok: blockchainOk,
+      value: blockchain ? getBlockchainStatusLabel(blockchain.status) : "미앵커",
+    },
+    { label: "보관 이력(CoC)", ok: cocCount > 0, value: cocCount > 0 ? `${cocCount}건 기록` : "기록 없음" },
+  ]
+
+  return (
+    <section className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-base font-bold text-slate-950 dark:text-foreground">증거 신뢰성 체크</h3>
+        <span className="text-xs font-semibold text-slate-400">무결성 · 서명 · 블록체인 · 보관 이력</span>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5 dark:border-border dark:bg-background"
+          >
+            {item.ok ? (
+              <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
+            ) : (
+              <AlertCircle className="size-4 shrink-0 text-amber-500" aria-hidden="true" />
+            )}
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-slate-400">{item.label}</p>
+              <p className="truncate text-sm font-bold text-slate-950 dark:text-foreground">{item.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function FrameRiskHeatStrip({
   scores,
   onSeek,
@@ -4809,40 +5099,42 @@ type DetailModuleResult = EvidenceDetailData["analysisInfo"]["moduleResults"][nu
 
 const FORGERY_METHOD_BASELINES = [
   {
-    name: "Frame Edit",
-    role: "프레임 삽입·삭제·복제처럼 시간축 편집으로 생기는 불연속성을 확인합니다.",
-    output: "프레임 편집 점수, 의심 구간",
-    keywords: ["frame_edit", "frame edit", "frameedit", "frame manipulation", "frame tamper"],
-    labels: ["프레임 편집"],
+    id: "trufor" as const,
+    name: "TruFor",
+    fallbackVersion: "videocof-v2",
+    role: "국소 삭제·객체 삽입·영역 변조 등 공간(픽셀) 위변조 카테고리를 봅니다.",
+    output: "국소 위변조 점수, 의심 구간, 히트맵·마스크",
+    match: (signal: UiRiskSignal) => {
+      const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
+      return text.includes("trufor") || text.includes("spatial")
+    },
   },
   {
-    name: "Splicing",
-    role: "서로 다른 영상 구간을 이어붙였을 때 나타나는 경계·압축 패턴 변화를 확인합니다.",
-    output: "구간 이어붙이기 점수, 경계 구간",
-    keywords: ["splicing", "splice"],
-    labels: ["이어붙이기"],
-  },
-  {
-    name: "Re-encoding",
-    role: "재압축·트랜스코딩 과정에서 남는 인코딩 특성 변화를 확인합니다.",
-    output: "재인코딩 점수, 압축 흔적 설명",
-    keywords: ["re_encoding", "re-encoding", "reencoding", "re encode", "reencode", "transcoding", "transcode"],
-    labels: ["재인코딩"],
-  },
-  {
-    name: "Forgery Localization",
-    role: "국소 위변조 의심 영역을 프레임 단위 히트맵이나 마스크로 확인합니다.",
-    output: "대표 프레임, 히트맵, 마스크 URL",
-    keywords: ["forgery", "tamper", "localization", "mask"],
-    labels: ["국소 위변조", "히트맵", "마스크"],
+    id: "timesformer" as const,
+    name: "timesformer-forgery",
+    fallbackVersion: "forgery-v1.9-hardneg",
+    role: "Cut splicing·frame drop/dup/insert 등 시간축 편집 카테고리를 봅니다.",
+    output: "시간축 위변조 점수, 의심 구간",
+    match: (signal: UiRiskSignal) => {
+      const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
+      return text.includes("timesformer") || text.includes("temporal")
+    },
   },
 ]
 
 function isForgeryKeywordText(value: string | null | undefined) {
   const normalized = value?.toLowerCase() ?? ""
-  return FORGERY_METHOD_BASELINES.some((method) =>
-    [...method.keywords, ...method.labels].some((keyword) => normalized.includes(keyword.toLowerCase()))
-  )
+  if (!normalized) return false
+  if (normalized.includes("trufor") || normalized.includes("forgery") || normalized.includes("tamper")) {
+    return true
+  }
+  if (normalized.includes("timesformer") && normalized.includes("temporal")) return true
+  if (normalized.includes("frame_edit") || normalized.includes("frame edit") || normalized.includes("splic")) return true
+  if (normalized.includes("re_encoding") || normalized.includes("re-encoding") || normalized.includes("reencoding")) {
+    return true
+  }
+  if (normalized.includes("localization") || normalized.includes("국소 위변조")) return true
+  return false
 }
 
 function isForgeryRiskSignal(signal: UiRiskSignal) {
@@ -4863,9 +5155,13 @@ function formatForgeryModuleLabel(moduleName: string) {
 }
 
 function formatForgeryDefinition(label: string) {
-  if (label.includes("이어붙이기")) return "서로 다른 구간을 연결했을 때 생기는 경계·압축 흔적을 확인합니다."
+  if (label.includes("TruFor") || label.includes("Spatial") || label.includes("국소")) {
+    return "국소 삭제·객체 삽입·영역 변조 등 공간(픽셀) 위변조 카테고리를 봅니다."
+  }
+  if (label.includes("TimeSformer") || label.includes("Temporal") || label.includes("이어붙이기")) {
+    return "Cut splicing·frame drop/dup/insert 등 시간축 편집 카테고리를 봅니다."
+  }
   if (label.includes("재인코딩")) return "재압축이나 변환 과정에서 생기는 인코딩 특성 변화를 확인합니다."
-  if (label.includes("국소")) return "프레임 내부의 변조 의심 영역을 히트맵이나 마스크 기반으로 확인합니다."
   return "프레임 삽입·삭제·합성처럼 시간축 편집으로 생기는 위변조 흔적을 확인합니다."
 }
 
@@ -4962,17 +5258,63 @@ function buildForgeryRiskSignals(data: EvidenceDetailData | null, threshold: num
     .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
 }
 
+function extractForgeryRawVersion(modelLabel: string | null | undefined) {
+  const trimmed = modelLabel?.trim()
+  if (!trimmed) return null
+  const parts = trimmed.split(/\s+/).filter(Boolean)
+  // "TruFor trufor-videocof-v2-..." → last token is the checkpoint/version id
+  return parts.length > 1 ? parts[parts.length - 1] : parts[0]
+}
+
+/** 긴 체크포인트 id를 방법론 카드용 짧은 버전으로 축약 */
+function shortenForgeryMethodologyVersion(
+  methodId: "trufor" | "timesformer",
+  modelLabel: string | null | undefined,
+  fallback: string
+) {
+  let raw = extractForgeryRawVersion(modelLabel)
+  if (!raw) return fallback
+
+  raw = raw.replace(/-\d{8}-\d{4}$/, "")
+
+  if (methodId === "trufor") {
+    const videocof = raw.match(/videocof-v[\w.]+/i)
+    if (videocof) return videocof[0]
+    return raw.replace(/^trufor-/i, "") || fallback
+  }
+
+  // timesformer-forgery-v1.9-hardneg → forgery-v1.9-hardneg
+  return raw.replace(/^timesformer-/i, "") || fallback
+}
+
 function buildForgeryMethodologyItems(signals: UiRiskSignal[]) {
   return FORGERY_METHOD_BASELINES.map((method) => {
-    const available = signals.some((signal) => {
-      const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
-      return [...method.keywords, ...method.labels].some((keyword) => text.includes(keyword.toLowerCase()))
-    })
+    const signal = signals.find((item) => method.match(item)) ?? null
+    const defaultThreshold =
+      method.id === "trufor"
+        ? DEFAULT_FORGERY_THRESHOLDS.spatial
+        : DEFAULT_FORGERY_THRESHOLDS.temporal
+    const threshold =
+      signal?.thresholdPercent != null && signal.thresholdPercent > 0
+        ? signal.thresholdPercent / 100
+        : defaultThreshold
+    const score = signal != null ? normalizeResultValue(signal.score) : null
+    const overThreshold = score != null && score >= threshold
+    const shortVersion = shortenForgeryMethodologyVersion(
+      method.id,
+      signal?.modelLabel,
+      method.fallbackVersion
+    )
+
     return {
       name: method.name,
+      version: shortVersion,
       role: method.role,
-      output: available ? `${method.output}, 이번 분석 점수` : method.output,
-      available,
+      output: signal != null ? `${method.output}, 이번 분석 점수` : method.output,
+      available: signal != null,
+      score,
+      threshold,
+      overThreshold,
     }
   })
 }
@@ -5008,11 +5350,17 @@ function findModuleByKeywords(modules: EvidenceDetailData["analysisInfo"]["modul
   })
 }
 
-function splitSummary(summary: string) {
+function sanitizeAnalysisSummaryForUi(summary: string | null | undefined) {
+  if (!summary?.trim()) return ""
+
+  // Deepfake late-fusion narrative only — drop forgery lane / TruFor skip notes from 종합 소견.
   return summary
-    .split(/[.!?。]\s*/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+    .replace(/\s*위변조\(TruFor\)[\s\S]*$/i, "")
+    .replace(/\s*Forgery\s+spatial[\s\S]*$/i, "")
+    .replace(/\s*Forgery\s+temporal[\s\S]*$/i, "")
+    .replace(/\s*\(TruFor produced no finite frame scores\)/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
 }
 
 function getDetectionTone(value: number): { level: string; badgeClass: string; barClass: string } {
@@ -5351,6 +5699,23 @@ function getEvidenceAnalysisLabel(evidence: CaseEvidenceSummary) {
   return getEvidenceStatusLabel(status)
 }
 
+function isSupplementReviewStatus(status?: string | null) {
+  return (
+    status === "REVIEW_SUPPLEMENT_REQUESTED" ||
+    status === "SUPPLEMENT_REQUESTED" ||
+    status === "REVIEW_REVISION_REQUESTED" ||
+    status === "REVISION_REQUESTED" ||
+    status === "REVIEW_NEEDS_CHANGES"
+  )
+}
+
+function formatReviewEventDate(value?: string | null) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return `${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`
+}
+
 function getEvidenceRiskVerdictLabel(evidence: CaseEvidenceSummary): string | null {
   const riskLevel = evidence.riskLevel
   const riskScore = evidence.riskScore ?? null
@@ -5442,30 +5807,6 @@ function getAnalysisTypeLabel(type: AnalysisType) {
 function getRunningAnalysisCopy(type: AnalysisType, status: AnalysisStatus, progress: number) {
   const currentProgress = Math.max(0, Math.min(100, progress))
 
-  if (currentProgress < 12) {
-    return {
-      title: "AI 분석 준비 중",
-      detail:
-        status === "PENDING"
-          ? "분석 작업을 등록하고 원본 파일 정보를 확인하고 있습니다."
-          : "분석 엔진을 준비하고 처리 순서를 맞추고 있습니다.",
-    }
-  }
-
-  if (currentProgress < 24) {
-    return {
-      title: "AI 분석 중",
-      detail: "프레임을 추출하고 얼굴 영역을 정렬하고 있습니다.",
-    }
-  }
-
-  if (currentProgress >= 85) {
-    return {
-      title: "결과 정리 중",
-      detail: "탐지 결과와 검증 기록을 사건 증거 정보에 반영하고 있습니다.",
-    }
-  }
-
   if (type === "INTEGRITY") {
     return currentProgress < 55
       ? {
@@ -5490,23 +5831,62 @@ function getRunningAnalysisCopy(type: AnalysisType, status: AnalysisStatus, prog
         }
   }
 
-  if (currentProgress < 42) {
+  // Deepfake / forgery analysis stages (aligned with GPU worker progressPercent).
+  if (currentProgress < 8) {
     return {
-      title: "AI 분석 중",
-      detail: "얼굴 경계와 압축 패턴의 이상 신호를 확인하고 있습니다.",
+      title: "AI 분석 준비 중",
+      detail:
+        status === "PENDING"
+          ? "분석 작업을 등록하고 원본 파일 정보를 확인하고 있습니다."
+          : "영상을 준비하고 처리 순서를 맞추고 있습니다.",
     }
   }
 
-  if (currentProgress < 64) {
+  if (currentProgress < 18) {
     return {
       title: "AI 분석 중",
-      detail: "프레임 간 움직임과 시간적 일관성을 대조하고 있습니다.",
+      detail: "영상을 내려받고 모델 추론을 준비하고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 36) {
+    return {
+      title: "AI 분석 중",
+      detail: "얼굴 영역을 검출하고 Xception(CNN)으로 분석하고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 58) {
+    return {
+      title: "AI 분석 중",
+      detail: "TimeSformer로 프레임 간 시간적 일관성을 대조하고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 78) {
+    return {
+      title: "AI 분석 중",
+      detail: "GMFlow로 광학 흐름 이상을 확인하고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 84) {
+    return {
+      title: "위험 신호 계산 중",
+      detail: "모듈 결과를 융합해 최종 위험도를 계산하고 있습니다.",
+    }
+  }
+
+  if (currentProgress < 90) {
+    return {
+      title: "위변조 분석 중",
+      detail: "TruFor로 국소 위변조 신호를 확인하고 있습니다.",
     }
   }
 
   return {
-    title: "위험 신호 계산 중",
-    detail: "탐지 모델 결과를 종합해 최종 위험도를 계산하고 있습니다.",
+    title: "결과 정리 중",
+    detail: "대표 프레임과 탐지 결과를 사건 증거 정보에 반영하고 있습니다.",
   }
 }
 
@@ -5536,7 +5916,6 @@ function EvidenceWorkspace({
   const extension = getFileExtension(evidenceInfo.fileName, evidenceInfo.mediaType)
   const progressSteps = buildProgressSteps(data)
   const reportReady = analysisInfo.status === "COMPLETED"
-  const verificationCode = `VF-${String(evidenceInfo.evidenceId).padStart(8, "0")}`
   // 내용 전환은 클릭으로만. hover는 파란 밑줄(인디케이터)만 따라가게 별도 상태로 관리.
   const [activeTab, setActiveTab] = useState("summary")
   const [hoveredTab, setHoveredTab] = useState<string | null>(null)
@@ -5627,7 +6006,7 @@ function EvidenceWorkspace({
             </TabsContent>
 
             <TabsContent value="report" className="space-y-5">
-              <MetadataReportTab data={data} extension={extension} reportReady={reportReady} verificationCode={verificationCode} />
+              <MetadataReportTab data={data} extension={extension} reportReady={reportReady} />
             </TabsContent>
           </div>
         </section>

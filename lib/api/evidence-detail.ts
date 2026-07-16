@@ -323,8 +323,21 @@ export type CaseDetailData = {
   reviewerId?: string | null
   reviewStatus?: ReviewStatus | null
   reviewRequestedAt?: string | null
+  reviewAssignedAt?: string | null
   reviewerComment?: string | null
+  reviewRounds?: CaseReviewRound[]
   evidences: CaseEvidenceSummary[]
+}
+
+export type CaseReviewRound = {
+  round: number
+  decision: "APPROVED" | "REVISION"
+  reviewerId?: string | null
+  reviewerName?: string | null
+  requestedAt?: string | null
+  assignedAt?: string | null
+  decidedAt: string
+  reason?: string | null
 }
 
 export async function fetchEvidenceDetail(evidenceId: number): Promise<EvidenceDetailData> {

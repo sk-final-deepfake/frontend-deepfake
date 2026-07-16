@@ -36,6 +36,23 @@ export function EvidenceHlsPlayer({
     }
   }
 
+  if (failed) {
+    return (
+      <div
+        className={cn(
+          "relative flex size-full flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-bold text-white/60",
+          className
+        )}
+      >
+        <FileVideo className="mb-3 size-8" aria-hidden="true" />
+        <p>세션이 만료되어 재생할 수 없습니다</p>
+        <p className="mt-2 text-xs font-semibold text-white/45">
+          재인증 후 자동으로 이어서 재생됩니다
+        </p>
+      </div>
+    )
+  }
+
   if (!ready) {
     return (
       <div
@@ -46,20 +63,6 @@ export function EvidenceHlsPlayer({
       >
         <FileVideo className="mb-3 size-8 text-white/40" aria-hidden="true" />
         <p>{statusMessage}</p>
-      </div>
-    )
-  }
-
-  if (failed) {
-    return (
-      <div
-        className={cn(
-          "relative flex size-full flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-bold text-white/60",
-          className
-        )}
-      >
-        <FileVideo className="mb-3 size-8" aria-hidden="true" />
-        재생할 수 없습니다. step-up 인증이 만료되었거나 stream token이 유효하지 않습니다.
       </div>
     )
   }

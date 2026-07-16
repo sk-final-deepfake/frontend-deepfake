@@ -1,6 +1,6 @@
 "use client"
 
-import { AlertCircle, FileVideo, Loader2, Maximize2, Pause, Play, Volume2, VolumeX } from "lucide-react"
+import { AlertCircle, FileVideo, KeyRound, Loader2, Maximize2, Pause, Play, Volume2, VolumeX } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { useHlsPlayback } from "@/hooks/use-hls-playback"
@@ -23,6 +23,7 @@ type ProtectedEvidencePlayerProps = {
   objectFit?: "cover" | "contain"
   children?: ReactNode
   onSecurityEvent?: (event: ProtectedSecurityEvent) => void
+  onReauthenticate?: () => Promise<void>
 }
 
 export function ProtectedEvidencePlayer({
@@ -33,6 +34,7 @@ export function ProtectedEvidencePlayer({
   objectFit = "cover",
   children,
   onSecurityEvent,
+  onReauthenticate,
 }: ProtectedEvidencePlayerProps) {
   const playerRef = useRef<HTMLDivElement | null>(null)
   const internalVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -43,6 +45,7 @@ export function ProtectedEvidencePlayer({
   const [muted, setMuted] = useState(false)
   const [captureAlert, setCaptureAlert] = useState(false)
   const [srcLoadFailed, setSrcLoadFailed] = useState(false)
+  const [reauthenticating, setReauthenticating] = useState(false)
 
   const useHls = Boolean(playback) && !src
 
@@ -155,6 +158,18 @@ export function ProtectedEvidencePlayer({
     setMuted(video.muted)
   }
 
+  async function handleReauthenticate() {
+    if (!onReauthenticate || reauthenticating) return
+    setReauthenticating(true)
+    try {
+      await onReauthenticate()
+    } catch {
+      // The step-up dialog owns its cancellation and error state.
+    } finally {
+      setReauthenticating(false)
+    }
+  }
+
   const controlButtonClassName =
     "flex size-6 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 active:bg-white/20 sm:size-7"
 
@@ -174,10 +189,25 @@ export function ProtectedEvidencePlayer({
         {loadFailed ? (
           useHls ? (
             <>
-              재생할 수 없습니다. step-up 인증이 만료되었거나 stream token이 유효하지 않습니다.
-              <span className="mt-2 text-xs font-semibold text-white/45">
-                비밀번호 재인증 후 페이지를 새로고침해 주세요.
-              </span>
+              <p>세션이 만료되어 재생할 수 없습니다</p>
+              <p className="mt-2 text-xs font-semibold text-white/45">
+                재인증 후 자동으로 이어서 재생됩니다
+              </p>
+              {onReauthenticate ? (
+                <button
+                  type="button"
+                  className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-bold text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={reauthenticating}
+                  onClick={() => void handleReauthenticate()}
+                >
+                  {reauthenticating ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <KeyRound className="size-3.5" aria-hidden="true" />
+                  )}
+                  비밀번호 재인증
+                </button>
+              ) : null}
             </>
           ) : (
             <>
