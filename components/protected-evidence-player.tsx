@@ -204,10 +204,13 @@ export function ProtectedEvidencePlayer({
           "relative flex flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-medium text-white/70",
           className
         )}
-        style={shellStyle}
+        style={shellStyle ?? { width: "100%", aspectRatio: "16 / 9" }}
       >
-        <FileVideo className="mb-3 size-8 text-white/40" aria-hidden="true" />
-        <p>{getHlsStatusMessage(playback?.hlsStatus)}</p>
+        <Loader2 className="mb-3 size-6 animate-spin text-white/70" aria-hidden="true" />
+        <p className="text-sm font-bold text-white/80">로딩 중</p>
+        <p className="mt-1 text-xs font-semibold text-white/45">
+          {getHlsStatusMessage(playback?.hlsStatus)}
+        </p>
       </div>
     )
   }
