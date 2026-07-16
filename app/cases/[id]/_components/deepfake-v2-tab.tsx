@@ -157,7 +157,7 @@ function VideoPlayerCard({
         {view === "overlay" && overlayVideoUrl ? (
           <video
             src={overlayVideoUrl}
-            className="absolute inset-0 size-full object-cover"
+            className="absolute inset-0 size-full object-contain"
             controls
             playsInline
             controlsList="nodownload"
@@ -166,7 +166,7 @@ function VideoPlayerCard({
         ) : hlsPlayback || videoUrl ? (
           <EvidenceHlsPlayer
             playback={hlsPlayback}
-            objectFit="cover"
+            objectFit="contain"
             showControls
           />
         ) : (

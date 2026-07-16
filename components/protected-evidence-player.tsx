@@ -31,7 +31,7 @@ export function ProtectedEvidencePlayer({
   playback,
   fallbackOpenUrl,
   videoRef,
-  objectFit = "cover",
+  objectFit = "contain",
   children,
   onSecurityEvent,
   onReauthenticate,
