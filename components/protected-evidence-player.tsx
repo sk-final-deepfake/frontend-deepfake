@@ -1,7 +1,7 @@
 "use client"
 
 import { AlertCircle, FileVideo, KeyRound, Loader2, Maximize2, Pause, Play, Volume2, VolumeX } from "lucide-react"
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 
 import { useHlsPlayback } from "@/hooks/use-hls-playback"
 import { getHlsStatusMessage, type HlsPlayback } from "@/lib/hls-playback"
@@ -20,10 +20,18 @@ type ProtectedEvidencePlayerProps = {
   /** 직접 재생 실패 시 새 탭 열기 링크 */
   fallbackOpenUrl?: string | null
   videoRef?: { current: HTMLVideoElement | null }
+  /** @deprecated Always contain — kept for call-site compatibility */
   objectFit?: "cover" | "contain"
+  /**
+   * Size the player shell to the video's intrinsic aspect ratio so portrait
+   * clips are not forced into a 16:9 crop box.
+   */
+  fitToVideoFrame?: boolean
+  className?: string
   children?: ReactNode
   onSecurityEvent?: (event: ProtectedSecurityEvent) => void
   onReauthenticate?: () => Promise<void>
+  onFrameAspectRatio?: (aspectRatio: number | null) => void
 }
 
 export function ProtectedEvidencePlayer({
@@ -31,10 +39,12 @@ export function ProtectedEvidencePlayer({
   playback,
   fallbackOpenUrl,
   videoRef,
-  objectFit = "contain",
+  fitToVideoFrame = true,
+  className,
   children,
   onSecurityEvent,
   onReauthenticate,
+  onFrameAspectRatio,
 }: ProtectedEvidencePlayerProps) {
   const playerRef = useRef<HTMLDivElement | null>(null)
   const internalVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -46,6 +56,7 @@ export function ProtectedEvidencePlayer({
   const [captureAlert, setCaptureAlert] = useState(false)
   const [srcLoadFailed, setSrcLoadFailed] = useState(false)
   const [reauthenticating, setReauthenticating] = useState(false)
+  const [frameAspect, setFrameAspect] = useState<number | null>(null)
 
   const useHls = Boolean(playback) && !src
 
@@ -77,13 +88,15 @@ export function ProtectedEvidencePlayer({
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
+    setFrameAspect(null)
+    onFrameAspectRatio?.(null)
     if (!useHls) {
       const video = internalVideoRef.current
       if (video) {
         video.load()
       }
     }
-  }, [src, playback?.streamToken, playback?.hlsStatus, useHls])
+  }, [src, playback?.streamToken, playback?.hlsStatus, useHls, onFrameAspectRatio])
 
   useEffect(() => {
     function handleKeyUp(event: KeyboardEvent) {
@@ -130,6 +143,15 @@ export function ProtectedEvidencePlayer({
     }
   }
 
+  function applyFrameMetrics(video: HTMLVideoElement) {
+    setDuration(video.duration || 0)
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      const next = video.videoWidth / video.videoHeight
+      setFrameAspect(next)
+      onFrameAspectRatio?.(next)
+    }
+  }
+
   function togglePlay() {
     const video = internalVideoRef.current
     if (!video) return
@@ -173,9 +195,17 @@ export function ProtectedEvidencePlayer({
   const controlButtonClassName =
     "flex size-6 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 active:bg-white/20 sm:size-7"
 
+  const shellStyle = fitFrameShellStyle(fitToVideoFrame, frameAspect)
+
   if (useHls && !hlsReady && !hlsFailed) {
     return (
-      <div className="relative flex size-full flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-medium text-white/70">
+      <div
+        className={cn(
+          "relative flex flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-medium text-white/70",
+          className
+        )}
+        style={shellStyle}
+      >
         <FileVideo className="mb-3 size-8 text-white/40" aria-hidden="true" />
         <p>{getHlsStatusMessage(playback?.hlsStatus)}</p>
       </div>
@@ -184,7 +214,13 @@ export function ProtectedEvidencePlayer({
 
   if (!hasSource || loadFailed) {
     return (
-      <div className="relative flex size-full flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-bold text-white/60">
+      <div
+        className={cn(
+          "relative flex flex-col items-center justify-center bg-slate-950 px-4 text-center text-sm font-bold text-white/60",
+          className
+        )}
+        style={shellStyle}
+      >
         <FileVideo className="mb-3 size-8" aria-hidden="true" />
         {loadFailed ? (
           useHls ? (
@@ -232,44 +268,53 @@ export function ProtectedEvidencePlayer({
   }
 
   return (
-    <div ref={playerRef} className="relative size-full overflow-hidden bg-slate-950">
-      <video
-        key={useHls ? playback?.streamToken ?? "hls" : src ?? "direct"}
-        ref={setVideoElement}
-        src={useHls ? undefined : (src ?? undefined)}
-        playsInline
-        preload={useHls ? "metadata" : "auto"}
-        controlsList="nodownload"
-        disablePictureInPicture
-        className={cn("absolute inset-0 size-full", objectFit === "cover" ? "object-cover" : "object-contain")}
-        onClick={togglePlay}
-        onDoubleClick={() => requestProtectedFullscreen(playerRef.current)}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onError={() => {
-          if (!useHls) {
-            setPlaying(false)
-            setSrcLoadFailed(true)
-          }
-        }}
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
-      />
-      {children}
-      {hlsLoading ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35">
-          <Loader2 className="size-8 animate-spin text-white/80" aria-hidden="true" />
-        </div>
-      ) : null}
-      {captureAlert ? (
-        <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-red-600/90 px-4 py-2 text-xs font-bold text-white shadow-lg">
-          <AlertCircle className="size-4" aria-hidden="true" />
-          화면 캡처가 감지되었습니다 · 열람 기록이 남습니다
-        </div>
-      ) : null}
-      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-1.5 pt-8 text-white sm:px-2.5 sm:pb-2 sm:pt-10">
-        <div className="relative mb-1 h-3 sm:h-3.5">
+    <div
+      ref={playerRef}
+      className={cn("relative flex flex-col overflow-hidden bg-slate-950", className)}
+      style={shellStyle}
+    >
+      <div className="relative min-h-0 w-full flex-1 bg-black">
+        <video
+          key={useHls ? playback?.streamToken ?? "hls" : src ?? "direct"}
+          ref={setVideoElement}
+          src={useHls ? undefined : (src ?? undefined)}
+          playsInline
+          preload={useHls ? "metadata" : "auto"}
+          controlsList="nodownload"
+          disablePictureInPicture
+          className="absolute inset-0 size-full"
+          style={{ objectFit: "contain" }}
+          onClick={togglePlay}
+          onDoubleClick={() => requestProtectedFullscreen(playerRef.current)}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onError={() => {
+            if (!useHls) {
+              setPlaying(false)
+              setSrcLoadFailed(true)
+            }
+          }}
+          onLoadedMetadata={(event) => applyFrameMetrics(event.currentTarget)}
+          onLoadedData={(event) => applyFrameMetrics(event.currentTarget)}
+          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
+        />
+        {children}
+        {hlsLoading ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35">
+            <Loader2 className="size-8 animate-spin text-white/80" aria-hidden="true" />
+          </div>
+        ) : null}
+        {captureAlert ? (
+          <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-red-600/90 px-4 py-2 text-xs font-bold text-white shadow-lg">
+            <AlertCircle className="size-4" aria-hidden="true" />
+            화면 캡처가 감지되었습니다 · 열람 기록이 남습니다
+          </div>
+        ) : null}
+      </div>
+
+      <div className="relative z-30 shrink-0 bg-slate-950 px-2 pb-2 pt-1.5 text-white sm:px-2.5 sm:pb-2.5">
+        <div className="relative mb-1.5 h-3 sm:h-3.5">
           <input
             type="range"
             min={0}
@@ -285,7 +330,7 @@ export function ProtectedEvidencePlayer({
           />
         </div>
         <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-0.5 rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md">
+          <div className="flex min-w-0 items-center gap-0.5 rounded-full bg-white/10 px-1 py-0.5 shadow-lg backdrop-blur-md">
             <button
               type="button"
               className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-slate-950 shadow-sm transition-transform hover:scale-105 active:scale-95 sm:size-8"
@@ -314,7 +359,7 @@ export function ProtectedEvidencePlayer({
               {formatVideoClock(currentTime)} / {formatVideoClock(duration)}
             </span>
           </div>
-          <div className="flex shrink-0 items-center rounded-full bg-black/55 px-1 py-0.5 shadow-lg backdrop-blur-md">
+          <div className="flex shrink-0 items-center rounded-full bg-white/10 px-1 py-0.5 shadow-lg backdrop-blur-md">
             <button
               type="button"
               className={controlButtonClassName}
@@ -328,6 +373,29 @@ export function ProtectedEvidencePlayer({
       </div>
     </div>
   )
+}
+
+function fitFrameShellStyle(fitToVideoFrame: boolean, frameAspect: number | null): CSSProperties | undefined {
+  if (!fitToVideoFrame) {
+    return { width: "100%", height: "100%" }
+  }
+
+  const aspect = frameAspect && frameAspect > 0 ? frameAspect : 16 / 9
+  if (aspect < 1) {
+    return {
+      height: "min(70vh, 720px)",
+      aspectRatio: String(aspect),
+      width: "auto",
+      maxWidth: "100%",
+      marginInline: "auto",
+    }
+  }
+
+  return {
+    width: "100%",
+    aspectRatio: String(aspect),
+    maxHeight: "min(70vh, 720px)",
+  }
 }
 
 function requestProtectedFullscreen(element: HTMLElement | null) {

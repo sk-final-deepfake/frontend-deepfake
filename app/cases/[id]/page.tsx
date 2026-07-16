@@ -3399,16 +3399,16 @@ function CaseWorkflowPanel({
                 </div>
 
                 <div className="mt-3 grid min-h-[430px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,58%)_minmax(0,1fr)] xl:items-start">
-                  <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-slate-950">
+                  <div className="relative w-full overflow-hidden rounded-lg bg-slate-950">
                 {detailLoading && !selectedHlsPlayback ? (
-                  <div className="flex size-full items-center justify-center text-[15px] font-bold text-white/70">
+                  <div className="flex aspect-video w-full items-center justify-center text-[15px] font-bold text-white/70">
                     <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
                     영상 정보를 불러오는 중
                   </div>
                 ) : selectedHlsPlayback || evidenceDetail ? (
                   <ProtectedEvidencePlayer
                     playback={selectedHlsPlayback}
-                    objectFit="contain"
+                    fitToVideoFrame
                     onReauthenticate={onReauthenticate}
                   >
                     <EvidenceWatermarkOverlay
@@ -3419,7 +3419,7 @@ function CaseWorkflowPanel({
                     />
                   </ProtectedEvidencePlayer>
                 ) : (
-                  <div className="flex size-full flex-col items-center justify-center text-[15px] font-bold text-white/60">
+                  <div className="flex aspect-video w-full flex-col items-center justify-center text-[15px] font-bold text-white/60">
                     <FileVideo className="mb-3 size-8" aria-hidden="true" />
                     미리보기 가능한 영상이 없습니다.
                   </div>
