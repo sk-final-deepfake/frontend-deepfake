@@ -422,7 +422,7 @@ export function ResultEvidenceMedia({
             playback={useOverlayMp4 ? null : hlsPlayback}
             fallbackOpenUrl={useOverlayMp4 ? activeOverlayUrl : null}
             videoRef={videoRef}
-            objectFit="cover"
+            objectFit="contain"
             onSecurityEvent={onSecurityEvent}
           >
             {!useOverlayMp4 ? renderWatermark : null}
