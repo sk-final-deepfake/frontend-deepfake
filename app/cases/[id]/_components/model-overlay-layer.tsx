@@ -11,8 +11,11 @@ type ModelOverlayLayerProps = {
   videoRef: RefObject<HTMLVideoElement | null>
 }
 
-/** TruFor samples ~16 frames — allow wider sync than deepfake per-frame scores. */
-const SPATIAL_MATCH_SEC = 2.5
+/**
+ * Match nearest TruFor sample. Keep this tight so below-threshold gaps do not
+ * keep showing the previous high-risk box across the whole clip.
+ */
+const SPATIAL_MATCH_SEC = 0.75
 
 function normalizeRawBboxes(
   raw: NonNullable<ModelOverlayOption["spatialMarkers"][number]["rawBboxes"]>,
@@ -194,8 +197,11 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
 
   const activeSpatial = useMemo(() => {
     if (!option?.spatialMarkers.length) return null
-    const withBoxes = option.spatialMarkers.filter(markerHasBoxes)
-    const pool = withBoxes.length > 0 ? withBoxes : option.spatialMarkers
+    // Prefer threshold-cleared frames that actually have localization boxes.
+    const aboveThreshold = option.spatialMarkers.filter(
+      (marker) => marker.score >= threshold && markerHasBoxes(marker)
+    )
+    const pool = aboveThreshold.length > 0 ? aboveThreshold : []
     let best: (typeof option.spatialMarkers)[number] | null = null
     let bestDelta = Number.POSITIVE_INFINITY
     for (const marker of pool) {
@@ -206,11 +212,14 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
       }
     }
     return best
-  }, [option?.spatialMarkers, currentTime])
+  }, [option?.spatialMarkers, currentTime, threshold])
 
   const anyTamperBoxes = useMemo(
-    () => option?.spatialMarkers.some(markerHasBoxes) ?? false,
-    [option?.spatialMarkers]
+    () =>
+      option?.spatialMarkers.some(
+        (marker) => marker.score >= threshold && markerHasBoxes(marker)
+      ) ?? false,
+    [option?.spatialMarkers, threshold]
   )
 
   const cnnRisk = useMemo(() => {
@@ -268,11 +277,15 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
   if (isForgerySpatial) {
     const score = activeSpatial ? normalizeResultValue(activeSpatial.score) : cnnRisk
     const scorePct = Math.round(score * 100)
-    const boxes = resolveMarkerBoxes(activeSpatial, videoSize.width, videoSize.height)
+    // Only draw boxes while the matched sample itself clears TruFor threshold.
+    const showBoxes = Boolean(activeSpatial && activeSpatial.score >= threshold)
+    const boxes = showBoxes
+      ? resolveMarkerBoxes(activeSpatial, videoSize.width, videoSize.height)
+      : []
     const statusHint = !anyTamperBoxes
       ? " · bbox 없음(최신 GPU로 재분석 필요)"
       : boxes.length === 0
-        ? " · 이 구간 샘플 없음"
+        ? " · 임계값 미만 · 박스 숨김"
         : null
     return (
       <div className="pointer-events-none absolute inset-0">
