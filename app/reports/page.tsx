@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
-import { Download, ExternalLink, FileText, Loader2, RefreshCw, Search } from "lucide-react"
+import { Download, ExternalLink, FileText, Loader2, RefreshCw } from "lucide-react"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { getApiErrorMessage } from "@/lib/api/errors"
@@ -11,24 +11,14 @@ import {
   fetchReports,
   type ReportListPage,
   type ReportSummary,
-  type ReportTypeFilter,
 } from "@/lib/api/reports"
 import { formatDateTime } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 10
 
-const TYPE_FILTERS: Array<{ value: ReportTypeFilter; label: string }> = [
-  { value: "ALL", label: "전체" },
-  { value: "ANALYSIS", label: "딥페이크 분석" },
-  { value: "COMPARE", label: "비교검증" },
-]
-
 export default function ReportsPage() {
   const [page, setPage] = useState(0)
-  const [typeFilter, setTypeFilter] = useState<ReportTypeFilter>("ALL")
-  const [searchInput, setSearchInput] = useState("")
-  const [query, setQuery] = useState("")
   const [refreshKey, setRefreshKey] = useState(0)
   const [data, setData] = useState<ReportListPage | null>(null)
   const [loading, setLoading] = useState(true)
@@ -37,21 +27,13 @@ export default function ReportsPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setQuery(searchInput)
-      setPage(0)
-    }, 300)
-    return () => window.clearTimeout(timer)
-  }, [searchInput])
-
-  useEffect(() => {
     let cancelled = false
 
     async function loadReports() {
       setLoading(true)
       setError(null)
       try {
-        const nextData = await fetchReports({ page, size: PAGE_SIZE, type: typeFilter, query })
+        const nextData = await fetchReports(page, PAGE_SIZE)
         if (!cancelled) {
           setData(nextData)
         }
@@ -70,19 +52,12 @@ export default function ReportsPage() {
     return () => {
       cancelled = true
     }
-  }, [page, typeFilter, query, refreshKey])
+  }, [page, refreshKey])
 
   const reports = data?.content ?? []
   const totalPages = Math.max(data?.totalPages ?? 1, 1)
   const canGoPrev = page > 0
   const canGoNext = page + 1 < totalPages
-  const hasActiveFilter = typeFilter !== "ALL" || query.trim().length > 0
-
-  function selectTypeFilter(value: ReportTypeFilter) {
-    setTypeFilter(value)
-    setPage(0)
-  }
-
   async function handleDownload(report: ReportSummary) {
     setDownloadingId(report.reportId)
     setActionMessage(null)
@@ -112,7 +87,7 @@ export default function ReportsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-normal text-slate-950 dark:text-foreground">보고서</h1>
             <p className="mt-1 max-w-2xl text-sm font-medium text-slate-500">
-              분석 결과와 비교검증에서 생성한 PDF 보고서를 확인하고 다운로드합니다.
+              생성된 PDF 보고서를 확인하고 다운로드합니다.
             </p>
           </div>
           <button
@@ -132,41 +107,9 @@ export default function ReportsPage() {
         ) : null}
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none dark:border-border dark:bg-card">
-          <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between dark:border-border">
-            <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-border dark:bg-background">
-              {TYPE_FILTERS.map((filter) => (
-                <button
-                  key={filter.value}
-                  type="button"
-                  onClick={() => selectTypeFilter(filter.value)}
-                  className={cn(
-                    "rounded-md px-4 py-1.5 text-sm font-semibold transition-colors",
-                    typeFilter === filter.value
-                      ? "bg-white text-slate-950 shadow-sm dark:bg-card dark:text-foreground"
-                      : "text-slate-500 hover:text-slate-800 dark:text-muted-foreground dark:hover:text-foreground"
-                  )}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-            <label className="relative block w-full lg:max-w-sm">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
-                aria-hidden="true"
-              />
-              <input
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="파일명, 사건명, 증거 ID 검색"
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold text-slate-950 outline-none transition-colors placeholder:font-medium placeholder:text-slate-400 focus:border-slate-400 dark:border-border dark:bg-card dark:text-foreground"
-              />
-            </label>
-          </div>
-
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-border">
             <p className="text-xs font-bold text-slate-400">
-              {hasActiveFilter ? "검색 결과" : "생성된 보고서"} · 총 {data?.totalElements ?? 0}건
+              생성된 보고서 · 총 {data?.totalElements ?? 0}건
             </p>
           </div>
 
@@ -177,12 +120,8 @@ export default function ReportsPage() {
           ) : reports.length === 0 ? (
             <ReportState
               icon={<FileText className="size-5" />}
-              title={hasActiveFilter ? "조건에 맞는 보고서가 없습니다" : "생성된 보고서가 없습니다"}
-              description={
-                hasActiveFilter
-                  ? "필터나 검색어를 바꿔서 다시 시도해 보세요."
-                  : "사건 상세 또는 비교검증 결과 화면에서 PDF를 생성하면 이곳에 표시됩니다."
-              }
+              title="생성된 보고서가 없습니다"
+              description="사건 상세에서 PDF를 생성하면 이곳에 표시됩니다."
             />
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-border">
@@ -247,11 +186,8 @@ function ReportRow({
   return (
     <article className="grid gap-4 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 dark:bg-secondary dark:text-muted-foreground">
-            {report.reportType === "COMPARE" ? "비교검증" : "딥페이크 분석"}
-          </span>
-          {report.verdictLabel ? (
+        {report.verdictLabel ? (
+          <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
                 "rounded-full px-2.5 py-1 text-xs font-bold",
@@ -260,8 +196,8 @@ function ReportRow({
             >
               {report.verdictLabel}
             </span>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
         <h3 className="mt-2.5 truncate text-base font-bold text-slate-950 dark:text-foreground">
           {report.reportFileName || `보고서 #${report.reportId}`}
         </h3>

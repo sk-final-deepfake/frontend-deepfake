@@ -3,8 +3,6 @@ import { features } from "@/lib/features"
 
 export type ReportType = "ANALYSIS" | "COMPARE" | string
 
-export type ReportTypeFilter = "ALL" | "ANALYSIS" | "COMPARE"
-
 export type ReportSummary = {
   reportId: number
   reportType: ReportType
@@ -27,32 +25,13 @@ export type ReportListPage = {
   totalPages: number
 }
 
-export type FetchReportsOptions = {
-  page?: number
-  size?: number
-  type?: ReportTypeFilter
-  query?: string
-}
-
-export async function fetchReports({
-  page = 0,
-  size = 10,
-  type = "ALL",
-  query = "",
-}: FetchReportsOptions = {}): Promise<ReportListPage> {
+export async function fetchReports(page = 0, size = 10): Promise<ReportListPage> {
   if (features.mockApi) {
     await delay(350)
-    return buildMockReports(page, size, type, query)
+    return buildMockReports(page, size)
   }
 
   const params = new URLSearchParams({ page: String(page), size: String(size) })
-  if (type !== "ALL") {
-    params.set("type", type)
-  }
-  const trimmedQuery = query.trim()
-  if (trimmedQuery) {
-    params.set("query", trimmedQuery)
-  }
   return apiRequest<ReportListPage>(`/api/v1/reports?${params.toString()}`)
 }
 
@@ -115,33 +94,14 @@ function buildMockReportList(): ReportSummary[] {
   return reports
 }
 
-function buildMockReports(
-  page: number,
-  size: number,
-  type: ReportTypeFilter,
-  query: string
-): ReportListPage {
-  const normalizedQuery = query.trim().toLowerCase()
-  const filtered = buildMockReportList().filter((report) => {
-    if (type !== "ALL" && report.reportType !== type) return false
-    if (!normalizedQuery) return true
-    const haystack = [
-      report.reportFileName,
-      report.caseName ?? "",
-      report.evidenceId != null ? String(report.evidenceId) : "",
-      report.compareId != null ? String(report.compareId) : "",
-    ]
-      .join(" ")
-      .toLowerCase()
-    return haystack.includes(normalizedQuery)
-  })
-
+function buildMockReports(page: number, size: number): ReportListPage {
+  const reports = buildMockReportList()
   const start = page * size
   return {
-    content: filtered.slice(start, start + size),
+    content: reports.slice(start, start + size),
     page,
     size,
-    totalElements: filtered.length,
-    totalPages: Math.max(1, Math.ceil(filtered.length / size)),
+    totalElements: reports.length,
+    totalPages: Math.max(1, Math.ceil(reports.length / size)),
   }
 }
