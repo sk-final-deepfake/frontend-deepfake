@@ -414,7 +414,7 @@ export function ResultEvidenceMedia({
         ) : null}
       </div>
 
-      <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
+      <div className="relative w-full overflow-hidden rounded-lg bg-slate-950">
         {showResultPlayer ? (
           <ProtectedEvidencePlayer
             key={`result-player-${selectedEvidenceId ?? "none"}-${playerSurfaceKey}`}
@@ -422,7 +422,7 @@ export function ResultEvidenceMedia({
             playback={useOverlayMp4 ? null : hlsPlayback}
             fallbackOpenUrl={useOverlayMp4 ? activeOverlayUrl : null}
             videoRef={videoRef}
-            objectFit="contain"
+            fitToVideoFrame
             onSecurityEvent={onSecurityEvent}
           >
             {!useOverlayMp4 ? renderWatermark : null}
@@ -437,61 +437,59 @@ export function ResultEvidenceMedia({
                 </div>
               </div>
             ) : null}
+            {useOverlaySrc && !useOverlayMp4 && activeOverlay && canLivePreview ? (
+              <ModelOverlayLayer option={activeOverlay} videoRef={videoRef} />
+            ) : null}
+            {showProgressModal ? (
+              <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="w-full max-w-[280px] rounded-xl border border-white/15 bg-slate-950/90 px-4 py-4 shadow-xl"
+                >
+                  {isFailed ? (
+                    <div className="space-y-3 text-center">
+                      <p className="text-sm font-bold text-white">오버레이 생성 실패</p>
+                      <p className="text-xs font-semibold leading-5 text-white/75">{failureMessage}</p>
+                      <button
+                        type="button"
+                        className="rounded-md bg-white/10 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-white/20"
+                        onClick={() => setMediaView("original")}
+                      >
+                        원본으로 돌아가기
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-bold text-white">
+                        <Loader2 className="size-4 shrink-0 animate-spin text-teal-300" aria-hidden="true" />
+                        <span>{activeOverlay?.label ?? "모델"} 오버레이 생성 중</span>
+                      </div>
+                      <p className="text-[11px] font-semibold leading-4 text-white/70">
+                        완료되면 오버레이 영상으로 전환됩니다.
+                      </p>
+                      <div className="flex items-center justify-between text-[11px] font-semibold text-white/85">
+                        <span>진행률</span>
+                        <span>{progressPercent}%</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
+                        <div
+                          className="h-full rounded-full bg-teal-400 transition-[width] duration-300"
+                          style={{ width: `${Math.max(4, progressPercent)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </ProtectedEvidencePlayer>
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-sm font-bold text-white/60">
+          <div className="flex aspect-video w-full flex-col items-center justify-center text-sm font-bold text-white/60">
             <FileVideo className="mb-3 size-8" aria-hidden="true" />
             미리보기 가능한 영상이 없습니다.
           </div>
         )}
-
-        {useOverlaySrc && !useOverlayMp4 && activeOverlay && canLivePreview ? (
-          <ModelOverlayLayer option={activeOverlay} videoRef={videoRef} />
-        ) : null}
-
-        {showProgressModal ? (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
-            <div
-              role="status"
-              aria-live="polite"
-              className="w-full max-w-[280px] rounded-xl border border-white/15 bg-slate-950/90 px-4 py-4 shadow-xl"
-            >
-              {isFailed ? (
-                <div className="space-y-3 text-center">
-                  <p className="text-sm font-bold text-white">오버레이 생성 실패</p>
-                  <p className="text-xs font-semibold leading-5 text-white/75">{failureMessage}</p>
-                  <button
-                    type="button"
-                    className="rounded-md bg-white/10 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-white/20"
-                    onClick={() => setMediaView("original")}
-                  >
-                    원본으로 돌아가기
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-bold text-white">
-                    <Loader2 className="size-4 shrink-0 animate-spin text-teal-300" aria-hidden="true" />
-                    <span>{activeOverlay?.label ?? "모델"} 오버레이 생성 중</span>
-                  </div>
-                  <p className="text-[11px] font-semibold leading-4 text-white/70">
-                    완료되면 오버레이 영상으로 전환됩니다.
-                  </p>
-                  <div className="flex items-center justify-between text-[11px] font-semibold text-white/85">
-                    <span>진행률</span>
-                    <span>{progressPercent}%</span>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
-                    <div
-                      className="h-full rounded-full bg-teal-400 transition-[width] duration-300"
-                      style={{ width: `${Math.max(4, progressPercent)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : null}
       </div>
 
       {showDeepfakeAdvisory ? (

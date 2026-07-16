@@ -63,6 +63,7 @@ import {
   ProtectedEvidencePlayer,
   type ProtectedSecurityEvent,
 } from "@/components/protected-evidence-player"
+import { getHlsStatusMessage, isHlsReady } from "@/lib/hls-playback"
 import { StepUpGateDialogs } from "@/components/step-up-gate"
 import { ReadinessCheckOverlay } from "@/components/readiness-check-overlay"
 import { ReadinessMetricSection } from "@/components/readiness-metric-section"
@@ -389,8 +390,11 @@ export default function CaseDetailPage() {
 
       try {
         const result = await fetchEvidenceDetailWithStepUp(evidenceId)
+        // Drop stale responses if the user already switched evidence.
+        if (selectedEvidenceIdRef.current !== evidenceId) return
         setEvidenceDetail(normalizeEvidenceDetailForUi(result))
       } catch (error) {
+        if (selectedEvidenceIdRef.current !== evidenceId) return
         if (!silent) {
           setEvidenceDetail(null)
           if (isStepUpCancelledError(error)) {
@@ -400,7 +404,7 @@ export default function CaseDetailPage() {
           }
         }
       } finally {
-        if (!silent) {
+        if (!silent && selectedEvidenceIdRef.current === evidenceId) {
           setDetailLoading(false)
         }
       }
@@ -734,19 +738,35 @@ export default function CaseDetailPage() {
     void refreshEvidenceDetail(selectedEvidenceId)
   }, [refreshEvidenceDetail, selectedEvidenceId])
 
+  // Poll until HLS packaging finishes so the player can switch from loading → ready.
   useEffect(() => {
-    if (!selectedEvidenceId) return
-    const hlsStatus = evidenceDetail?.hlsPlayback?.hlsStatus
+    if (!selectedEvidenceId || !caseData) return
+
+    const evidence = caseData.evidences.find((item) => item.evidenceId === selectedEvidenceId)
+    if (!evidence || evidence.mediaType !== "VIDEO") return
+
+    const detailMatches = evidenceDetail?.evidenceInfo.evidenceId === selectedEvidenceId
+    const hlsStatus =
+      (detailMatches ? evidenceDetail?.hlsPlayback?.hlsStatus : null) ?? evidence.hlsStatus ?? null
     if (hlsStatus !== "PENDING" && hlsStatus !== "PACKAGING") return
 
+    let cancelled = false
     const timer = window.setInterval(() => {
-      if (document.hidden) return
+      if (cancelled || document.hidden) return
+      if (selectedEvidenceIdRef.current !== selectedEvidenceId) return
       void refreshEvidenceDetail(selectedEvidenceId, { silent: true })
-    }, 4000)
+      refreshCase()
+    }, 2500)
 
-    return () => window.clearInterval(timer)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
   }, [
+    caseData,
+    evidenceDetail?.evidenceInfo.evidenceId,
     evidenceDetail?.hlsPlayback?.hlsStatus,
+    refreshCase,
     refreshEvidenceDetail,
     selectedEvidenceId,
   ])
@@ -762,6 +782,13 @@ export default function CaseDetailPage() {
   }
 
   function selectEvidence(evidenceId: number) {
+    if (selectedEvidenceId !== evidenceId) {
+      // Clear immediately so the previous evidence video never stays on screen.
+      selectedEvidenceIdRef.current = evidenceId
+      setEvidenceDetail(null)
+      setDetailLoading(true)
+      setDetailError(null)
+    }
     setSelectedEvidenceId(evidenceId)
     if (selectedEvidenceId !== evidenceId) {
       router.replace(buildCaseDetailPath(caseId, evidenceId), { scroll: false })
@@ -2637,8 +2664,28 @@ function CaseWorkflowPanel({
     selectableAnalysisEvidences.length > 0 &&
     selectableAnalysisEvidences.every((evidence) => selectedAnalysisIdSet.has(evidence.evidenceId))
   const showSelectedEvidenceResultAction = selectedAnalysisCount === 0 && selectedEvidenceCompleted
-  const selectedHlsPlayback = evidenceDetail?.hlsPlayback ?? null
-  const selectedMetadata = evidenceDetail?.evidenceInfo.technicalMetadata ?? null
+  const detailMatchesSelection =
+    evidenceDetail != null &&
+    selectedEvidence != null &&
+    evidenceDetail.evidenceInfo.evidenceId === selectedEvidence.evidenceId
+  const selectedHlsPlayback = detailMatchesSelection ? evidenceDetail?.hlsPlayback ?? null : null
+  const selectedHlsReady = isHlsReady(selectedHlsPlayback)
+  const selectedHlsStatus =
+    (detailMatchesSelection ? selectedHlsPlayback?.hlsStatus : null) ??
+    selectedEvidence?.hlsStatus ??
+    null
+  const selectedVideoPackaging =
+    selectedEvidence?.mediaType === "VIDEO" &&
+    (selectedHlsStatus === "PENDING" ||
+      selectedHlsStatus === "PACKAGING" ||
+      (detailMatchesSelection && Boolean(selectedHlsPlayback) && !selectedHlsReady && selectedHlsStatus !== "FAILED"))
+  const showEvidencePreviewLoading =
+    detailLoading ||
+    !detailMatchesSelection ||
+    selectedVideoPackaging
+  const selectedMetadata = detailMatchesSelection
+    ? evidenceDetail?.evidenceInfo.technicalMetadata ?? null
+    : null
   const selectedAnalystComment = selectedEvidence
     ? analystCommentsByEvidence[selectedEvidence.evidenceId] ?? ""
     : ""
@@ -3417,16 +3464,22 @@ function CaseWorkflowPanel({
                 </div>
 
                 <div className="mt-3 grid min-h-[430px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,58%)_minmax(0,1fr)] xl:items-start">
-                  <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-slate-950">
-                {detailLoading && !selectedHlsPlayback ? (
-                  <div className="flex size-full items-center justify-center text-[15px] font-bold text-white/70">
-                    <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
-                    영상 정보를 불러오는 중
+                  <div className="relative w-full overflow-hidden rounded-lg bg-slate-950">
+                {showEvidencePreviewLoading ? (
+                  <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-slate-950 text-[15px] font-bold text-white/70">
+                    <Loader2 className="size-6 animate-spin text-white/70" aria-hidden="true" />
+                    <span>로딩 중</span>
+                    <span className="text-[11px] font-semibold text-white/45">
+                      {selectedVideoPackaging
+                        ? getHlsStatusMessage(selectedHlsStatus)
+                        : "영상 정보를 불러오는 중"}
+                    </span>
                   </div>
-                ) : selectedHlsPlayback || evidenceDetail ? (
+                ) : selectedHlsReady ? (
                   <ProtectedEvidencePlayer
+                    key={`evidence-preview-${selectedEvidence.evidenceId}`}
                     playback={selectedHlsPlayback}
-                    objectFit="contain"
+                    fitToVideoFrame
                     onReauthenticate={onReauthenticate}
                   >
                     <EvidenceWatermarkOverlay
@@ -3437,9 +3490,11 @@ function CaseWorkflowPanel({
                     />
                   </ProtectedEvidencePlayer>
                 ) : (
-                  <div className="flex size-full flex-col items-center justify-center text-[15px] font-bold text-white/60">
+                  <div className="flex aspect-video w-full flex-col items-center justify-center text-[15px] font-bold text-white/60">
                     <FileVideo className="mb-3 size-8" aria-hidden="true" />
-                    미리보기 가능한 영상이 없습니다.
+                    {selectedHlsStatus === "FAILED"
+                      ? getHlsStatusMessage(selectedHlsStatus)
+                      : "미리보기 가능한 영상이 없습니다."}
                   </div>
                 )}
                   </div>
