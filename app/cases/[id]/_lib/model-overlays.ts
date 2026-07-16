@@ -209,7 +209,13 @@ function buildDeepfakeOverlayOption(
       ? extractOpticalWindows(timeline?.pairRisks, timeline?.suspiciousSegments)
       : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments)
   const metaSize = data.evidenceInfo.technicalMetadata
-  const spatialMarkers = extractSpatialMarkers(timeline?.frameRisks, [], metaSize?.width, metaSize?.height)
+  const spatialMarkers = extractSpatialMarkers(
+    timeline?.frameRisks,
+    [],
+    metaSize?.width,
+    metaSize?.height,
+    timelineTab?.threshold
+  )
   const timelineScores = timelineTab?.points ?? []
   const advisoryMessage = resolveDeepfakeOverlayAdvisory(data.analysisInfo.errorCode)
   const ready =
@@ -264,10 +270,19 @@ function buildForgeryOverlayOption(
     : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments ?? tab.segments)
   const metaSize = data.evidenceInfo.technicalMetadata
   const spatialMarkers = isSpatial
-    ? extractSpatialMarkers(timeline?.frameRisks, tab.points, metaSize?.width, metaSize?.height)
+    ? extractSpatialMarkers(
+        timeline?.frameRisks,
+        tab.points,
+        metaSize?.width,
+        metaSize?.height,
+        tab.threshold
+      )
     : []
+  // Only count boxes on frames that clear the TruFor detection threshold.
   const hasTamperBboxes = spatialMarkers.some(
-    (marker) => (marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0
+    (marker) =>
+      marker.score >= tab.threshold &&
+      ((marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0)
   )
   const cachedOverlayUrl =
     normalizeUrl(artifact?.overlayVideoUrl) ??
@@ -394,12 +409,26 @@ function extractSpatialMarkers(
   frameRisks: FrameRisk[] | null | undefined,
   fallbackPoints: FrameScore[] = [],
   videoWidth?: number | null,
-  videoHeight?: number | null
+  videoHeight?: number | null,
+  detectionThreshold?: number | null
 ): OverlaySpatialMarker[] {
+  // Jangdochi intent: draw localization boxes only when frame risk clears TruFor threshold.
+  const scoreFloor =
+    typeof detectionThreshold === "number" && Number.isFinite(detectionThreshold)
+      ? detectionThreshold
+      : null
+
   if (frameRisks && frameRisks.length > 0) {
     const vw = videoWidth && videoWidth > 0 ? videoWidth : 0
     const vh = videoHeight && videoHeight > 0 ? videoHeight : 0
     return frameRisks.map((risk) => {
+      const aboveThreshold = scoreFloor == null || risk.riskScore >= scoreFloor
+      if (!aboveThreshold) {
+        return {
+          timeSec: risk.timestampSec,
+          score: risk.riskScore,
+        }
+      }
       const normalized = normalizeRiskBboxes(risk.bboxes, vw, vh, risk.riskScore)
       const rawBboxes =
         normalized == null && risk.bboxes?.length
