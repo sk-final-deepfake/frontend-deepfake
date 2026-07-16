@@ -131,6 +131,8 @@ export function ResultEvidenceMedia({
     }))
     if (status.status === "COMPLETED" || status.status === "FAILED") {
       setIsRequesting(false)
+      // Allow a later retry if evidence detail never picks up the MP4 URL.
+      autoRequestKeyRef.current = null
     }
   }, [])
 
@@ -170,8 +172,9 @@ export function ResultEvidenceMedia({
 
     const modulePath = activeModulePath
     const requestKey = `${selectedEvidenceId}:${modulePath}`
+    // Deduplicate in-flight POSTs only. Do not block just because optimistic
+    // isRequesting was set — that previously left the UI stuck at 2%.
     if (autoRequestKeyRef.current === requestKey) {
-      // Already requested this module — keep spinner only while job is active.
       return
     }
 
@@ -185,14 +188,11 @@ export function ResultEvidenceMedia({
         onOverlayReady?.()
       }
     } catch (error) {
-      if (autoRequestKeyRef.current === requestKey) {
-        autoRequestKeyRef.current = null
-      }
+      autoRequestKeyRef.current = null
       setGenerateError(error instanceof Error ? error.message : "오버레이 생성 요청에 실패했습니다.")
     } finally {
-      if (autoRequestKeyRef.current === requestKey || autoRequestKeyRef.current == null) {
-        setIsRequesting(false)
-      }
+      // Keep spinner via isGenerating once we have a QUEUED/PROCESSING job.
+      setIsRequesting(false)
     }
   }, [
     activeModulePath,
@@ -211,7 +211,12 @@ export function ResultEvidenceMedia({
     if (needsOverlayGeneration(activeOverlay)) {
       const modulePath = activeModulePath
       const existing = modulePath ? jobByModule[modulePath] : undefined
-      if (!existing || existing.status === "QUEUED" || existing.status === "PROCESSING") {
+      const jobActive = existing?.status === "QUEUED" || existing?.status === "PROCESSING"
+      if (!jobActive) {
+        // Drop stale dedupe key so the generate effect can POST again.
+        autoRequestKeyRef.current = null
+      }
+      if (!existing || jobActive) {
         setIsRequesting(true)
       }
     }
@@ -228,7 +233,11 @@ export function ResultEvidenceMedia({
     // Optimistic loading when switching models while already on overlay view.
     if (mediaView === "overlay" && needsOverlayGeneration(option)) {
       const existing = modulePath ? jobByModule[modulePath] : undefined
-      if (!existing || existing.status === "QUEUED" || existing.status === "PROCESSING" || existing.status === "FAILED") {
+      const jobActive = existing?.status === "QUEUED" || existing?.status === "PROCESSING"
+      if (!jobActive) {
+        autoRequestKeyRef.current = null
+        setIsRequesting(true)
+      } else {
         setIsRequesting(true)
       }
     }
@@ -291,7 +300,7 @@ export function ResultEvidenceMedia({
       return
     }
     if (activeOverlay.category === "deepfake" && deepfakeOverlayBlocked) return
-    if (isRequesting || isGenerating) return
+    if (isGenerating) return
     if (activeJob?.status === "FAILED") return
     if (activeJob?.status === "COMPLETED") return
     if (generateError) return
@@ -305,7 +314,6 @@ export function ResultEvidenceMedia({
     generateError,
     handleGenerateOverlay,
     isGenerating,
-    isRequesting,
     mediaView,
     selectedEvidenceId,
   ])
