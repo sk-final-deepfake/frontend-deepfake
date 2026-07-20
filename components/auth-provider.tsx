@@ -12,6 +12,7 @@ import {
   tryRefreshSession,
 } from "@/lib/auth"
 import { features } from "@/lib/features"
+import { clearUiSessionCookies, writeUiSessionCookies } from "@/lib/ui-session-cookie"
 
 type AuthProviderProps = {
   children: React.ReactNode
@@ -22,7 +23,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    void bootstrapAuthSession().finally(() => setReady(true))
+    void bootstrapAuthSession().finally(() => {
+      const session = getSession()
+      if (session) writeUiSessionCookies(session.role)
+      else clearUiSessionCookies()
+      setReady(true)
+    })
   }, [])
 
   // FE 유휴 세션 만료 타이머

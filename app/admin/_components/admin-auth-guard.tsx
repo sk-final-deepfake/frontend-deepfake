@@ -1,12 +1,11 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { bootstrapAuthSession, getSession, type AuthSession } from "@/lib/auth"
 import { getPostLoginHomePath, normalizeUserRole } from "@/lib/permissions"
+import { writeUiSessionCookies } from "@/lib/ui-session-cookie"
 
 export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
-  const router = useRouter()
   const [session, setAuthSession] = useState<AuthSession | null>(null)
 
   useEffect(() => {
@@ -19,12 +18,14 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
       const current = getSession()
 
       if (!current) {
-        router.replace("/login")
+        window.location.replace("/login")
         return
       }
 
+      writeUiSessionCookies(current.role)
+
       if (normalizeUserRole(current.role) !== "ORG_ADMIN") {
-        router.replace(getPostLoginHomePath(current.role))
+        window.location.replace(getPostLoginHomePath(current.role))
         return
       }
 
@@ -41,7 +42,7 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
       cancelled = true
       window.removeEventListener("auth-change", onAuthChange)
     }
-  }, [router])
+  }, [])
 
   if (!session || normalizeUserRole(session.role) !== "ORG_ADMIN") {
     return null
