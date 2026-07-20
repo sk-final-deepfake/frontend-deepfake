@@ -5266,7 +5266,7 @@ function buildResultSummaryParagraph(data: EvidenceDetailData | null, verdict: s
 }
 
 function buildResultDetectionBars(data: EvidenceDetailData | null) {
-  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
+  const modules = getDeepfakeDetectionModules(data?.analysisInfo.moduleResults ?? [])
   if (modules.length > 0) {
     return modules.slice(0, 4).map((module) => ({
       label: formatModuleLabel(module.moduleName),
