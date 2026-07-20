@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "@/lib/api/config"
 import { features } from "@/lib/features"
+import { clearUiSessionCookies, writeUiSessionCookies } from "@/lib/ui-session-cookie"
 
 export type AuthRole =
   | "user"
@@ -397,6 +398,7 @@ export function setSession(session: AuthSession) {
     } else {
       sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY)
     }
+    writeUiSessionCookies(session.role)
   }
   if (isMockAuthSession(session)) {
     persistMockSession(session)
@@ -412,6 +414,7 @@ export function clearSession() {
   purgeLegacySessionStorage()
   clearStoredMockSession()
   clearSessionExpiry()
+  clearUiSessionCookies()
   notifyAuthChange()
 }
 
@@ -424,6 +427,7 @@ export function expireSession() {
   purgeLegacySessionStorage()
   clearStoredMockSession()
   markSessionExpired()
+  clearUiSessionCookies()
   notifyAuthChange()
   if (window.location.pathname !== "/login") {
     window.location.replace("/login")
