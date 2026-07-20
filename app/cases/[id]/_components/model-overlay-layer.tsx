@@ -17,6 +17,92 @@ type ModelOverlayLayerProps = {
  */
 const SPATIAL_MATCH_SEC = 0.75
 
+/** object-fit: contain 으로 그려진 실제 영상 영역 (플레이어 요소 기준 px) */
+type ContainedVideoLayout = {
+  left: number
+  top: number
+  width: number
+  height: number
+  elementW: number
+  elementH: number
+}
+
+function getContainedVideoLayout(video: HTMLVideoElement): ContainedVideoLayout | null {
+  const elementW = video.clientWidth
+  const elementH = video.clientHeight
+  const videoW = video.videoWidth
+  const videoH = video.videoHeight
+  if (elementW <= 0 || elementH <= 0 || videoW <= 0 || videoH <= 0) return null
+
+  const videoAspect = videoW / videoH
+  const elementAspect = elementW / elementH
+  let width: number
+  let height: number
+  let left: number
+  let top: number
+
+  if (videoAspect > elementAspect) {
+    // 좌우 맞춤 → 위아래 레터박스
+    width = elementW
+    height = elementW / videoAspect
+    left = 0
+    top = (elementH - height) / 2
+  } else {
+    // 상하 맞춤 → 좌우 필러박스
+    height = elementH
+    width = elementH * videoAspect
+    top = 0
+    left = (elementW - width) / 2
+  }
+
+  return { left, top, width, height, elementW, elementH }
+}
+
+/** 영상 정규화 좌표(0..1) → 플레이어 컨테이너 % (contain 오프셋 반영) */
+function boxToContainPercent(
+  box: OverlaySpatialBBox,
+  layout: ContainedVideoLayout
+): { left: number; top: number; width: number; height: number } {
+  const { left, top, width, height, elementW, elementH } = layout
+  return {
+    left: ((left + box.x * width) / elementW) * 100,
+    top: ((top + box.y * height) / elementH) * 100,
+    width: (box.w * width / elementW) * 100,
+    height: (box.h * height / elementH) * 100,
+  }
+}
+
+function boxArea(box: OverlaySpatialBBox) {
+  return Math.max(0, box.w) * Math.max(0, box.h)
+}
+
+function intersectionArea(a: OverlaySpatialBBox, b: OverlaySpatialBBox) {
+  const x0 = Math.max(a.x, b.x)
+  const y0 = Math.max(a.y, b.y)
+  const x1 = Math.min(a.x + a.w, b.x + b.w)
+  const y1 = Math.min(a.y + a.h, b.y + b.h)
+  return Math.max(0, x1 - x0) * Math.max(0, y1 - y0)
+}
+
+/**
+ * Nested peak boxes confuse users ("큰 박스 + 작은 박스").
+ * Keep highest-score regions; drop boxes mostly contained in a stronger one.
+ */
+function pickDisplayBoxes(boxes: OverlaySpatialBBox[]): OverlaySpatialBBox[] {
+  const sorted = [...boxes].sort((a, b) => b.score - a.score || boxArea(a) - boxArea(b))
+  const picked: OverlaySpatialBBox[] = []
+  for (const box of sorted) {
+    const mostlyInsideStronger = picked.some((keep) => {
+      const overlap = intersectionArea(keep, box)
+      return overlap / Math.max(boxArea(box), 1e-9) >= 0.55
+    })
+    if (mostlyInsideStronger) continue
+    picked.push(box)
+    if (picked.length >= 2) break
+  }
+  return picked
+}
+
 function normalizeRawBboxes(
   raw: NonNullable<ModelOverlayOption["spatialMarkers"][number]["rawBboxes"]>,
   videoWidth: number,
@@ -50,6 +136,58 @@ function resolveMarkerBoxes(
     return normalizeRawBboxes(marker.rawBboxes, videoWidth, videoHeight, marker.score)
   }
   return []
+}
+
+function TamperRegionMarker({
+  box,
+  layout,
+  primary,
+}: {
+  box: OverlaySpatialBBox
+  layout: ContainedVideoLayout
+  primary: boolean
+}) {
+  const pos = boxToContainPercent(box, layout)
+  const scorePct = Math.round(normalizeResultValue(box.score) * 100)
+  const corner = primary ? "border-[#e11d48]" : "border-[#fb7185]/70"
+  const cornerSize = primary ? "h-3.5 w-3.5 sm:h-4 sm:w-4" : "h-2.5 w-2.5"
+  const borderW = primary ? "border-[2.5px]" : "border-2"
+  // 상단에 붙으면 라벨이 잘리니 박스 안쪽으로 내린다.
+  const labelAbove = pos.top >= 7
+
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: `${pos.left}%`,
+        top: `${pos.top}%`,
+        width: `${pos.width}%`,
+        height: `${pos.height}%`,
+      }}
+    >
+      {primary ? (
+        <div className="absolute inset-0 bg-[#e11d48]/18 mix-blend-multiply" />
+      ) : (
+        <div className="absolute inset-0 border border-dashed border-[#fb7185]/55 bg-[#e11d48]/06" />
+      )}
+
+      <div className={`absolute left-0 top-0 ${cornerSize} ${borderW} ${corner} border-b-0 border-r-0`} />
+      <div className={`absolute right-0 top-0 ${cornerSize} ${borderW} ${corner} border-b-0 border-l-0`} />
+      <div className={`absolute bottom-0 left-0 ${cornerSize} ${borderW} ${corner} border-t-0 border-r-0`} />
+      <div className={`absolute bottom-0 right-0 ${cornerSize} ${borderW} ${corner} border-t-0 border-l-0`} />
+
+      {primary ? (
+        <div
+          className={`absolute left-0 z-10 flex max-w-[min(100%,14rem)] items-center gap-1.5 whitespace-nowrap rounded-sm bg-[#9f1239]/95 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white shadow-sm sm:text-[11px] ${
+            labelAbove ? "-top-6 sm:-top-7" : "top-1.5"
+          }`}
+        >
+          <span className="inline-block size-1.5 shrink-0 rounded-full bg-white/95" aria-hidden />
+          위조 의심 영역 · {scorePct}점
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 type BannerTone = {
@@ -156,25 +294,41 @@ function riskAtTime(
 export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) {
   const [currentTime, setCurrentTime] = useState(0)
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 })
+  const [containLayout, setContainLayout] = useState<ContainedVideoLayout | null>(null)
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
-    const sync = () => {
+    const syncTimeAndIntrinsics = () => {
       setCurrentTime(video.currentTime)
       const w = video.videoWidth || 0
       const h = video.videoHeight || 0
       if (w > 0 && h > 0) setVideoSize({ width: w, height: h })
+      setContainLayout(getContainedVideoLayout(video))
     }
-    sync()
-    video.addEventListener("timeupdate", sync)
-    video.addEventListener("seeked", sync)
-    video.addEventListener("loadedmetadata", sync)
+
+    const syncLayout = () => {
+      setContainLayout(getContainedVideoLayout(video))
+    }
+
+    syncTimeAndIntrinsics()
+    video.addEventListener("timeupdate", syncTimeAndIntrinsics)
+    video.addEventListener("seeked", syncTimeAndIntrinsics)
+    video.addEventListener("loadedmetadata", syncTimeAndIntrinsics)
+    video.addEventListener("resize", syncLayout)
+    window.addEventListener("resize", syncLayout)
+    const ro =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => syncLayout()) : null
+    ro?.observe(video)
+
     return () => {
-      video.removeEventListener("timeupdate", sync)
-      video.removeEventListener("seeked", sync)
-      video.removeEventListener("loadedmetadata", sync)
+      video.removeEventListener("timeupdate", syncTimeAndIntrinsics)
+      video.removeEventListener("seeked", syncTimeAndIntrinsics)
+      video.removeEventListener("loadedmetadata", syncTimeAndIntrinsics)
+      video.removeEventListener("resize", syncLayout)
+      window.removeEventListener("resize", syncLayout)
+      ro?.disconnect()
     }
   }, [videoRef, option?.id])
 
@@ -279,9 +433,10 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
     const scorePct = Math.round(score * 100)
     // Only draw boxes while the matched sample itself clears TruFor threshold.
     const showBoxes = Boolean(activeSpatial && activeSpatial.score >= threshold)
-    const boxes = showBoxes
+    const rawBoxes = showBoxes
       ? resolveMarkerBoxes(activeSpatial, videoSize.width, videoSize.height)
       : []
+    const boxes = pickDisplayBoxes(rawBoxes)
     const statusHint = !anyTamperBoxes
       ? " · bbox 없음(최신 GPU로 재분석 필요)"
       : boxes.length === 0
@@ -289,27 +444,20 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
         : null
     return (
       <div className="pointer-events-none absolute inset-0">
-        {boxes.length > 0 ? (
-          boxes.map((box, idx) => {
-            const boxScore = normalizeResultValue(box.score)
-            const tone = boxScore >= elevateFloor ? "border-orange-500 bg-orange-500/18" : "border-amber-400 bg-amber-400/12"
-            return (
-              <div
-                key={`${box.x}-${box.y}-${idx}`}
-                className={`absolute rounded-sm border-2 ${tone}`}
-                style={{
-                  left: `${box.x * 100}%`,
-                  top: `${box.y * 100}%`,
-                  width: `${box.w * 100}%`,
-                  height: `${box.h * 100}%`,
-                  opacity: 0.45 + boxScore * 0.5,
-                }}
+        {boxes.length > 0 && containLayout
+          ? boxes.map((box, idx) => (
+              <TamperRegionMarker
+                key={`${box.x}-${box.y}-${box.w}-${box.h}-${idx}`}
+                box={box}
+                layout={containLayout}
+                primary={idx === 0}
               />
-            )
-          })
-        ) : null}
-        <div className="absolute bottom-4 left-4 rounded-md bg-orange-600/95 px-2.5 py-1 text-xs font-bold text-white">
-          {label} · risk {scorePct}점
+            ))
+          : null}
+        <div className="absolute bottom-4 left-4 max-w-[min(92%,22rem)] rounded-md bg-[#9f1239]/95 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
+          {boxes.length > 0
+            ? `위조 의심 영역을 표시 중 · TruFor ${scorePct}점`
+            : `${label} · risk ${scorePct}점`}
           {statusHint}
         </div>
       </div>
