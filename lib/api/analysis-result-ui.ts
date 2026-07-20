@@ -303,25 +303,66 @@ export function isDeepfakeModuleOverThreshold(
 }
 
 /**
- * 종합 위험 점수 표시용: 저장된 riskScore와 위변조 레인 max를 합쳐
- * AI 통합 규칙(max of lanes)과 맞춘다. AI가 이미 통합 점수를 쓰면 동일하다.
+ * 종합 위험 점수 표시용 (AI 동적 가중과 동일):
+ * F = Late Fusion, G = 위변조 max
+ * 둘 다 있으면 (F²+G²)/(F+G), 한쪽만 있으면 그 값.
+ * soft face-gate(errorCode)면 위변조만.
  */
 export function resolveIntegratedDisplayRiskScore01(
   data: EvidenceDetailData | null,
   forgeryScores01: Array<number | null | undefined>
 ): number | null {
-  const candidates: number[] = []
+  const forgeryVals = forgeryScores01
+    .filter((score): score is number => score != null && Number.isFinite(score))
+    .map((score) => normalizeResultValue(score))
+  const forgeryMax = forgeryVals.length > 0 ? Math.max(...forgeryVals) : null
+
+  const errorCode = (data?.analysisInfo.errorCode ?? "").trim().toUpperCase()
+  const softFaceGate =
+    errorCode === "NO_HUMAN_FACE" ||
+    errorCode === "FACE_TOO_SMALL" ||
+    errorCode === "NO_FACE" ||
+    errorCode === "FACE_GATE"
+
+  if (softFaceGate) {
+    return forgeryMax
+  }
+
+  const fusion = resolveDeepfakeFusionScore01(data)
+  if (fusion != null && forgeryMax != null) {
+    const total = fusion + forgeryMax
+    if (total <= 0) return 0
+    return (fusion * fusion + forgeryMax * forgeryMax) / total
+  }
+  if (fusion != null) return fusion
+  if (forgeryMax != null) return forgeryMax
+
   const stored = data?.analysisInfo.riskScore
   if (stored != null && Number.isFinite(stored)) {
-    candidates.push(normalizeResultValue(stored))
+    return normalizeResultValue(stored)
   }
-  for (const score of forgeryScores01) {
-    if (score != null && Number.isFinite(score)) {
-      candidates.push(normalizeResultValue(score))
-    }
+  return null
+}
+
+function resolveDeepfakeFusionScore01(data: EvidenceDetailData | null): number | null {
+  const modelScores = data?.analysisInfo.modelScores ?? []
+  const fusionModel = modelScores.find((model) => {
+    const key = (model.moduleName ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+    return key === "deepfake" || key === "late_fusion" || key === "fusion" || key === "latefusion"
+  })
+  if (fusionModel != null && Number.isFinite(fusionModel.score)) {
+    return normalizeResultValue(fusionModel.score)
   }
-  if (candidates.length === 0) return null
-  return Math.max(...candidates)
+
+  const modules = data?.analysisInfo.moduleResults ?? []
+  const fusionModule = modules.find((module) => {
+    const key = (module.moduleName ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+    return key === "deepfake" || key === "late_fusion" || key === "fusion"
+  })
+  if (fusionModule != null && Number.isFinite(fusionModule.score)) {
+    return normalizeResultValue(fusionModule.score)
+  }
+  return null
 }
 
 export function buildRiskSignals(data: EvidenceDetailData | null): {
