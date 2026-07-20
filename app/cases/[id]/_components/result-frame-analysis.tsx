@@ -82,7 +82,7 @@ export function ResultFrameAnalysis({
         <div>
           <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">프레임 분석</h3>
           <p className="mt-1 text-sm font-semibold text-slate-500">
-            딥페이크 모델(Xception·TimeSformer·GMFlow)과 위변조 모델을 분리해 확인합니다.
+            딥페이크 모델과 위변조 모델을 분리해 확인합니다.
           </p>
         </div>
       </div>
