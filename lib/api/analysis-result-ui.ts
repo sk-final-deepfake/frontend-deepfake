@@ -681,6 +681,57 @@ function getCanonicalModelScoreKey(model: ModelScore): CanonicalModelScoreKey {
   return "deepfake_cnn"
 }
 
+/** forgery prod thresholds (videocof-v2 / forgery-v1.9-hardneg) */
+const FORGERY_METHODOLOGY_THRESHOLDS = [
+  { label: "TruFor", timelineModule: "forgery_spatial", defaultThreshold: 0.515 },
+  { label: "TS-forgery", timelineModule: "forgery_temporal", defaultThreshold: 0.173386 },
+] as const
+
+function resolveAnalysisId(data: EvidenceDetailData | null): string {
+  const explicit = data?.analysisInfo.analysisId?.trim()
+  if (explicit) return explicit
+
+  const requestId = data?.analysisInfo.analysisRequestId
+  if (requestId != null && Number.isFinite(requestId) && requestId > 0) {
+    return `ANL-${requestId}`
+  }
+
+  return "-"
+}
+
+function resolveForgeryMethodologyThreshold(
+  data: EvidenceDetailData | null,
+  timelineModule: string,
+  defaultThreshold: number
+): number {
+  const timeline = data?.analysisInfo.moduleTimelines?.find((item) => item.module === timelineModule)
+  const fromTimeline = timeline?.threshold
+  if (fromTimeline != null && Number.isFinite(fromTimeline) && fromTimeline > 0 && fromTimeline <= 1) {
+    return fromTimeline
+  }
+  return defaultThreshold
+}
+
+function buildMethodologyModuleThresholdSummary(
+  models: UiMethodologyModel[],
+  data: EvidenceDetailData | null
+): string {
+  const parts = models
+    .filter((model) => model.name !== "Late Fusion")
+    .map((model) => `${model.name} ${Math.round(model.threshold * 100)}`)
+
+  for (const forgery of FORGERY_METHODOLOGY_THRESHOLDS) {
+    const threshold = resolveForgeryMethodologyThreshold(
+      data,
+      forgery.timelineModule,
+      forgery.defaultThreshold
+    )
+    parts.push(`${forgery.label} ${Math.round(threshold * 100)}`)
+  }
+
+  return parts.length > 0 ? parts.join(" · ") : "-"
+}
+
 /**
  * 분석 방법론 탭: 실제 실행된 모델과 재현에 필요한 파라미터만 담는다.
  * 백엔드가 제공하지 않은 값은 "-"로 표시하고 UI에서 만들어내지 않는다.
@@ -699,15 +750,12 @@ export function buildMethodologyInfo(
   const analyzedAt = data?.analysisInfo.completedAt
 
   const settings: UiModelSetting[] = [
-    { label: "분석 ID", value: data?.analysisInfo.analysisId?.trim() || "-" },
+    { label: "분석 ID", value: resolveAnalysisId(data) },
     { label: "분석 일시", value: analyzedAt ? formatDateTime(analyzedAt) : "-" },
     { label: "Fusion 판정 임계값", value: `${Math.round(threshold * 100)} / 100` },
     {
       label: "모듈별 임계값",
-      value: models
-        .filter((model) => model.name !== "Late Fusion")
-        .map((model) => `${model.name} ${Math.round(model.threshold * 100)}`)
-        .join(" · ") || "-",
+      value: buildMethodologyModuleThresholdSummary(models, data),
     },
     {
       label: "입력 해상도",

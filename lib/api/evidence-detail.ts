@@ -201,6 +201,8 @@ export type AnalysisInfo = {
   queueStatus?: string | null
   /** 재현성 확인용 분석 실행 식별자 (예: ANL-20260703-1327) */
   analysisId?: string | null
+  /** BE AnalysisRequest PK — analysisId 미제공 시 재현 정보 표시용 */
+  analysisRequestId?: number | null
   /** 위험 판정 임계값 (0.0 ~ 1.0). 없으면 UI 기본값 사용 */
   detectionThreshold?: number | null
   requestedAt: string | null

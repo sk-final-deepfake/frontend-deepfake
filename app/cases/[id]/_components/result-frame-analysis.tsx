@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { FileVideo, Play } from "lucide-react"
 
 import {
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 
 import {
   buildForgeryRepresentativeFrames,
+  FORGERY_SPATIAL_MODULE,
   FORGERY_TEMPORAL_MODULE,
 } from "../_lib/forgery-ui"
 import {
@@ -42,7 +43,22 @@ export function ResultFrameAnalysis({
   const deepfakeTabs = buildDeepfakeTimelineTabs(evidenceDetail, detectionThreshold)
   const forgeryTabs = buildForgeryTimelineTabs(evidenceDetail, detectionThreshold)
   const [deepfakeKey, setDeepfakeKey] = useState(deepfakeTabs[0]?.key ?? "cnn")
-  const [forgeryKey, setForgeryKey] = useState(forgeryTabs[0]?.key ?? "")
+  const [forgeryKey, setForgeryKey] = useState(
+    () =>
+      forgeryTabs.find((tab) => tab.key === FORGERY_SPATIAL_MODULE)?.key ??
+      forgeryTabs[0]?.key ??
+      ""
+  )
+
+  const forgeryTabKeys = forgeryTabs.map((tab) => tab.key).join("|")
+
+  useEffect(() => {
+    setForgeryKey(
+      forgeryTabs.find((tab) => tab.key === FORGERY_SPATIAL_MODULE)?.key ??
+      forgeryTabs[0]?.key ??
+      ""
+    )
+  }, [evidenceDetail.evidenceInfo.evidenceId, forgeryTabKeys])
 
   const activeDeepfakeTab = deepfakeTabs.find((tab) => tab.key === deepfakeKey) ?? deepfakeTabs[0]
   const activeForgeryTab = forgeryTabs.find((tab) => tab.key === forgeryKey) ?? forgeryTabs[0]
