@@ -126,6 +126,49 @@ export default function AdminEvidenceDetailPage() {
         )}
       </div>
 
+      {detail.securityStatus === "SECURITY_ALERT" || detail.integrityValid === false ? (
+        <section className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200">
+          <p className="font-semibold">보안 경고</p>
+          <p className="mt-1 text-xs leading-5">
+            {detail.securityAlertCodes?.length
+              ? detail.securityAlertCodes.join(" · ")
+              : "서명·CoC·블록체인 검증에서 이상이 감지되었습니다."}
+          </p>
+        </section>
+      ) : null}
+
+      <section className="rounded-xl border border-border bg-card p-6">
+        <h2 className="text-base font-semibold">보안·무결성 상태</h2>
+        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+          <InfoItem label="보안 상태" value={detail.securityStatus ?? "OK"} />
+          <InfoItem
+            label="종합 무결성"
+            value={detail.integrityValid === false ? "실패" : "정상"}
+          />
+          <InfoItem
+            label="전자서명"
+            value={
+              detail.signatureValid == null
+                ? "-"
+                : detail.signatureValid
+                  ? "유효"
+                  : "무효"
+            }
+          />
+          <InfoItem label="CoC 체인" value={detail.chainValid === false ? "손상" : "유효"} />
+          <InfoItem
+            label="블록체인 해시"
+            value={
+              detail.blockchainHashValid == null
+                ? "-"
+                : detail.blockchainHashValid
+                  ? "일치"
+                  : "불일치"
+            }
+          />
+        </dl>
+      </section>
+
       <section className="rounded-xl border border-border bg-card p-6">
         <h2 className="text-base font-semibold">기본 정보</h2>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">

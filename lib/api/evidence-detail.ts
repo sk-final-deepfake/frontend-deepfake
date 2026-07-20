@@ -57,12 +57,23 @@ export type EvidenceInfo = {
   technicalMetadata: TechnicalMetadata
 }
 
+export type SecurityCheck = {
+  checkType: string
+  valid: boolean
+  errorCode?: string | null
+  message?: string | null
+}
+
 export type IntegrityInfo = {
   hashAlgorithm: string
   originalHash: string
   chainValid: boolean
   isChainValid: boolean
   verificationStatus: string
+  /** RQ-SEC-153 */
+  integrityValid?: boolean
+  securityStatus?: "OK" | "SECURITY_ALERT" | string
+  failedChecks?: SecurityCheck[]
 }
 
 export type ModuleResult = {

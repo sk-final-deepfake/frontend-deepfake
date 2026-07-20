@@ -13,16 +13,19 @@ import {
   LogOut,
   ClipboardCheck,
   History,
+  FileStack,
 } from "lucide-react"
 import { logoutApi } from "@/lib/auth-api"
 import { clearSession, getSession, isMockAuthSession } from "@/lib/auth"
 import { cn } from "@/lib/utils"
+import { AdminSecurityAlerts } from "@/app/admin/_components/admin-security-alerts"
 
 const navItems = [
   { href: "/admin", label: "메인 대시보드", icon: LayoutDashboard, exact: true },
   { href: "/admin/users", label: "계정 관리", icon: Users },
   { href: "/admin/approvals", label: "사용자 승인", icon: UserCheck },
   { href: "/admin/reviews", label: "검토 배정", icon: ClipboardCheck },
+  { href: "/admin/evidences", label: "증거 관리", icon: FileStack },
   { href: "/admin/statistics", label: "통계 분석", icon: BarChart3 },
   { href: "/admin/logs", label: "로그 관리", icon: ScrollText },
   { href: "/admin/coc", label: "CoC 감사", icon: History },
@@ -112,7 +115,12 @@ export function AdminShell({ children }: AdminShellProps) {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-end border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+          <AdminSecurityAlerts />
+        </div>
+        {children}
+      </div>
     </div>
   )
 }

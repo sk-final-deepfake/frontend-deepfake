@@ -31,16 +31,29 @@ const themeOptions: { value: "light" | "dark"; label: string; icon: typeof Sun }
 ]
 
 function mapApiNotification(notification: ApiNotification): AppNotification {
+  const isSecurity = notification.type === "SECURITY_ALERT"
+  const isAdminSession = (() => {
+    const session = getSession()
+    if (!session) return false
+    const role = (session.role ?? "").toUpperCase()
+    return role.includes("ADMIN")
+  })()
+
+  let href: string | undefined
+  if (notification.referenceId != null) {
+    href = isSecurity && isAdminSession
+      ? `/admin/evidences/${notification.referenceId}`
+      : `/evidences/${notification.referenceId}`
+  }
+
   return {
     id: String(notification.notificationId),
     title: notification.title,
     description: notification.message,
     createdAt: notification.createdAt,
     read: notification.read,
-    href:
-      notification.referenceId != null
-        ? `/evidences/${notification.referenceId}`
-        : undefined,
+    type: notification.type,
+    href,
   }
 }
 
@@ -298,11 +311,26 @@ export function SiteHeaderAuth() {
                 </div>
               ) : (
                 notifications.map((item, index) => {
+                  const isSecurity = item.type === "SECURITY_ALERT"
                   const content = (
                     <>
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-[11px] font-bold text-teal-600/80">알림 {index + 1}</span>
-                        {!item.read ? <span className="size-2 rounded-full bg-teal-600" /> : null}
+                        <span
+                          className={cn(
+                            "text-[11px] font-bold",
+                            isSecurity ? "text-red-600" : "text-teal-600/80"
+                          )}
+                        >
+                          {isSecurity ? "보안 경고" : `알림 ${index + 1}`}
+                        </span>
+                        {!item.read ? (
+                          <span
+                            className={cn(
+                              "size-2 rounded-full",
+                              isSecurity ? "bg-red-600" : "bg-teal-600"
+                            )}
+                          />
+                        ) : null}
                       </div>
                       <p className="mt-1 text-sm font-bold text-popover-foreground">{item.title}</p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p>
@@ -314,7 +342,10 @@ export function SiteHeaderAuth() {
                       key={item.id}
                       href={item.href}
                       onClick={() => handleOpenNotification(item)}
-                      className="block border-b border-border/70 px-4 py-3 transition-colors last:border-b-0 hover:bg-muted"
+                      className={cn(
+                        "block border-b border-border/70 px-4 py-3 transition-colors last:border-b-0 hover:bg-muted",
+                        isSecurity && !item.read && "bg-red-50/70 dark:bg-red-950/20"
+                      )}
                     >
                       {content}
                     </Link>
@@ -323,7 +354,10 @@ export function SiteHeaderAuth() {
                       key={item.id}
                       type="button"
                       onClick={() => handleOpenNotification(item)}
-                      className="block w-full border-b border-border/70 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-muted"
+                      className={cn(
+                        "block w-full border-b border-border/70 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-muted",
+                        isSecurity && !item.read && "bg-red-50/70 dark:bg-red-950/20"
+                      )}
                     >
                       {content}
                     </button>

@@ -24,25 +24,59 @@ type IntegrityTabProps = {
 type Tone = "safe" | "warning" | "danger" | "muted"
 
 export function IntegrityTab({ data, copied, onCopyHash }: IntegrityTabProps) {
-  const { integrityInfo, evidenceInfo, analysisInfo } = data
+  const { integrityInfo, evidenceInfo, analysisInfo, signatureInfo, blockchainInfo } = data
   const chainValid = integrityInfo.isChainValid ?? integrityInfo.chainValid
-  const statusTone: Tone = chainValid ? "safe" : "danger"
+  const securityAlert =
+    integrityInfo.securityStatus === "SECURITY_ALERT" || integrityInfo.integrityValid === false
+  const signatureStatus = (signatureInfo?.signatureStatus ?? "").toUpperCase()
+  const signatureOk = signatureStatus === "SIGNED" && signatureInfo?.signatureValid === true
+  const signatureLabel =
+    signatureStatus === "SIGNED"
+      ? signatureOk
+        ? "유효"
+        : "무효"
+      : signatureStatus === "FAILED"
+        ? "실패"
+        : "미서명"
+  const blockchainOk = blockchainInfo?.hashValid !== false && (blockchainInfo?.status ?? "").toUpperCase() !== "FAILED"
+  const statusTone: Tone = securityAlert || !chainValid ? "danger" : "safe"
   const metadata = evidenceInfo.technicalMetadata
   const duration = formatDuration(metadata.durationSec)
   const shortHash = shortenHash(integrityInfo.originalHash)
   const uploadedAt = formatDateTime(evidenceInfo.uploadedAt)
   const completedAt = formatDateTime(analysisInfo.completedAt ?? evidenceInfo.uploadedAt)
   const cocSteps = buildCocSteps(data)
-  const validationRows = buildValidationRows(chainValid)
+  const validationRows = buildValidationRows({
+    chainValid,
+    signatureOk,
+    signatureLabel,
+    blockchainOk,
+    securityAlert,
+  })
 
   return (
     <div className="space-y-4">
+      {securityAlert ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+          <p className="font-semibold">보안 경고</p>
+          <p className="mt-1 text-xs leading-5">
+            {integrityInfo.failedChecks?.length
+              ? integrityInfo.failedChecks.map((check) => check.message || check.errorCode).filter(Boolean).join(" · ")
+              : "서명·CoC 체인·블록체인 검증 중 이상이 감지되었습니다."}
+          </p>
+        </div>
+      ) : null}
+
       <section className="grid gap-3 lg:grid-cols-3">
         <IntegritySummaryCard
           icon={ShieldCheck}
           title="위변조 의심 수준"
-          value={chainValid ? "낮음" : "높음"}
-          description={chainValid ? "판정 결과가 낮으며 조작 가능성이 낮습니다." : "해시 검증 결과를 확인해야 합니다."}
+          value={securityAlert || !chainValid ? "높음" : "낮음"}
+          description={
+            securityAlert || !chainValid
+              ? "해시·서명 검증 결과를 확인해야 합니다."
+              : "판정 결과가 낮으며 조작 가능성이 낮습니다."
+          }
           tone={statusTone}
         />
         <IntegritySummaryCard
@@ -50,14 +84,14 @@ export function IntegrityTab({ data, copied, onCopyHash }: IntegrityTabProps) {
           title="해시 검증 결과"
           value={chainValid ? "원본 해시 일치" : "해시 불일치"}
           description={`${integrityInfo.hashAlgorithm || "SHA-256"} 기준 원본 파일과 현재 파일을 비교했습니다.`}
-          tone={statusTone}
+          tone={chainValid ? "safe" : "danger"}
         />
         <IntegritySummaryCard
           icon={PenLine}
           title="전자서명 상태"
-          value={chainValid ? "유효" : "미검증"}
+          value={signatureLabel}
           description="Evidence Manifest 전자서명 기준으로 표시됩니다."
-          tone={chainValid ? "safe" : "muted"}
+          tone={signatureOk ? "safe" : signatureStatus === "SIGNED" ? "danger" : "muted"}
         />
       </section>
 
@@ -100,18 +134,46 @@ export function IntegrityTab({ data, copied, onCopyHash }: IntegrityTabProps) {
         <ResultPanel title="무결성 검증 결과">
           <ResultRow label="SHA-256" value={shortHash} mono action={onCopyHash} actionLabel={copied ? "복사됨" : "복사"} />
           <ResultRow label="해시 알고리즘" value={integrityInfo.hashAlgorithm || "SHA-256"} />
-          <ResultRow label="검증 결과" value={chainValid ? "원본 해시 일치" : "해시 불일치"} badgeTone={statusTone} />
+          <ResultRow label="검증 결과" value={chainValid ? "원본 해시 일치" : "해시 불일치"} badgeTone={chainValid ? "safe" : "danger"} />
           <ResultRow label="Evidence Manifest 생성 시각" value={uploadedAt} />
           <ResultRow label="Manifest 원본 해시" value={shortHash} mono />
-          <ResultRow label="전자서명 상태" value={chainValid ? "유효" : "미검증"} badgeTone={chainValid ? "safe" : "muted"} />
+          <ResultRow
+            label="전자서명 상태"
+            value={signatureLabel}
+            badgeTone={signatureOk ? "safe" : signatureStatus === "SIGNED" ? "danger" : "muted"}
+          />
         </ResultPanel>
 
         <ResultPanel title="블록체인 검증">
-          <ResultRow label="블록체인 등록 상태" value={analysisInfo.status === "COMPLETED" ? "등록 대기" : "대기"} badgeTone="safe" />
-          <ResultRow label="Transaction Hash" value="미제공" />
+          <ResultRow
+            label="블록체인 등록 상태"
+            value={blockchainInfo?.status || (analysisInfo.status === "COMPLETED" ? "등록 대기" : "대기")}
+            badgeTone={blockchainOk ? "safe" : "danger"}
+          />
+          <ResultRow label="Transaction Hash" value={blockchainInfo?.transactionHash || "미제공"} />
           <ResultRow label="영지식 시각" value={completedAt} />
-          <ResultRow label="블록체인 기록 해시 검증" value={chainValid ? "일치" : "확인 필요"} badgeTone={statusTone} />
-          <ResultRow label="네트워크" value="Private Chain" />
+          <ResultRow
+            label="블록체인 기록 해시 검증"
+            value={
+              blockchainInfo?.hashValid == null
+                ? chainValid
+                  ? "일치"
+                  : "확인 필요"
+                : blockchainInfo.hashValid
+                  ? "일치"
+                  : "불일치"
+            }
+            badgeTone={
+              blockchainInfo?.hashValid == null
+                ? chainValid
+                  ? "safe"
+                  : "danger"
+                : blockchainInfo.hashValid
+                  ? "safe"
+                  : "danger"
+            }
+          />
+          <ResultRow label="네트워크" value={blockchainInfo?.network || "Private Chain"} />
           <Button type="button" variant="outline" className="mt-4 h-10 w-full border-blue-200 text-blue-600 hover:bg-blue-50 dark:border-blue-900/60 dark:hover:bg-blue-950/30" disabled>
             트랜잭션 보기
             <ExternalLink className="size-4" aria-hidden="true" />
@@ -436,18 +498,24 @@ function buildSuspiciousFrames(chainValid: boolean): SuspiciousFrame[] {
   ]
 }
 
-function buildValidationRows(chainValid: boolean): ValidationRow[] {
-  const status = chainValid ? "정상" : "위험"
-  const tone: Tone = chainValid ? "safe" : "danger"
-
+function buildValidationRows(input: {
+  chainValid: boolean
+  signatureOk: boolean
+  signatureLabel: string
+  blockchainOk: boolean
+  securityAlert: boolean
+}): ValidationRow[] {
+  const hashTone: Tone = input.chainValid ? "safe" : "danger"
+  const sigTone: Tone = input.signatureOk ? "safe" : input.signatureLabel === "미서명" ? "muted" : "danger"
+  const bcTone: Tone = input.blockchainOk ? "safe" : "danger"
   return [
-    { label: "프레임 누락", result: chainValid ? "없음" : "확인 필요", status, tone, description: "누락된 프레임 패턴이 발견되지 않았습니다." },
-    { label: "프레임 반복", result: chainValid ? "없음" : "확인 필요", status, tone, description: "반복 프레임 패턴이 발견되지 않았습니다." },
-    { label: "프레임 혼합", result: chainValid ? "없음" : "확인 필요", status, tone, description: "비정상적인 연결 프레임 변형이 발견되지 않았습니다." },
-    { label: "자연스러운 흐름", result: chainValid ? "OK" : "확인 필요", status, tone, description: "급격한 병합 전환이 탐지되지 않았습니다." },
-    { label: "SHA-256 검증", result: chainValid ? "일치" : "불일치", status, tone, description: "계산된 원본 해시와 현재 파일 해시가 일치합니다." },
-    { label: "전자서명", result: chainValid ? "유효" : "미검증", status, tone, description: "Evidence Manifest 서명이 유효합니다." },
-    { label: "블록체인 검증", result: chainValid ? "일치" : "확인 필요", status, tone, description: "블록체인에 등록된 해시와 현재 파일 해시가 일치합니다." },
+    { label: "프레임 누락", result: input.chainValid ? "없음" : "확인 필요", status: input.chainValid ? "정상" : "위험", tone: hashTone, description: "누락된 프레임 패턴이 발견되지 않았습니다." },
+    { label: "프레임 반복", result: input.chainValid ? "없음" : "확인 필요", status: input.chainValid ? "정상" : "위험", tone: hashTone, description: "반복 프레임 패턴이 발견되지 않았습니다." },
+    { label: "프레임 혼합", result: input.chainValid ? "없음" : "확인 필요", status: input.chainValid ? "정상" : "위험", tone: hashTone, description: "비정상적인 연결 프레임 변형이 발견되지 않았습니다." },
+    { label: "자연스러운 흐름", result: input.chainValid ? "OK" : "확인 필요", status: input.chainValid ? "정상" : "위험", tone: hashTone, description: "급격한 병합 전환이 탐지되지 않았습니다." },
+    { label: "SHA-256 검증", result: input.chainValid ? "일치" : "불일치", status: input.chainValid ? "정상" : "위험", tone: hashTone, description: "계산된 원본 해시와 현재 파일 해시가 일치합니다." },
+    { label: "전자서명", result: input.signatureLabel, status: input.signatureOk ? "정상" : "위험", tone: sigTone, description: "Evidence Manifest 서명이 유효합니다." },
+    { label: "블록체인 검증", result: input.blockchainOk ? "일치" : "확인 필요", status: input.blockchainOk ? "정상" : "위험", tone: bcTone, description: "블록체인에 등록된 해시와 현재 파일 해시가 일치합니다." },
   ]
 }
 
