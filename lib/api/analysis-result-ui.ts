@@ -414,6 +414,68 @@ export function buildRiskSignals(data: EvidenceDetailData | null): {
   }
 }
 
+function buildCanonicalDeepfakeModuleMap(data: EvidenceDetailData | null) {
+  const map = new Map<CanonicalModelScoreKey, ModuleResult>()
+
+  for (const module of data?.analysisInfo.moduleResults ?? []) {
+    if (!isAnalysisModule(module.moduleName)) continue
+    if (isForgeryLaneModuleName(module.moduleName, module.modelName)) continue
+
+    const key = getCanonicalModelScoreKey({
+      moduleName: module.moduleName ?? "",
+      modelName: module.modelName ?? "",
+      score: module.score,
+    })
+    const existing = map.get(key)
+    if (!existing || normalizeResultValue(module.score) > normalizeResultValue(existing.score)) {
+      map.set(key, module)
+    }
+  }
+
+  return map
+}
+
+/** 딥페이크 탭 카드: 그래프와 동일하게 Late Fusion → Xception → TimeSformer → GMFlow 4개 고정. */
+export function buildDeepfakeRiskSignals(data: EvidenceDetailData | null): UiRiskSignal[] {
+  const fusionThreshold = getDetectionThreshold(data)
+  const methodologyModels = buildMethodologyModels(data, fusionThreshold)
+  const methodologyByName = new Map(methodologyModels.map((model) => [model.name, model]))
+  const moduleByKey = buildCanonicalDeepfakeModuleMap(data)
+
+  const hasModelScores = (data?.analysisInfo.modelScores ?? []).some(
+    (model) => !isForgeryLaneModelScore(model)
+  )
+  if (!hasModelScores && methodologyModels.length === 0) {
+    return []
+  }
+
+  return CANONICAL_MODEL_SCORE_KEYS.map((key) => {
+    const display = MODEL_SCORE_DISPLAY[key]
+    const chartModel = methodologyByName.get(display.name)
+    const module = moduleByKey.get(key) ?? null
+    const moduleThreshold =
+      chartModel?.threshold ?? resolveModelScoreThreshold(key, data, fusionThreshold)
+    const rawScore = chartModel?.score ?? module?.score ?? null
+    const normalizedScore = rawScore != null ? normalizeResultValue(rawScore) : 0
+    const label = MODULE_LABELS[key] ?? display.name
+    const detected =
+      Boolean(module?.detected) ||
+      Boolean(chartModel?.overThreshold) ||
+      (rawScore != null && normalizedScore >= moduleThreshold)
+
+    return {
+      label,
+      modelLabel: module ? moduleModelLabel(module) : display.name,
+      definition: getSignalDefinition(label),
+      badge: riskBadge(normalizedScore, detected, moduleThreshold),
+      score: normalizedScore,
+      thresholdPercent: Math.round(moduleThreshold * 100),
+      tone: riskTone(normalizedScore, moduleThreshold),
+      segments: module ? moduleSegments(module) : [],
+    }
+  })
+}
+
 export function buildTopRiskFrames(
   data: EvidenceDetailData | null,
   frameScores: FrameScore[]

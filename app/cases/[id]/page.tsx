@@ -104,8 +104,8 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AnalysisStatus } from "@/lib/analysis-status"
 import {
+  buildDeepfakeRiskSignals,
   buildMethodologyInfo,
-  buildRiskSignals,
   buildSummaryActions,
   formatModuleLabel,
   formatScoreOutOf100,
@@ -1108,9 +1108,7 @@ function CaseResultView({
   const frameScores = getXceptionFrameScores(evidenceDetail)
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
-  const { primary: primaryRiskSignals, extra: extraRiskSignals } = buildRiskSignals(evidenceDetail)
-  const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
-  const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
+  const deepfakeRiskSignals = buildDeepfakeRiskSignals(evidenceDetail)
   const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
   const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
   const forgeryChartModels = buildForgeryChartModels(forgeryRiskSignals)
@@ -1443,11 +1441,11 @@ function CaseResultView({
                     </section>
                   ) : null}
 
-                  {deepfakeRiskSignals.length > 0 ? (
+                  {methodology.models.length > 0 ? (
                     <ul className="mt-5 space-y-3">
                       {deepfakeRiskSignals.map((signal, index) => (
                         <RiskSignalCard
-                          key={`${signal.label}-${index}`}
+                          key={`${signal.label}-${signal.modelLabel ?? index}`}
                           signal={signal}
                           delayMs={index * 120}
                           onSeek={seekResultVideo}
