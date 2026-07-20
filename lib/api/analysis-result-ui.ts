@@ -310,6 +310,32 @@ export function isDeepfakeModuleOverThreshold(
  * 둘 다 있으면 (F²+G²)/(F+G), 한쪽만 있으면 그 값.
  * soft face-gate(errorCode)면 위변조만.
  */
+export function resolveForgeryLaneScores01(data: EvidenceDetailData | null): number[] {
+  const seen = new Set<string>()
+  const scores: number[] = []
+
+  const collect = (moduleName: string | null | undefined, score: number | null | undefined) => {
+    const key = (moduleName ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+    if (key !== "forgery_spatial" && key !== "forgery_temporal") return
+    if (seen.has(key) || score == null || !Number.isFinite(score)) return
+    seen.add(key)
+    scores.push(normalizeResultValue(score))
+  }
+
+  for (const model of data?.analysisInfo.modelScores ?? []) {
+    collect(model.moduleName, model.score)
+  }
+  for (const module of data?.analysisInfo.moduleResults ?? []) {
+    collect(module.moduleName, module.score)
+  }
+
+  return scores
+}
+
+export function resolveIntegratedDisplayRiskScore(data: EvidenceDetailData | null): number | null {
+  return resolveIntegratedDisplayRiskScore01(data, resolveForgeryLaneScores01(data))
+}
+
 export function resolveIntegratedDisplayRiskScore01(
   data: EvidenceDetailData | null,
   forgeryScores01: Array<number | null | undefined>

@@ -1,5 +1,6 @@
 import type { AnalysisStatus } from "@/lib/analysis-status"
 import type { EvidenceDetailData } from "@/lib/api/evidence-detail"
+import { resolveIntegratedDisplayRiskScore } from "@/lib/api/analysis-result-ui"
 import { getAnalysisStatusLabel, getRiskLabel, getRiskTone } from "@/lib/status-labels"
 
 export type CaseRiskTone = "green" | "orange" | "red"
@@ -54,7 +55,10 @@ export function getDisplayRiskLabel(data: EvidenceDetailData): string {
 
   if (analysisInfo.riskScore == null) return "분석 근거 없음"
 
-  return getRiskLabel(normalizeScore(analysisInfo.riskScore))
+  const integrated01 = resolveIntegratedDisplayRiskScore(data)
+  const score100 =
+    integrated01 != null ? Math.round(integrated01 * 100) : normalizeScore(analysisInfo.riskScore)
+  return getRiskLabel(score100)
 }
 
 function getRiskToneFromAnalysis(data: EvidenceDetailData) {
@@ -63,6 +67,12 @@ function getRiskToneFromAnalysis(data: EvidenceDetailData) {
   if (analysisInfo.riskLevel === "HIGH") return "danger"
   if (analysisInfo.riskLevel === "MEDIUM") return "caution"
   if (analysisInfo.riskLevel === "LOW") return "normal"
+
+  const integrated01 = resolveIntegratedDisplayRiskScore(data)
+  if (integrated01 != null) {
+    const score100 = Math.round(integrated01 * 100)
+    return getRiskTone(score100)
+  }
 
   return getRiskTone(normalizeScore(analysisInfo.riskScore ?? 0))
 }
