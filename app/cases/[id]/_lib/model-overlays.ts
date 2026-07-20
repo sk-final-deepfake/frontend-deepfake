@@ -115,7 +115,7 @@ const FORGERY_OVERLAY_META = {
   spatial: {
     label: "TruFor (Spatial)",
     shortLabel: "TruFor",
-    badge: "변조 영역 bbox · 위험도 컬러",
+    badge: "위조 의심 영역을 표시합니다",
     description: "TruFor localization map에서 뽑은 변조 영역을 네모칸으로 추적합니다.",
     pendingMessage: "오버레이 탭을 열면 TruFor 오버레이를 생성한 뒤 재생합니다.",
   },
@@ -308,7 +308,7 @@ function buildForgeryOverlayOption(
     shortLabel: meta.shortLabel,
     overlayVideoUrl,
     ready,
-    overlayBadge: isSpatial && hasTamperBboxes ? "변조 영역 bbox · 위험도 컬러" : meta.badge,
+    overlayBadge: isSpatial && hasTamperBboxes ? "위조 의심 영역을 표시합니다" : meta.badge,
     timelineCaption: `${tab.label || meta.label} 구간 위험도`,
     timelineScores,
     clipWindows,
