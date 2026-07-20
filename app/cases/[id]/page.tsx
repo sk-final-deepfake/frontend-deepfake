@@ -1620,17 +1620,14 @@ function CaseResultView({
                       {methodology.settings.map((item) => (
                         <div
                           key={item.label}
-                          className={cn(
-                            "grid grid-cols-[96px_minmax(0,1fr)] items-start gap-4",
-                            item.label === "모듈별 임계값" && "sm:col-span-2"
-                          )}
+                          className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-4"
                         >
                           <span className="whitespace-nowrap text-sm font-medium text-slate-500">{item.label}</span>
                           <span
                             className={cn(
                               "min-w-0 text-sm font-bold leading-6 text-slate-950 dark:text-foreground",
                               item.label === "모듈별 임계값"
-                                ? "whitespace-pre-line text-left sm:text-right"
+                                ? "whitespace-pre-line text-right"
                                 : "break-keep text-right"
                             )}
                           >
