@@ -48,7 +48,13 @@ export function resolveForgeryModuleKey(
 }
 
 export function forgeryModuleLabel(key: ForgeryModuleKey) {
-  return key === FORGERY_SPATIAL_MODULE ? "TruFor (Spatial)" : "TimeSformer (Temporal)"
+  return key === FORGERY_SPATIAL_MODULE ? "TruFor" : "TS-forgery"
+}
+
+export function forgeryModuleDefinition(key: ForgeryModuleKey) {
+  return key === FORGERY_SPATIAL_MODULE
+    ? "객체 삽입·삭제, 픽셀 질감·경계가 주변과 어울리지 않는 국소 위변조 흔적을 확인하는 검사입니다."
+    : "컷 편집, 프레임 삽입·삭제·복제 등 시간축 편집 흔적을 확인하는 검사입니다."
 }
 
 export function forgeryModuleThreshold(key: ForgeryModuleKey) {
@@ -111,8 +117,8 @@ export type ForgeryScoreSummary = {
 
 export function getForgeryScoreSummary(data: EvidenceDetailData | null): ForgeryScoreSummary {
   const signals = buildForgeryResultTabSignals(data, 0.5)
-  const spatial = signals.find((s) => s.label.startsWith("TruFor"))
-  const temporal = signals.find((s) => s.label.startsWith("TimeSformer"))
+  const spatial = signals.find((s) => s.label === "TruFor")
+  const temporal = signals.find((s) => s.label === "TS-forgery")
   const spatialThreshold = spatial?.thresholdPercent
     ? spatial.thresholdPercent / 100
     : DEFAULT_FORGERY_THRESHOLDS.spatial
@@ -211,10 +217,7 @@ function buildSignalForTab(
   return {
     label: forgeryModuleLabel(key),
     modelLabel,
-    definition:
-      key === FORGERY_SPATIAL_MODULE
-        ? "TruFor가 보고한 국소 위변조(픽셀·객체 단위) 의심 신호입니다."
-        : "TimeSformer가 보고한 시간축 편집(클립) 위변조 의심 신호입니다.",
+    definition: forgeryModuleDefinition(key),
     badge: signalBadgeFromScore(score, detected, threshold),
     score,
     thresholdPercent: Math.round(threshold * 100),

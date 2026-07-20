@@ -95,6 +95,10 @@ import { getXceptionFrameScores } from "./_lib/module-timelines"
 import {
   buildForgeryResultTabSignals,
   DEFAULT_FORGERY_THRESHOLDS,
+  FORGERY_SPATIAL_MODULE,
+  FORGERY_TEMPORAL_MODULE,
+  forgeryModuleDefinition,
+  forgeryModuleLabel,
 } from "./_lib/forgery-ui"
 import { VideoSeekThumbnail } from "./_components/video-seek-thumbnail"
 import { SiteFooter } from "@/components/site-footer"
@@ -5085,7 +5089,7 @@ const FORGERY_METHOD_BASELINES = [
     output: "시간축 위변조 점수, 의심 구간",
     match: (signal: UiRiskSignal) => {
       const text = `${signal.label} ${signal.modelLabel ?? ""}`.toLowerCase()
-      return text.includes("timesformer") || text.includes("temporal")
+      return text.includes("ts-forgery") || text.includes("timesformer") || text.includes("temporal")
     },
   },
 ]
@@ -5136,11 +5140,17 @@ function formatForgeryModuleLabel(moduleName: string) {
 }
 
 function formatForgeryDefinition(label: string) {
-  if (label.includes("TruFor") || label.includes("Spatial") || label.includes("국소")) {
-    return "국소 삭제·객체 삽입·영역 변조 등 공간(픽셀) 위변조 카테고리를 봅니다."
+  if (label === "TruFor" || label.includes("TruFor") || label.includes("Spatial") || label.includes("국소")) {
+    return forgeryModuleDefinition(FORGERY_SPATIAL_MODULE)
   }
-  if (label.includes("TimeSformer") || label.includes("Temporal") || label.includes("이어붙이기")) {
-    return "Cut splicing·frame drop/dup/insert 등 시간축 편집 카테고리를 봅니다."
+  if (
+    label === "TS-forgery" ||
+    label.includes("TS-forgery") ||
+    label.includes("TimeSformer") ||
+    label.includes("Temporal") ||
+    label.includes("이어붙이기")
+  ) {
+    return forgeryModuleDefinition(FORGERY_TEMPORAL_MODULE)
   }
   if (label.includes("재인코딩")) return "재압축이나 변환 과정에서 생기는 인코딩 특성 변화를 확인합니다."
   return "프레임 삽입·삭제·합성처럼 시간축 편집으로 생기는 위변조 흔적을 확인합니다."
@@ -5212,10 +5222,13 @@ function buildForgeryRiskSignals(data: EvidenceDetailData | null, threshold: num
     .map((source) => {
       const score = normalizeResultValue(source.score)
       const moduleName = source.moduleName ?? "forgery_spatial"
+      const moduleKey = moduleName.toLowerCase()
       const label =
-        moduleName.toLowerCase() === "forgery_spatial"
-          ? "TruFor (Spatial)"
-          : formatForgeryModuleLabel(moduleName)
+        moduleKey === "forgery_spatial"
+          ? forgeryModuleLabel(FORGERY_SPATIAL_MODULE)
+          : moduleKey === "forgery_temporal"
+            ? forgeryModuleLabel(FORGERY_TEMPORAL_MODULE)
+            : formatForgeryModuleLabel(moduleName)
       const modelLabel =
         source.modelName?.trim()
           ? source.modelVersion?.trim()
@@ -5271,7 +5284,7 @@ function shortenForgeryMethodologyVersion(
 function buildForgeryChartModels(signals: UiRiskSignal[]): UiMethodologyModel[] {
   const chartNames: Record<(typeof FORGERY_METHOD_BASELINES)[number]["id"], string> = {
     trufor: "TruFor",
-    timesformer: "TimeSformer",
+    timesformer: "TS-forgery",
   }
 
   return buildForgeryMethodologyItems(signals)

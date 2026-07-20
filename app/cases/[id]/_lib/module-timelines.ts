@@ -20,6 +20,7 @@ import {
   DEFAULT_FORGERY_THRESHOLDS,
   FORGERY_SPATIAL_MODULE,
   FORGERY_TEMPORAL_MODULE,
+  forgeryModuleDefinition,
   forgeryModuleLabel,
   forgeryModuleThreshold,
   resolveForgeryModuleKey,
@@ -191,9 +192,9 @@ export function buildForgeryTimelineTabs(
         label,
         description:
           resolvedKey === "forgery_temporal"
-            ? "TimeSformer가 보고한 시간축 편집(클립) 의심 신호입니다."
+            ? forgeryModuleDefinition(FORGERY_TEMPORAL_MODULE)
             : resolvedKey === "forgery_spatial"
-              ? "TruFor가 보고한 국소 위변조(프레임) 의심 신호입니다."
+              ? forgeryModuleDefinition(FORGERY_SPATIAL_MODULE)
               : `${label} 모듈이 보고한 구간별 위변조 의심 신호입니다.`,
         modelName: module.modelName?.trim() || null,
         modelVersion: module.modelVersion?.trim() || null,
@@ -231,10 +232,7 @@ function buildForgeryTabsFromModelScores(
     tabs.set(key, {
       key,
       label: forgeryModuleLabel(key),
-      description:
-        key === FORGERY_TEMPORAL_MODULE
-          ? "TimeSformer가 보고한 시간축 편집(클립) 의심 신호입니다."
-          : "TruFor가 보고한 국소 위변조(프레임) 의심 신호입니다.",
+      description: forgeryModuleDefinition(key),
       modelName: score.modelName?.trim() || null,
       modelVersion: score.modelVersion?.trim() || null,
       videoScore,
@@ -268,9 +266,9 @@ function timelineToForgeryTab(
   const moduleThreshold = normalizeThreshold(timeline.threshold, defaultThreshold)
   const label =
     moduleKey === "forgery_spatial"
-      ? "TruFor (Spatial)"
+      ? forgeryModuleLabel(FORGERY_SPATIAL_MODULE)
       : moduleKey === "forgery_temporal"
-        ? "TimeSformer (Temporal)"
+        ? forgeryModuleLabel(FORGERY_TEMPORAL_MODULE)
         : formatForgeryModuleLabel(moduleKey)
   let points =
     moduleKey === "forgery_temporal"
@@ -293,8 +291,10 @@ function timelineToForgeryTab(
     label,
     description:
       moduleKey === "forgery_temporal"
-        ? "TimeSformer가 보고한 시간축 편집(클립) 의심 신호입니다."
-        : "TruFor가 보고한 국소 위변조(프레임) 의심 신호입니다.",
+        ? forgeryModuleDefinition(FORGERY_TEMPORAL_MODULE)
+        : moduleKey === "forgery_spatial"
+          ? forgeryModuleDefinition(FORGERY_SPATIAL_MODULE)
+          : `${label} 모듈이 보고한 구간별 위변조 의심 신호입니다.`,
     modelName: timeline.modelName?.trim() || null,
     modelVersion: timeline.modelVersion?.trim() || null,
     videoScore: score,
