@@ -85,18 +85,32 @@ function intersectionArea(a: OverlaySpatialBBox, b: OverlaySpatialBBox) {
 }
 
 /**
- * Nested peak boxes confuse users ("큰 박스 + 작은 박스").
- * Keep highest-score regions; drop boxes mostly contained in a stronger one.
+ * Nested boxes: the smaller one is usually the real local peak.
+ * Prefer compact boxes; drop larger parents that mostly contain them.
+ * Analysis coords/scores are unchanged — display selection only.
  */
 function pickDisplayBoxes(boxes: OverlaySpatialBBox[]): OverlaySpatialBBox[] {
-  const sorted = [...boxes].sort((a, b) => b.score - a.score || boxArea(a) - boxArea(b))
+  if (!boxes.length) return []
+
+  // Smallest first so localized peaks win over broad blobs.
+  const sorted = [...boxes].sort((a, b) => boxArea(a) - boxArea(b) || b.score - a.score)
   const picked: OverlaySpatialBBox[] = []
+
   for (const box of sorted) {
-    const mostlyInsideStronger = picked.some((keep) => {
+    // Already covered by a tighter box we kept.
+    const mostlyInsidePicked = picked.some((keep) => {
       const overlap = intersectionArea(keep, box)
       return overlap / Math.max(boxArea(box), 1e-9) >= 0.55
     })
-    if (mostlyInsideStronger) continue
+    if (mostlyInsidePicked) continue
+
+    // This is a broad parent of a tighter box we already kept — skip.
+    const containsPicked = picked.some((keep) => {
+      const overlap = intersectionArea(box, keep)
+      return overlap / Math.max(boxArea(keep), 1e-9) >= 0.55
+    })
+    if (containsPicked) continue
+
     picked.push(box)
     if (picked.length >= 2) break
   }
@@ -142,13 +156,20 @@ function TamperRegionMarker({
   box,
   layout,
   primary,
+  frameScore,
 }: {
   box: OverlaySpatialBBox
   layout: ContainedVideoLayout
   primary: boolean
+  /** Frame-level TruFor risk for the label (keep analysis score; box is location only). */
+  frameScore?: number
 }) {
   const pos = boxToContainPercent(box, layout)
-  const scorePct = Math.round(normalizeResultValue(box.score) * 100)
+  const labelScore =
+    typeof frameScore === "number" && Number.isFinite(frameScore)
+      ? normalizeResultValue(frameScore)
+      : normalizeResultValue(box.score)
+  const scorePct = Math.round(labelScore * 100)
   const corner = primary ? "border-[#e11d48]" : "border-[#fb7185]/70"
   const cornerSize = primary ? "h-3.5 w-3.5 sm:h-4 sm:w-4" : "h-2.5 w-2.5"
   const borderW = primary ? "border-[2.5px]" : "border-2"
@@ -451,6 +472,7 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
                 box={box}
                 layout={containLayout}
                 primary={idx === 0}
+                frameScore={score}
               />
             ))
           : null}
