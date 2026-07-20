@@ -47,7 +47,13 @@ export function ResultFrameAnalysis({
 }: ResultFrameAnalysisProps) {
   const [category, setCategory] = useState<AnalysisCategory>("deepfake")
   const deepfakeTabs = buildDeepfakeTimelineTabs(evidenceDetail, detectionThreshold)
-  const forgeryTabs = buildForgeryTimelineTabs(evidenceDetail, detectionThreshold)
+  // Overlay cards stay score-sorted; frame-analysis tabs keep a stable TruFor → TimeSformer order
+  // so low-score cases still open the same chart layout as high-score fakes.
+  const forgeryTabs = [...buildForgeryTimelineTabs(evidenceDetail, detectionThreshold)].sort((a, b) => {
+    const order = (key: string) =>
+      key === "forgery_spatial" ? 0 : key === "forgery_temporal" ? 1 : 2
+    return order(a.key) - order(b.key)
+  })
   const [deepfakeKey, setDeepfakeKey] = useState(deepfakeTabs[0]?.key ?? "cnn")
   const [forgeryKey, setForgeryKey] = useState(forgeryTabs[0]?.key ?? "")
 
@@ -239,7 +245,13 @@ function ForgeryFrameAnalysis({
   }
 
   const moduleThreshold = activeTab?.threshold ?? 0.515
-  const scores = activeTab?.points ?? []
+  // Keep low-score timelines visible (flat near-zero charts) — do not hide the graph UI.
+  const scores =
+    activeTab?.points && activeTab.points.length > 0
+      ? activeTab.points
+      : activeTab
+        ? [{ timeSec: 0, score: activeTab.videoScore }]
+        : []
   const summary = summarizeFrameScores(scores, moduleThreshold)
   const isTemporal = activeKey === FORGERY_TEMPORAL_MODULE
 
@@ -286,29 +298,27 @@ function ForgeryFrameAnalysis({
             />
           </div>
 
-          {scores.length > 0 ? (
-            <>
-              <MetricGrid
-                summary={summary}
-                scores={scores}
-                detectionThreshold={moduleThreshold}
-                unitLabel={isTemporal ? "클립" : "프레임"}
-              />
-              <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-                <FrameRiskChart
-                  scores={scores}
-                  threshold={moduleThreshold}
-                  title={`${activeTab.label} ${isTemporal ? "클립별" : "프레임별"} 위험도`}
-                />
-              </div>
-              <SegmentList segments={activeTab.segments} onSeek={onSeek} />
-            </>
-          ) : (
-            <EmptyTimelineMessage
-              title={`${activeTab.label} 프레임 데이터가 없습니다.`}
-              description="해당 모듈이 frameRisks 또는 clipRisks를 보고하면 시간축 차트가 표시됩니다."
+          <MetricGrid
+            summary={summary}
+            scores={scores}
+            detectionThreshold={moduleThreshold}
+            unitLabel={isTemporal ? "클립" : "프레임"}
+          />
+          <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
+            <FrameRiskChart
+              scores={scores}
+              threshold={moduleThreshold}
+              title={`${activeTab.label} ${isTemporal ? "클립별" : "프레임별"} 위험도`}
+              emptyMessage={
+                activeTab.points.length === 0
+                  ? `${activeTab.label} 상세 타임라인이 없어 모듈 점수만 표시합니다.`
+                  : undefined
+              }
             />
-          )}
+          </div>
+          {activeTab.segments.length > 0 ? (
+            <SegmentList segments={activeTab.segments} onSeek={onSeek} />
+          ) : null}
 
           <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
             <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">{galleryCopy.title}</h4>
