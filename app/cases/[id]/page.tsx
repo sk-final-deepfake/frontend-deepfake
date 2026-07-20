@@ -1595,9 +1595,22 @@ function CaseResultView({
                     </h4>
                     <div className="grid gap-x-8 gap-y-2.5 px-5 py-4 sm:grid-cols-2">
                       {methodology.settings.map((item) => (
-                        <div key={item.label} className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-4">
+                        <div
+                          key={item.label}
+                          className={cn(
+                            "grid grid-cols-[96px_minmax(0,1fr)] items-start gap-4",
+                            item.label === "모듈별 임계값" && "sm:col-span-2"
+                          )}
+                        >
                           <span className="whitespace-nowrap text-sm font-medium text-slate-500">{item.label}</span>
-                          <span className="min-w-0 break-keep text-right text-sm font-bold leading-6 text-slate-950 dark:text-foreground">
+                          <span
+                            className={cn(
+                              "min-w-0 text-sm font-bold leading-6 text-slate-950 dark:text-foreground",
+                              item.label === "모듈별 임계값"
+                                ? "whitespace-pre-line text-left sm:text-right"
+                                : "break-keep text-right"
+                            )}
+                          >
                             {item.value}
                           </span>
                         </div>

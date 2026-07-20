@@ -693,7 +693,7 @@ function resolveAnalysisId(data: EvidenceDetailData | null): string {
 
   const requestId = data?.analysisInfo.analysisRequestId
   if (requestId != null && Number.isFinite(requestId) && requestId > 0) {
-    return `ANL-${requestId}`
+    return String(requestId)
   }
 
   return "-"
@@ -729,7 +729,7 @@ function buildMethodologyModuleThresholdSummary(
     parts.push(`${forgery.label} ${Math.round(threshold * 100)}`)
   }
 
-  return parts.length > 0 ? parts.join(" · ") : "-"
+  return parts.length > 0 ? parts.join("\n") : "-"
 }
 
 /**
