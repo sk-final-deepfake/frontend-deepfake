@@ -16,6 +16,100 @@ type ModelOverlayLayerProps = {
  * keep showing the previous high-risk box across the whole clip.
  */
 const SPATIAL_MATCH_SEC = 0.75
+/** Max gap between two samples to interpolate across (FE display only). */
+const SPATIAL_INTERP_MAX_GAP_SEC = 2.5
+
+type SpatialBoxSample = {
+  timeSec: number
+  score: number
+  boxes: OverlaySpatialBBox[]
+}
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t
+}
+
+function lerpBox(a: OverlaySpatialBBox, b: OverlaySpatialBBox, t: number): OverlaySpatialBBox {
+  return {
+    x: lerp(a.x, b.x, t),
+    y: lerp(a.y, b.y, t),
+    w: lerp(a.w, b.w, t),
+    h: lerp(a.h, b.h, t),
+    score: lerp(a.score, b.score, t),
+  }
+}
+
+function buildSpatialBoxSamples(
+  markers: ModelOverlayOption["spatialMarkers"],
+  threshold: number,
+  videoWidth: number,
+  videoHeight: number
+): SpatialBoxSample[] {
+  return markers
+    .filter((marker) => marker.score >= threshold && markerHasBoxes(marker))
+    .map((marker) => ({
+      timeSec: marker.timeSec,
+      score: marker.score,
+      boxes: pickDisplayBoxes(resolveMarkerBoxes(marker, videoWidth, videoHeight)),
+    }))
+    .filter((sample) => sample.boxes.length > 0)
+    .sort((a, b) => a.timeSec - b.timeSec)
+}
+
+/**
+ * Interpolate bbox between adjacent TruFor samples so the box tracks smoothly
+ * while the playhead moves. Does not change analysis scores/threshold.
+ */
+function interpolateSpatialAtTime(
+  samples: SpatialBoxSample[],
+  currentTime: number
+): { boxes: OverlaySpatialBBox[]; score: number } | null {
+  if (!samples.length) return null
+
+  const first = samples[0]
+  const last = samples[samples.length - 1]
+
+  if (currentTime <= first.timeSec) {
+    if (first.timeSec - currentTime > SPATIAL_MATCH_SEC) return null
+    return { boxes: first.boxes, score: first.score }
+  }
+  if (currentTime >= last.timeSec) {
+    if (currentTime - last.timeSec > SPATIAL_MATCH_SEC) return null
+    return { boxes: last.boxes, score: last.score }
+  }
+
+  let i = 0
+  while (i < samples.length - 1 && samples[i + 1].timeSec < currentTime) i += 1
+  const a = samples[i]
+  const b = samples[i + 1]
+  const gap = b.timeSec - a.timeSec
+  if (!(gap > 0)) return { boxes: a.boxes, score: a.score }
+
+  // Large hole between samples → only show when near an endpoint (no inventing).
+  if (gap > SPATIAL_INTERP_MAX_GAP_SEC) {
+    if (currentTime - a.timeSec <= SPATIAL_MATCH_SEC) {
+      return { boxes: a.boxes, score: a.score }
+    }
+    if (b.timeSec - currentTime <= SPATIAL_MATCH_SEC) {
+      return { boxes: b.boxes, score: b.score }
+    }
+    return null
+  }
+
+  const t = (currentTime - a.timeSec) / gap
+  const pairCount = Math.min(a.boxes.length, b.boxes.length)
+  const boxes: OverlaySpatialBBox[] = []
+  for (let j = 0; j < pairCount; j += 1) {
+    boxes.push(lerpBox(a.boxes[j], b.boxes[j], t))
+  }
+  // If counts differ, keep the nearer sample's extra boxes without inventing motion.
+  if (pairCount === 0) {
+    return currentTime - a.timeSec <= b.timeSec - currentTime
+      ? { boxes: a.boxes, score: a.score }
+      : { boxes: b.boxes, score: b.score }
+  }
+  return { boxes, score: lerp(a.score, b.score, t) }
+}
 
 /** object-fit: contain 으로 그려진 실제 영상 영역 (플레이어 요소 기준 px) */
 type ContainedVideoLayout = {
@@ -178,7 +272,7 @@ function TamperRegionMarker({
 
   return (
     <div
-      className="absolute"
+      className="absolute transition-[left,top,width,height] duration-75 ease-linear"
       style={{
         left: `${pos.left}%`,
         top: `${pos.top}%`,
@@ -321,6 +415,8 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
     const video = videoRef.current
     if (!video) return
 
+    let raf = 0
+
     const syncTimeAndIntrinsics = () => {
       setCurrentTime(video.currentTime)
       const w = video.videoWidth || 0
@@ -333,20 +429,45 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
       setContainLayout(getContainedVideoLayout(video))
     }
 
+    const tick = () => {
+      setCurrentTime(video.currentTime)
+      if (!video.paused && !video.ended) {
+        raf = requestAnimationFrame(tick)
+      }
+    }
+
+    const onPlay = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(tick)
+    }
+
+    const onPauseOrSeek = () => {
+      cancelAnimationFrame(raf)
+      syncTimeAndIntrinsics()
+    }
+
     syncTimeAndIntrinsics()
     video.addEventListener("timeupdate", syncTimeAndIntrinsics)
-    video.addEventListener("seeked", syncTimeAndIntrinsics)
+    video.addEventListener("seeked", onPauseOrSeek)
     video.addEventListener("loadedmetadata", syncTimeAndIntrinsics)
+    video.addEventListener("play", onPlay)
+    video.addEventListener("pause", onPauseOrSeek)
+    video.addEventListener("ended", onPauseOrSeek)
     video.addEventListener("resize", syncLayout)
     window.addEventListener("resize", syncLayout)
     const ro =
       typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => syncLayout()) : null
     ro?.observe(video)
+    if (!video.paused && !video.ended) onPlay()
 
     return () => {
+      cancelAnimationFrame(raf)
       video.removeEventListener("timeupdate", syncTimeAndIntrinsics)
-      video.removeEventListener("seeked", syncTimeAndIntrinsics)
+      video.removeEventListener("seeked", onPauseOrSeek)
       video.removeEventListener("loadedmetadata", syncTimeAndIntrinsics)
+      video.removeEventListener("play", onPlay)
+      video.removeEventListener("pause", onPauseOrSeek)
+      video.removeEventListener("ended", onPauseOrSeek)
       video.removeEventListener("resize", syncLayout)
       window.removeEventListener("resize", syncLayout)
       ro?.disconnect()
@@ -388,6 +509,21 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
     }
     return best
   }, [option?.spatialMarkers, currentTime, threshold])
+
+  const spatialBoxSamples = useMemo(() => {
+    if (!option?.spatialMarkers.length) return []
+    return buildSpatialBoxSamples(
+      option.spatialMarkers,
+      threshold,
+      videoSize.width,
+      videoSize.height
+    )
+  }, [option?.spatialMarkers, threshold, videoSize.width, videoSize.height])
+
+  const trackedSpatial = useMemo(
+    () => interpolateSpatialAtTime(spatialBoxSamples, currentTime),
+    [spatialBoxSamples, currentTime]
+  )
 
   const anyTamperBoxes = useMemo(
     () =>
@@ -450,14 +586,13 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
   }
 
   if (isForgerySpatial) {
-    const score = activeSpatial ? normalizeResultValue(activeSpatial.score) : cnnRisk
+    const score = trackedSpatial
+      ? normalizeResultValue(trackedSpatial.score)
+      : activeSpatial
+        ? normalizeResultValue(activeSpatial.score)
+        : cnnRisk
     const scorePct = Math.round(score * 100)
-    // Only draw boxes while the matched sample itself clears TruFor threshold.
-    const showBoxes = Boolean(activeSpatial && activeSpatial.score >= threshold)
-    const rawBoxes = showBoxes
-      ? resolveMarkerBoxes(activeSpatial, videoSize.width, videoSize.height)
-      : []
-    const boxes = pickDisplayBoxes(rawBoxes)
+    const boxes = trackedSpatial?.boxes ?? []
     const statusHint = !anyTamperBoxes
       ? " · bbox 없음(최신 GPU로 재분석 필요)"
       : boxes.length === 0
@@ -468,7 +603,7 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
         {boxes.length > 0 && containLayout
           ? boxes.map((box, idx) => (
               <TamperRegionMarker
-                key={`${box.x}-${box.y}-${box.w}-${box.h}-${idx}`}
+                key={`tracked-${idx}`}
                 box={box}
                 layout={containLayout}
                 primary={idx === 0}
@@ -478,7 +613,7 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
           : null}
         <div className="absolute bottom-4 left-4 max-w-[min(92%,22rem)] rounded-md bg-[#9f1239]/95 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
           {boxes.length > 0
-            ? `위조 의심 영역을 표시 중 · TruFor ${scorePct}점`
+            ? `위조 의심 영역 추적 중 · TruFor ${scorePct}점`
             : `${label} · risk ${scorePct}점`}
           {statusHint}
         </div>
