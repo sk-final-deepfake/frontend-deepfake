@@ -179,31 +179,21 @@ function intersectionArea(a: OverlaySpatialBBox, b: OverlaySpatialBBox) {
 }
 
 /**
- * Nested boxes: the smaller one is usually the real local peak.
- * Prefer compact boxes; drop larger parents that mostly contain them.
- * Analysis coords/scores are unchanged — display selection only.
+ * TruFor display: highest-score bbox is primary (idx 0); optional second region if distinct.
+ * Skips lower-score boxes mostly inside an already picked region. Analysis data unchanged.
  */
 function pickDisplayBoxes(boxes: OverlaySpatialBBox[]): OverlaySpatialBBox[] {
   if (!boxes.length) return []
 
-  // Smallest first so localized peaks win over broad blobs.
-  const sorted = [...boxes].sort((a, b) => boxArea(a) - boxArea(b) || b.score - a.score)
+  const sorted = [...boxes].sort((a, b) => b.score - a.score || boxArea(b) - boxArea(a))
   const picked: OverlaySpatialBBox[] = []
 
   for (const box of sorted) {
-    // Already covered by a tighter box we kept.
     const mostlyInsidePicked = picked.some((keep) => {
       const overlap = intersectionArea(keep, box)
       return overlap / Math.max(boxArea(box), 1e-9) >= 0.55
     })
     if (mostlyInsidePicked) continue
-
-    // This is a broad parent of a tighter box we already kept — skip.
-    const containsPicked = picked.some((keep) => {
-      const overlap = intersectionArea(box, keep)
-      return overlap / Math.max(boxArea(keep), 1e-9) >= 0.55
-    })
-    if (containsPicked) continue
 
     picked.push(box)
     if (picked.length >= 2) break
