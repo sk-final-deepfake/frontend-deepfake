@@ -332,6 +332,14 @@ export function isOrgAdmin(user: AppUser) {
   return user.role === "ORG_ADMIN"
 }
 
+/** 로그인 후·로고 홈 경로. 관리자는 /admin, 검토자 /main, 수사관 /mypage */
+export function getPostLoginHomePath(role?: string | null): string {
+  const normalized = normalizeUserRole(role)
+  if (normalized === "ORG_ADMIN") return "/admin"
+  if (normalized === "REVIEWER") return "/main"
+  return "/mypage"
+}
+
 export function isInvestigator(user: AppUser) {
   return user.role === "INVESTIGATOR"
 }

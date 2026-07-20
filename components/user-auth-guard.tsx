@@ -5,9 +5,15 @@ import { useRouter } from "next/navigation"
 import { bootstrapAuthSession, getSession, type AuthSession } from "@/lib/auth"
 import { getPostLoginHomePath, normalizeUserRole } from "@/lib/permissions"
 
-export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
+/**
+ * 일반 사용자 영역 가드.
+ * - 미로그인 → /login
+ * - 시스템 관리자(ORG_ADMIN) → /admin (일반 /main 등 접근 차단)
+ */
+export function UserAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [session, setAuthSession] = useState<AuthSession | null>(null)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -23,15 +29,17 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (normalizeUserRole(current.role) !== "ORG_ADMIN") {
-        router.replace(getPostLoginHomePath(current.role))
+      if (normalizeUserRole(current.role) === "ORG_ADMIN") {
+        router.replace("/admin")
         return
       }
 
       setAuthSession(current)
+      setReady(true)
     }
 
     const onAuthChange = () => {
+      setReady(false)
       void syncSession()
     }
 
@@ -43,9 +51,20 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [router])
 
-  if (!session || normalizeUserRole(session.role) !== "ORG_ADMIN") {
+  if (!ready || !session || normalizeUserRole(session.role) === "ORG_ADMIN") {
     return null
   }
 
   return <>{children}</>
+}
+
+export function resolveBrandHomeHref(options: {
+  variant?: "default" | "admin" | "minimal"
+  session: AuthSession | null
+}): string {
+  const { variant = "default", session } = options
+  if (variant === "minimal") return "/login"
+  if (variant === "admin") return "/admin"
+  if (!session) return "/login"
+  return getPostLoginHomePath(session.role)
 }

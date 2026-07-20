@@ -20,6 +20,7 @@ import { ApiError } from "@/lib/api/client"
 import { getSession, isReviewerSession, type AuthSession } from "@/lib/auth"
 import { features } from "@/lib/features"
 import { cn } from "@/lib/utils"
+import { resolveBrandHomeHref } from "@/components/user-auth-guard"
 
 /** Step-up 1회 연장 시 추가되는 시간(분) — BE jwt.step-up-expiration-minutes 와 동일 */
 const STEP_UP_EXTENSION_MINUTES = 15
@@ -59,7 +60,7 @@ export function SiteHeader({
   const showNav = variant !== "minimal"
   const showAuth = variant !== "minimal"
   const activeKey = getActiveNavKey(pathname, hash)
-  const brandHref = variant === "admin" ? "/admin" : "/main"
+  const brandHref = resolveBrandHomeHref({ variant, session })
   const navItems =
     variant === "admin" || !isReviewerSession(session)
       ? variant === "admin"
