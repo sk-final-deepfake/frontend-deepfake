@@ -1509,6 +1509,8 @@ function CaseResultView({
                   evidenceDetail={evidenceDetail}
                   detectionThreshold={detectionThreshold}
                   representativeFrames={representativeFrames}
+                  videoRef={videoRef}
+                  hlsPlayback={hlsPlayback}
                   onSeek={seekResultVideo}
                 />
               ) : (

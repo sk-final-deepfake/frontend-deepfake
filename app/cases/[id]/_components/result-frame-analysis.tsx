@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { FileVideo, Play } from "lucide-react"
+import { useEffect, useState, type RefObject } from "react"
 
 import {
   buildTopRiskFrames,
   normalizeResultValue,
 } from "@/lib/api/analysis-result-ui"
 import type { EvidenceDetailData, FrameScore, RepresentativeFrame } from "@/lib/api/evidence-detail"
+import type { HlsPlayback } from "@/lib/hls-playback"
 import { cn } from "@/lib/utils"
 
 import {
@@ -23,11 +23,16 @@ import {
   type ForgeryTimelineTab,
 } from "../_lib/module-timelines"
 import { FrameRiskChart } from "./frame-risk-chart"
+import { VideoSeekThumbnail, type VideoSeekThumbnailStatus } from "./video-seek-thumbnail"
+
+const REPRESENTATIVE_MATCH_MAX_DELTA_SEC = 2
 
 type ResultFrameAnalysisProps = {
   evidenceDetail: EvidenceDetailData
   detectionThreshold: number
   representativeFrames: RepresentativeFrame[]
+  videoRef: RefObject<HTMLVideoElement | null>
+  hlsPlayback: HlsPlayback | null
   onSeek: (seconds: number) => void
 }
 
@@ -37,6 +42,8 @@ export function ResultFrameAnalysis({
   evidenceDetail,
   detectionThreshold,
   representativeFrames,
+  videoRef,
+  hlsPlayback,
   onSeek,
 }: ResultFrameAnalysisProps) {
   const [category, setCategory] = useState<AnalysisCategory>("deepfake")
@@ -112,6 +119,8 @@ export function ResultFrameAnalysis({
           detectionThreshold={detectionThreshold}
           representativeFrames={representativeFrames}
           evidenceDetail={evidenceDetail}
+          videoRef={videoRef}
+          hlsPlayback={hlsPlayback}
           onSeek={onSeek}
         />
       ) : (
@@ -122,6 +131,8 @@ export function ResultFrameAnalysis({
           onSelectTab={setForgeryKey}
           evidenceDetail={evidenceDetail}
           representativeFrames={representativeFrames}
+          videoRef={videoRef}
+          hlsPlayback={hlsPlayback}
           onSeek={onSeek}
         />
       )}
@@ -137,6 +148,7 @@ function DeepfakeFrameAnalysis({
   detectionThreshold,
   representativeFrames,
   evidenceDetail,
+  videoRef,
   onSeek,
 }: {
   tabs: DeepfakeTimelineTab[]
@@ -146,6 +158,8 @@ function DeepfakeFrameAnalysis({
   detectionThreshold: number
   representativeFrames: RepresentativeFrame[]
   evidenceDetail: EvidenceDetailData
+  videoRef: RefObject<HTMLVideoElement | null>
+  hlsPlayback: HlsPlayback | null
   onSeek: (seconds: number) => void
 }) {
   const scores = activeTab?.points ?? []
@@ -198,6 +212,8 @@ function DeepfakeFrameAnalysis({
                 <TopRiskFrameList
                   frames={topRiskFrames}
                   representativeFrames={representativeFrames}
+                  videoRef={videoRef}
+                  hlsPlayback={hlsPlayback}
                   onSeek={onSeek}
                 />
               ) : null}
@@ -226,6 +242,7 @@ function ForgeryFrameAnalysis({
   onSelectTab,
   evidenceDetail,
   representativeFrames,
+  videoRef,
   onSeek,
 }: {
   tabs: ForgeryTimelineTab[]
@@ -234,6 +251,8 @@ function ForgeryFrameAnalysis({
   onSelectTab: (key: string) => void
   evidenceDetail: EvidenceDetailData
   representativeFrames: RepresentativeFrame[]
+  videoRef: RefObject<HTMLVideoElement | null>
+  hlsPlayback: HlsPlayback | null
   onSeek: (seconds: number) => void
 }) {
   if (tabs.length === 0) {
@@ -320,6 +339,8 @@ function ForgeryFrameAnalysis({
             <TopRiskFrameList
               frames={topRiskFrames}
               representativeFrames={thumbFrames}
+              videoRef={videoRef}
+              hlsPlayback={hlsPlayback}
               onSeek={onSeek}
             />
           ) : null}
@@ -396,57 +417,129 @@ function MetricCard({
   )
 }
 
+function TopRiskFrameGalleryCard({
+  frame,
+  index,
+  videoRef,
+  imageUrl,
+  heatmapImageUrl,
+  hlsPlayback,
+  onSeek,
+}: {
+  frame: ReturnType<typeof buildTopRiskFrames>[number]
+  index: number
+  videoRef: RefObject<HTMLVideoElement | null>
+  imageUrl?: string | null
+  heatmapImageUrl?: string | null
+  hlsPlayback: HlsPlayback | null
+  onSeek: (seconds: number) => void
+}) {
+  const [thumbStatus, setThumbStatus] = useState<VideoSeekThumbnailStatus>(() =>
+    imageUrl?.trim() || heatmapImageUrl?.trim() ? "loading" : "loading"
+  )
+  const showThumb = thumbStatus !== "unavailable"
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSeek(frame.seconds)}
+      className="w-[92px] shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50/80 text-left transition-colors hover:border-slate-200 hover:bg-white dark:border-border dark:bg-background dark:hover:bg-secondary/30"
+    >
+      {showThumb ? (
+        <div className="relative aspect-video w-full bg-slate-950">
+          <VideoSeekThumbnail
+            videoRef={videoRef}
+            timeSec={frame.seconds}
+            imageUrl={imageUrl}
+            heatmapImageUrl={heatmapImageUrl}
+            label={`${frame.time} 프레임`}
+            hlsPlayback={hlsPlayback}
+            captureDelayMs={index * 180}
+            hideWhenUnavailable
+            onStatusChange={setThumbStatus}
+          />
+          <span className="absolute left-1 top-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {index + 1}
+          </span>
+        </div>
+      ) : null}
+      <div className={cn("px-2 py-2", !showThumb && "pt-2.5")}>
+        {!showThumb ? (
+          <span className="text-[10px] font-bold text-slate-400">{index + 1}</span>
+        ) : null}
+        <p className="mt-0.5 truncate font-mono text-[11px] font-semibold text-slate-950 dark:text-foreground">
+          {frame.time}
+        </p>
+        <p className="mt-0.5 text-xs font-bold text-red-700">{frame.score} / 100</p>
+        <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">{frame.signal}</p>
+      </div>
+    </button>
+  )
+}
+
+function matchRepresentativeFrame(
+  representativeFrames: RepresentativeFrame[],
+  seconds: number,
+  timeLabel: string
+): RepresentativeFrame | null {
+  const withMedia = representativeFrames.filter(
+    (frame) => Boolean(frame.imageUrl?.trim() || frame.heatmapImageUrl?.trim())
+  )
+  if (withMedia.length === 0) return null
+
+  const exactTimestamp = withMedia.find((frame) => frame.timestamp === timeLabel)
+  if (exactTimestamp) return exactTimestamp
+
+  let best: RepresentativeFrame | null = null
+  let bestDelta = REPRESENTATIVE_MATCH_MAX_DELTA_SEC
+  for (const frame of withMedia) {
+    if (frame.timeSec == null || !Number.isFinite(frame.timeSec)) continue
+    const delta = Math.abs(frame.timeSec - seconds)
+    if (delta <= bestDelta) {
+      best = frame
+      bestDelta = delta
+    }
+  }
+  return best
+}
+
 function TopRiskFrameList({
   frames,
   representativeFrames,
+  videoRef,
+  hlsPlayback,
   onSeek,
 }: {
   frames: ReturnType<typeof buildTopRiskFrames>
   representativeFrames: RepresentativeFrame[]
+  videoRef: RefObject<HTMLVideoElement | null>
+  hlsPlayback: HlsPlayback | null
   onSeek: (seconds: number) => void
 }) {
   return (
     <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
       <div>
         <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">상위 위험 프레임</h4>
-        <p className="mt-0.5 text-xs font-semibold text-slate-500">행을 선택하면 영상이 해당 지점으로 이동합니다.</p>
+        <p className="mt-0.5 text-xs font-semibold text-slate-500">카드를 선택하면 영상이 해당 지점으로 이동합니다.</p>
       </div>
-      <div className="mt-2 divide-y divide-slate-100 dark:divide-border">
+      <div className="mt-3 flex flex-wrap gap-2">
         {frames.map((frame, index) => {
-          const representative = representativeFrames.find(
-            (item) =>
-              (item.timeSec != null && Math.abs(item.timeSec - frame.seconds) < 0.35) ||
-              item.timestamp === frame.time
+          const representative = matchRepresentativeFrame(
+            representativeFrames,
+            frame.seconds,
+            frame.time
           )
           return (
-            <button
-              key={frame.time}
-              type="button"
-              onClick={() => onSeek(frame.seconds)}
-              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-secondary/40"
-            >
-              <span className="w-4 shrink-0 text-xs font-bold text-slate-400">{index + 1}</span>
-              <span className="h-11 w-[74px] shrink-0 overflow-hidden rounded-md bg-slate-100 dark:bg-secondary">
-                {representative?.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={representative.imageUrl}
-                    alt={`${frame.time} 프레임 미리보기`}
-                    className="size-full object-cover"
-                  />
-                ) : (
-                  <span className="flex size-full items-center justify-center">
-                    <FileVideo className="size-4 text-slate-300" aria-hidden="true" />
-                  </span>
-                )}
-              </span>
-              <span className="font-mono text-sm font-semibold text-slate-950 dark:text-foreground">{frame.time}</span>
-              <span className="shrink-0 text-sm font-bold text-red-700">{frame.score} / 100</span>
-              <span className="truncate text-sm font-semibold text-slate-600 dark:text-muted-foreground">
-                {frame.signal}
-              </span>
-              <Play className="ml-auto size-3.5 shrink-0 text-teal-700 dark:text-teal-300" aria-hidden="true" />
-            </button>
+            <TopRiskFrameGalleryCard
+              key={`${frame.seconds}-${frame.time}-${index}`}
+              frame={frame}
+              index={index}
+              videoRef={videoRef}
+              imageUrl={representative?.imageUrl}
+              heatmapImageUrl={representative?.heatmapImageUrl}
+              hlsPlayback={hlsPlayback}
+              onSeek={onSeek}
+            />
           )
         })}
       </div>

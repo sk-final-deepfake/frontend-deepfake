@@ -372,8 +372,7 @@ export function buildForgeryRepresentativeFrames(
 
   return topPoints.map((point, index) => {
     const timeSec = point.timeSec ?? 0
-    const matched =
-      moduleKey === FORGERY_SPATIAL_MODULE ? findClosestApiFrame(apiFrames, timeSec) : null
+    const matched = findClosestApiFrame(apiFrames, timeSec)
     const imageUrl =
       matched?.imageUrl?.trim() ||
       matched?.heatmapImageUrl?.trim() ||
