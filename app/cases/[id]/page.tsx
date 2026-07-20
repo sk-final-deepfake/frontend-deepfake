@@ -78,6 +78,7 @@ import {
 } from "./_components/review-workflow-dialogs"
 import { DeepfakeV2Tab } from "./_components/deepfake-v2-tab"
 import { ResultEvidenceMedia } from "./_components/result-evidence-media"
+import { MethodologyModelChart } from "./_components/methodology-model-chart"
 import { ResultFrameAnalysis } from "./_components/result-frame-analysis"
 import { EvidenceSummaryCard } from "./_components/evidence-summary-card"
 import { IntegrityTab } from "./_components/integrity-tab"
@@ -92,14 +93,8 @@ import {
 } from "./_lib/evidence-display"
 import { getXceptionFrameScores } from "./_lib/module-timelines"
 import {
-  buildForgeryRepresentativeFrames,
   buildForgeryResultTabSignals,
   DEFAULT_FORGERY_THRESHOLDS,
-  formatForgeryDualScoreSub,
-  forgeryHighRiskGalleryCopy,
-  FORGERY_SPATIAL_MODULE,
-  getForgeryPriorityReviewRange,
-  getForgeryScoreSummary,
 } from "./_lib/forgery-ui"
 import { VideoSeekThumbnail } from "./_components/video-seek-thumbnail"
 import { SiteFooter } from "@/components/site-footer"
@@ -1123,12 +1118,6 @@ function CaseResultView({
   const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
   const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
   const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
-  const forgeryScoreSummary = getForgeryScoreSummary(evidenceDetail)
-  const forgeryPriorityRange = getForgeryPriorityReviewRange(evidenceDetail)
-  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail, {
-    moduleKey: FORGERY_SPATIAL_MODULE,
-  })
-  const forgeryGalleryCopy = forgeryHighRiskGalleryCopy(FORGERY_SPATIAL_MODULE)
   const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
@@ -1157,10 +1146,9 @@ function CaseResultView({
       clientTimestamp: new Date().toISOString(),
     }).catch(() => undefined)
   }, [mediaContext, selectedEvidenceId])
-  const forgeryHighestScore = forgeryScoreSummary.highestScore
-  const forgeryOverThresholdCount = forgeryScoreSummary.overThresholdCount
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
   const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
+  const forgeryChartModels = buildForgeryChartModels(forgeryRiskSignals)
 
   function seekResultVideo(seconds: number) {
     requestAnimationFrame(() => {
@@ -1455,58 +1443,29 @@ function CaseResultView({
                 </section>
               ) : resultTab === "forgery" ? (
                 <section>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center justify-between gap-3">
                     <div>
                       <h3 className="text-lg font-bold text-slate-950 dark:text-foreground">위변조 탐지</h3>
                       <p className="mt-1 text-sm font-semibold text-slate-500">
-                        TruFor(국소)와 TimeSformer(시간축) 위변조 신호를 함께 확인합니다.
+                        국소 부위 객체 생성, 삭제와 컷편집, 프레임조작 위변조 신호를 모델별로 확인합니다.
                       </p>
                     </div>
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-secondary">
-                      세부 모델 {forgeryScoreSummary.modelCount}개
+                    <span className="shrink-0 rounded-full bg-teal-50 px-3 py-1 text-xs font-bold text-teal-700">
+                      모델 {forgeryChartModels.length}개
                     </span>
                   </div>
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    <FrameMetricCard
-                      label="위변조 최고 점수"
-                      value={
-                        forgeryScoreSummary.modelCount > 0
-                          ? formatScoreOutOf100(forgeryHighestScore)
-                          : "-"
-                      }
-                      sub={formatForgeryDualScoreSub(forgeryScoreSummary)}
-                      tone={
-                        forgeryHighestScore >=
-                        Math.min(
-                          forgeryScoreSummary.spatialThreshold,
-                          forgeryScoreSummary.temporalThreshold
-                        )
-                          ? "danger"
-                          : "neutral"
-                      }
-                    />
-                    <FrameMetricCard
-                      label="기준 초과 항목"
-                      value={`${forgeryOverThresholdCount} / ${forgeryScoreSummary.modelCount}개`}
-                      sub={`TruFor ${Math.round(forgeryScoreSummary.spatialThreshold * 100)} · TimeSformer ${Math.round(forgeryScoreSummary.temporalThreshold * 100)}`}
-                      tone={forgeryOverThresholdCount > 0 ? "danger" : "neutral"}
-                    />
-                    <FrameMetricCard
-                      label="의심 구간"
-                      value={forgeryPriorityRange ? forgeryPriorityRange.label : "-"}
-                      sub={
-                        forgeryPriorityRange
-                          ? `${forgeryPriorityRange.source ?? "위변조"} · 최소 1초`
-                          : "임계값 초과 구간 없음"
-                      }
-                    />
-                    <FrameMetricCard
-                      label="시각 증거"
-                      value={forgeryRepresentativeFrames.length > 0 ? "제공됨" : "대기"}
-                      sub="고위험 프레임 시점 · 마스크 연동 시 표시"
-                    />
-                  </div>
+                  {forgeryChartModels.length > 0 ? (
+                    <section className="mt-5 overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-border dark:bg-card">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-border">
+                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">위변조 모델별 판단 점수</h4>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-secondary">
+                          모듈별 기준선 · 초과 시 탐지
+                        </span>
+                      </div>
+                      <MethodologyModelChart models={forgeryChartModels} />
+                    </section>
+                  ) : null}
 
                   {forgeryRiskSignals.length > 0 ? (
                     <ul className="mt-5 space-y-3">
@@ -1522,44 +1481,15 @@ function CaseResultView({
                   ) : (
                     <p className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
                       위변조(TruFor / TimeSformer) 결과가 아직 제공되지 않았습니다.
-                      <br />
-                      GPU worker가 forgery_spatial · forgery_temporal 점수를 내면 이 영역에 표시됩니다.
                     </p>
                   )}
-
-                  <section className="mt-5">
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">
-                          {forgeryGalleryCopy.title}
-                        </h4>
-                        <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                          {forgeryGalleryCopy.description}
-                        </p>
-                      </div>
-                      {forgeryRepresentativeFrames.length > 0 ? (
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          {forgeryRepresentativeFrames.slice(0, 2).map((frame, index) => (
-                            <RepresentativeFrameDetailCard
-                              key={`${frame.timestamp ?? frame.timeSec ?? index}-forgery`}
-                              frame={frame}
-                              index={index}
-                              videoRef={videoRef}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                          {forgeryGalleryCopy.empty}
-                        </p>
-                      )}
-                    </section>
                 </section>
               ) : resultTab === "frames" ? (
                 <ResultFrameAnalysis
                   evidenceDetail={evidenceDetail}
                   detectionThreshold={detectionThreshold}
-                  representativeFrames={representativeFrames}
-                  videoRef={videoRef}
+                  deepfakeChartModels={methodology.models}
+                  forgeryChartModels={forgeryChartModels}
                   onSeek={seekResultVideo}
                 />
               ) : (
@@ -4551,106 +4481,6 @@ function FrameStatCard({
   )
 }
 
-const MODEL_BAR_COLORS = [
-  { bar: "bg-emerald-800 dark:bg-emerald-600", label: "text-emerald-800 dark:text-emerald-300" },
-  { bar: "bg-emerald-600 dark:bg-emerald-500", label: "text-emerald-600 dark:text-emerald-300" },
-  { bar: "bg-emerald-400 dark:bg-emerald-400", label: "text-emerald-500 dark:text-emerald-200" },
-  { bar: "bg-teal-300 dark:bg-teal-300", label: "text-teal-500 dark:text-teal-200" },
-] as const
-
-function MethodologyModelChart({
-  models,
-}: {
-  models: UiMethodologyModel[]
-}) {
-  const [animated, setAnimated] = useState(false)
-
-  useEffect(() => {
-    setAnimated(false)
-    const frame = requestAnimationFrame(() => {
-      requestAnimationFrame(() => setAnimated(true))
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [models])
-
-  return (
-    <div className="px-6 pb-3 pt-8">
-      <div className="relative h-40 border-b border-slate-200 dark:border-border">
-        <div className="mx-auto flex h-full max-w-[560px] items-end justify-center gap-2 px-1 sm:gap-3">
-          {models.map((model, index) => {
-            const percent = model.score == null ? null : Math.round(model.score * 100)
-            const thresholdPercent = Math.round(model.threshold * 100)
-            const thresholdBottom = Math.max(0, Math.min(100, thresholdPercent))
-            const color = MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length]
-            const over = model.score != null && model.overThreshold
-            return (
-              <div
-                key={`bar-${model.name}-${model.version}`}
-                className="relative flex h-full w-[108px] shrink-0 flex-col items-end justify-end pr-1"
-              >
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-x-0 z-10 flex items-center"
-                  style={{ bottom: `${thresholdBottom}%` }}
-                >
-                  <span className="w-[46px] shrink-0 text-right text-[9px] font-bold leading-none text-slate-500">
-                    기준 {thresholdPercent}
-                  </span>
-                  <span className="mx-0.5 w-2.5 shrink-0 border-t border-dashed border-slate-500/80 dark:border-slate-400" />
-                  <span className="w-12 shrink-0 border-t-[1.5px] border-dashed border-slate-500/80 dark:border-slate-400" />
-                </div>
-                <div className="flex h-full w-12 flex-col items-center justify-end">
-                  <span
-                    className={cn(
-                      "mb-1 text-xs font-bold transition-opacity duration-500",
-                      animated ? "opacity-100" : "opacity-0",
-                      over ? "text-red-700 dark:text-red-300" : color.label
-                    )}
-                    style={{ transitionDelay: `${index * 140 + 350}ms` }}
-                  >
-                    {percent ?? "-"}
-                  </span>
-                  <div
-                    className={cn(
-                      "w-12 rounded-t-[3px] transition-[height] duration-700 ease-out",
-                      over ? "bg-red-600 dark:bg-red-500" : color.bar
-                    )}
-                    style={{
-                      height: animated ? `${Math.max(2, percent ?? 0)}%` : "0%",
-                      transitionDelay: `${index * 140}ms`,
-                    }}
-                  />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-      <div className="mx-auto flex max-w-[560px] justify-center gap-2 px-1 pt-2 sm:gap-3">
-        {models.map((model, index) => (
-          <div
-            key={`label-${model.name}-${model.version}`}
-            title={`${model.name} · 기준 ${Math.round(model.threshold * 100)} 초과 시 탐지`}
-            className="w-[108px] shrink-0 text-center"
-          >
-            <span
-              className={cn(
-                "block whitespace-nowrap text-[11px] font-bold leading-tight",
-                MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length].label
-              )}
-            >
-              {model.name}
-            </span>
-            <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
-              {model.overThreshold ? "기준 초과 · 탐지" : "기준 미만"}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function MiniFrameRiskChart({ scores }: { scores: FrameScore[] }) {
   if (scores.length === 0) {
     return (
@@ -5354,6 +5184,28 @@ function shortenForgeryMethodologyVersion(
 
   // timesformer-forgery-v1.9-hardneg → forgery-v1.9-hardneg
   return raw.replace(/^timesformer-/i, "") || fallback
+}
+
+function buildForgeryChartModels(signals: UiRiskSignal[]): UiMethodologyModel[] {
+  const chartNames: Record<(typeof FORGERY_METHOD_BASELINES)[number]["id"], string> = {
+    trufor: "TruFor",
+    timesformer: "TimeSformer",
+  }
+
+  return buildForgeryMethodologyItems(signals)
+    .filter((item) => item.available)
+    .map((item) => {
+      const methodId = item.name === "TruFor" ? "trufor" : "timesformer"
+      return {
+        name: chartNames[methodId],
+        version: item.version,
+        role: item.role,
+        score: item.score,
+        threshold: item.threshold,
+        overThreshold: item.overThreshold,
+        benchmark: null,
+      }
+    })
 }
 
 function buildForgeryMethodologyItems(signals: UiRiskSignal[]) {

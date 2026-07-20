@@ -57,6 +57,36 @@ export function forgeryModuleThreshold(key: ForgeryModuleKey) {
     : DEFAULT_FORGERY_THRESHOLDS.temporal
 }
 
+function shortenForgeryModelVersion(
+  key: ForgeryModuleKey,
+  modelVersion: string | null | undefined,
+  modelName: string | null | undefined
+) {
+  const fallback =
+    key === FORGERY_SPATIAL_MODULE ? "videocof-v2" : "forgery-v1.9-hardneg"
+  let raw = (modelVersion ?? modelName ?? "").trim()
+  if (!raw) return fallback
+
+  raw = raw.replace(/-\d{8}-\d{4}$/, "")
+
+  if (key === FORGERY_SPATIAL_MODULE) {
+    const videocof = raw.match(/videocof-v[\w.]+/i)
+    if (videocof) return videocof[0]
+    return raw.replace(/^trufor[-/]?/i, "") || fallback
+  }
+
+  return raw.replace(/^timesformer[-/]?/i, "") || fallback
+}
+
+export function formatForgeryModelLabel(
+  key: ForgeryModuleKey,
+  modelName: string | null,
+  modelVersion: string | null
+) {
+  const brand = key === FORGERY_SPATIAL_MODULE ? "TruFor" : "TimeSformer"
+  return `${brand} ${shortenForgeryModelVersion(key, modelVersion, modelName)}`
+}
+
 export function getForgerySpatialTimeline(
   data: EvidenceDetailData | null
 ): ForgeryTimelineTab | null {
@@ -216,12 +246,7 @@ function buildSignalForTab(
     .slice(0, 3)
 
   const score = normalizeResultValue(scoreRaw)
-  const modelLabel =
-    modelName?.trim()
-      ? modelVersion?.trim()
-        ? `${modelName.trim()} ${modelVersion.trim()}`
-        : modelName.trim()
-      : null
+  const modelLabel = formatForgeryModelLabel(key, modelName, modelVersion)
 
   return {
     label: forgeryModuleLabel(key),
