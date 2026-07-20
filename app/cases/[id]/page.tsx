@@ -1488,8 +1488,8 @@ function CaseResultView({
                 <ResultFrameAnalysis
                   evidenceDetail={evidenceDetail}
                   detectionThreshold={detectionThreshold}
-                  deepfakeChartModels={methodology.models}
-                  forgeryChartModels={forgeryChartModels}
+                  representativeFrames={representativeFrames}
+                  videoRef={videoRef}
                   onSeek={seekResultVideo}
                 />
               ) : (
