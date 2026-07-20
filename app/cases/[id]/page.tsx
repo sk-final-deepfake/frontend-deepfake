@@ -1474,7 +1474,6 @@ function CaseResultView({
                           key={`${signal.label}-${index}`}
                           signal={signal}
                           delayMs={index * 120}
-                          onSeek={seekResultVideo}
                         />
                       ))}
                     </ul>
