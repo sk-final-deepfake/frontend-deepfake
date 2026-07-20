@@ -178,59 +178,37 @@ function intersectionArea(a: OverlaySpatialBBox, b: OverlaySpatialBBox) {
   return Math.max(0, x1 - x0) * Math.max(0, y1 - y0)
 }
 
-/** Fraction of `inner` area covered by overlap with `outer`. */
-function insideRatio(outer: OverlaySpatialBBox, inner: OverlaySpatialBBox) {
-  return intersectionArea(outer, inner) / Math.max(boxArea(inner), 1e-9)
-}
-
-/** Child peaks must be clearly smaller than the parent forgery blob. */
-const CHILD_MAX_AREA_RATIO = 0.65
-const INSIDE_PARENT_RATIO = 0.55
-
 /**
- * TruFor overlay: anchor on highest-score parent blob, then show the best
- * localized child peak inside it. Falls back to the parent when no inner peak exists.
+ * Nested boxes: the smaller one is usually the real local peak.
+ * Prefer compact boxes; drop larger parents that mostly contain them.
  * Analysis coords/scores are unchanged — display selection only.
  */
 function pickDisplayBoxes(boxes: OverlaySpatialBBox[]): OverlaySpatialBBox[] {
   if (!boxes.length) return []
-  if (boxes.length === 1) return [boxes[0]]
 
-  const parent = [...boxes].sort((a, b) => b.score - a.score || boxArea(b) - boxArea(a))[0]
-  const parentArea = boxArea(parent)
-
-  const children = boxes.filter((box) => {
-    if (box === parent) return false
-    if (boxArea(box) >= parentArea * CHILD_MAX_AREA_RATIO) return false
-    return insideRatio(parent, box) >= INSIDE_PARENT_RATIO
-  })
-
+  // Smallest first so localized peaks win over broad blobs.
+  const sorted = [...boxes].sort((a, b) => boxArea(a) - boxArea(b) || b.score - a.score)
   const picked: OverlaySpatialBBox[] = []
 
-  if (children.length > 0) {
-    const primary = [...children].sort((a, b) => b.score - a.score || boxArea(a) - boxArea(b))[0]
-    picked.push(primary)
+  for (const box of sorted) {
+    // Already covered by a tighter box we kept.
+    const mostlyInsidePicked = picked.some((keep) => {
+      const overlap = intersectionArea(keep, box)
+      return overlap / Math.max(boxArea(box), 1e-9) >= 0.55
+    })
+    if (mostlyInsidePicked) continue
 
-    const secondary =
-      [...children]
-        .filter((box) => box !== primary && insideRatio(primary, box) < INSIDE_PARENT_RATIO)
-        .sort((a, b) => b.score - a.score || boxArea(a) - boxArea(b))[0] ??
-      [...boxes]
-        .filter(
-          (box) =>
-            box !== parent &&
-            box !== primary &&
-            insideRatio(parent, box) < INSIDE_PARENT_RATIO &&
-            insideRatio(primary, box) < INSIDE_PARENT_RATIO
-        )
-        .sort((a, b) => b.score - a.score || boxArea(a) - boxArea(b))[0]
+    // This is a broad parent of a tighter box we already kept — skip.
+    const containsPicked = picked.some((keep) => {
+      const overlap = intersectionArea(box, keep)
+      return overlap / Math.max(boxArea(keep), 1e-9) >= 0.55
+    })
+    if (containsPicked) continue
 
-    if (secondary) picked.push(secondary)
-  } else {
-    picked.push(parent)
+    picked.push(box)
+    if (picked.length >= 2) break
   }
-
-  return picked.slice(0, 2)
+  return picked
 }
 
 function normalizeRawBboxes(
