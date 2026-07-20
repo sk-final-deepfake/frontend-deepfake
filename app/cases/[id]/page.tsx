@@ -109,7 +109,7 @@ import {
   buildSummaryActions,
   formatModuleLabel,
   formatScoreOutOf100,
-  getDetectionModules,
+  getDeepfakeDetectionModules,
   getDetectionThreshold,
   getPriorityReviewRange,
   normalizeResultValue,
@@ -1118,7 +1118,7 @@ function CaseResultView({
   const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
   const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
   const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
-  const detectionModules = getDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
+  const detectionModules = getDeepfakeDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
   const overThresholdSignalCount = detectionModules.filter(
@@ -5027,8 +5027,16 @@ function isForgeryKeywordText(value: string | null | undefined) {
   if (normalized.includes("trufor") || normalized.includes("forgery") || normalized.includes("tamper")) {
     return true
   }
+  if (normalized.includes("위변조")) return true
+  if (normalized.includes("국소 위변조") || normalized.includes("시간축 위변조")) return true
   if (normalized.includes("timesformer") && normalized.includes("temporal")) return true
+  if (normalized.includes("timesformer") && (normalized.includes("forgery") || normalized.includes("hardneg"))) {
+    return true
+  }
   if (normalized.includes("frame_edit") || normalized.includes("frame edit") || normalized.includes("splic")) return true
+  if (normalized.includes("프레임 편집") || normalized.includes("구간 이어붙이기") || normalized.includes("재인코딩")) {
+    return true
+  }
   if (normalized.includes("re_encoding") || normalized.includes("re-encoding") || normalized.includes("reencoding")) {
     return true
   }
@@ -5037,7 +5045,12 @@ function isForgeryKeywordText(value: string | null | undefined) {
 }
 
 function isForgeryRiskSignal(signal: UiRiskSignal) {
-  return isForgeryKeywordText(signal.label) || isForgeryKeywordText(signal.modelLabel)
+  if (isForgeryKeywordText(signal.label) || isForgeryKeywordText(signal.modelLabel)) return true
+  // modelLabel만 "TimeSformer …" 이고 label이 딥페이크처럼 보이는 오염 케이스 보조
+  const model = signal.modelLabel?.toLowerCase() ?? ""
+  if (model.includes("trufor")) return true
+  if (model.includes("timesformer") && (model.includes("forgery") || model.includes("hardneg"))) return true
+  return false
 }
 
 function formatForgeryModuleLabel(moduleName: string) {
