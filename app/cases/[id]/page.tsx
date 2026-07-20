@@ -118,7 +118,7 @@ import {
   getPriorityReviewRange,
   isDeepfakeModuleOverThreshold,
   normalizeResultValue,
-  resolveIntegratedDisplayRiskScore01,
+  resolveIntegratedDisplayRiskScore,
   type UiMethodologyModel,
   type UiRiskSignal,
   type UiSummaryAction,
@@ -1126,10 +1126,7 @@ function CaseResultView({
   const forgeryOverThresholdCount = forgeryChartModels.filter((model) => model.overThreshold).length
   const overThresholdSignalCount = deepfakeOverThresholdCount + forgeryOverThresholdCount
   const overThresholdSignalTotal = detectionModules.length + forgeryChartModels.length
-  const integratedRisk01 = resolveIntegratedDisplayRiskScore01(
-    evidenceDetail,
-    forgeryChartModels.map((model) => model.score)
-  )
+  const integratedRisk01 = resolveIntegratedDisplayRiskScore(evidenceDetail)
   const riskScore = formatResultScore(
     integratedRisk01 != null ? integratedRisk01 * 100 : (evidenceDetail?.analysisInfo.riskScore ?? null)
   )

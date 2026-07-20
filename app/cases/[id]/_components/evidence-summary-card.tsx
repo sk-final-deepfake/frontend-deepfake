@@ -20,6 +20,7 @@ import { EvidenceHlsStatusThumbnail } from "@/components/evidence-hls-status-thu
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { CaseEvidenceSummary, EvidenceDetailData } from "@/lib/api/evidence-detail"
+import { resolveIntegratedDisplayRiskScore } from "@/lib/api/analysis-result-ui"
 import { formatDateTime, formatDuration, formatFileSize as formatBytes } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
@@ -49,7 +50,10 @@ export function EvidenceSummaryCard({
   const { evidenceInfo, analysisInfo } = data
   const [evidenceMenuOpen, setEvidenceMenuOpen] = useState(false)
   const { technicalMetadata } = evidenceInfo
-  const riskScore = formatScore(analysisInfo.riskScore)
+  const integrated01 = resolveIntegratedDisplayRiskScore(data)
+  const riskScore = formatScore(
+    integrated01 != null ? integrated01 * 100 : analysisInfo.riskScore
+  )
   const confidenceScore = formatScore(analysisInfo.confidenceScore)
   const resolution = technicalMetadata.width && technicalMetadata.height
     ? `${technicalMetadata.width} × ${technicalMetadata.height}`
