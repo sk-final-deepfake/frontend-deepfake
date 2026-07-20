@@ -1364,7 +1364,7 @@ function CaseResultView({
 
                   <ModelConsensusCard
                     models={methodology.models}
-                    summary={sanitizeAnalysisSummaryForUi(evidenceDetail.analysisInfo.summary)}
+                    summary={evidenceDetail.analysisInfo.summary}
                   />
 
                   <TrustChecklistCard data={evidenceDetail} />
@@ -5364,15 +5364,7 @@ function findModuleByKeywords(modules: EvidenceDetailData["analysisInfo"]["modul
 
 function sanitizeAnalysisSummaryForUi(summary: string | null | undefined) {
   if (!summary?.trim()) return ""
-
-  // Deepfake late-fusion narrative only — drop forgery lane / TruFor skip notes from 종합 소견.
-  return summary
-    .replace(/\s*위변조\(TruFor\)[\s\S]*$/i, "")
-    .replace(/\s*Forgery\s+spatial[\s\S]*$/i, "")
-    .replace(/\s*Forgery\s+temporal[\s\S]*$/i, "")
-    .replace(/\s*\(TruFor produced no finite frame scores\)/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim()
+  return summary.replace(/\s{2,}/g, " ").trim()
 }
 
 function getDetectionTone(value: number): { level: string; badgeClass: string; barClass: string } {
