@@ -115,7 +115,7 @@ const FORGERY_OVERLAY_META = {
   spatial: {
     label: "TruFor (Spatial)",
     shortLabel: "TruFor",
-    badge: "변조 영역 bbox · 위험도 컬러",
+    badge: "위조 의심 영역을 표시합니다",
     description: "TruFor localization map에서 뽑은 변조 영역을 네모칸으로 추적합니다.",
     pendingMessage: "오버레이 탭을 열면 TruFor 오버레이를 생성한 뒤 재생합니다.",
   },
@@ -209,7 +209,13 @@ function buildDeepfakeOverlayOption(
       ? extractOpticalWindows(timeline?.pairRisks, timeline?.suspiciousSegments)
       : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments)
   const metaSize = data.evidenceInfo.technicalMetadata
-  const spatialMarkers = extractSpatialMarkers(timeline?.frameRisks, [], metaSize?.width, metaSize?.height)
+  const spatialMarkers = extractSpatialMarkers(
+    timeline?.frameRisks,
+    [],
+    metaSize?.width,
+    metaSize?.height,
+    timelineTab?.threshold
+  )
   const timelineScores = timelineTab?.points ?? []
   const advisoryMessage = resolveDeepfakeOverlayAdvisory(data.analysisInfo.errorCode)
   const ready =
@@ -264,22 +270,32 @@ function buildForgeryOverlayOption(
     : extractClipWindows(timeline?.clipRisks, timeline?.suspiciousSegments ?? tab.segments)
   const metaSize = data.evidenceInfo.technicalMetadata
   const spatialMarkers = isSpatial
-    ? extractSpatialMarkers(timeline?.frameRisks, tab.points, metaSize?.width, metaSize?.height)
+    ? extractSpatialMarkers(
+        timeline?.frameRisks,
+        tab.points,
+        metaSize?.width,
+        metaSize?.height,
+        tab.threshold
+      )
     : []
+  // Only count boxes on frames that clear the TruFor detection threshold.
   const hasTamperBboxes = spatialMarkers.some(
-    (marker) => (marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0
+    (marker) =>
+      marker.score >= tab.threshold &&
+      ((marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0)
   )
   const cachedOverlayUrl =
     normalizeUrl(artifact?.overlayVideoUrl) ??
     normalizeUrl(timeline?.overlayVideoUrl) ??
     topLevelUrl ??
     normalizeUrl(moduleResult?.overlayVideoUrl)
-  // When localization bboxes exist, prefer live CSS boxes over a possibly stale
-  // full-frame border MP4 baked before the bbox pipeline.
-  const overlayVideoUrl = isSpatial && hasTamperBboxes ? null : cachedOverlayUrl
+  // TruFor always uses live CSS on the original HLS — never fall back to the
+  // stale green baked-MP4 border overlay. No forged region ⇒ no boxes drawn.
+  const overlayVideoUrl = isSpatial ? null : cachedOverlayUrl
   const timelineScores = tab.points
   const ready =
     Boolean(overlayVideoUrl) ||
+    isSpatial ||
     hasTamperBboxes ||
     artifact?.status === "ready" ||
     timelineScores.length > 0 ||
@@ -293,18 +309,20 @@ function buildForgeryOverlayOption(
     shortLabel: meta.shortLabel,
     overlayVideoUrl,
     ready,
-    overlayBadge: isSpatial && hasTamperBboxes ? "변조 영역 bbox · 위험도 컬러" : meta.badge,
+    overlayBadge: isSpatial ? "위조 의심 영역을 표시합니다" : meta.badge,
     timelineCaption: `${tab.label || meta.label} 구간 위험도`,
     timelineScores,
     clipWindows,
     spatialMarkers,
     detectionThreshold: tab.threshold,
-    description: hasTamperBboxes
-      ? "TruFor localization 박스를 영상에 표시합니다."
+    description: isSpatial
+      ? "TruFor localization 박스를 영상에 표시합니다. 위조 의심 구간이 없으면 박스를 그리지 않습니다."
       : artifact?.description?.trim() || meta.description,
-    pendingMessage: hasTamperBboxes
-      ? "localization 박스를 표시 중입니다."
-      : "bbox 데이터가 없습니다. 최신 GPU 코드로 재분석한 뒤 다시 열어 주세요.",
+    pendingMessage: isSpatial
+      ? hasTamperBboxes
+        ? "localization 박스를 표시 중입니다."
+        : "현재 프레임에 위조 의심 영역이 없어 박스를 표시하지 않습니다."
+      : "오버레이 탭을 열면 TimeSformer 오버레이를 생성한 뒤 재생합니다.",
   }
 }
 
@@ -394,12 +412,26 @@ function extractSpatialMarkers(
   frameRisks: FrameRisk[] | null | undefined,
   fallbackPoints: FrameScore[] = [],
   videoWidth?: number | null,
-  videoHeight?: number | null
+  videoHeight?: number | null,
+  detectionThreshold?: number | null
 ): OverlaySpatialMarker[] {
+  // Jangdochi intent: draw localization boxes only when frame risk clears TruFor threshold.
+  const scoreFloor =
+    typeof detectionThreshold === "number" && Number.isFinite(detectionThreshold)
+      ? detectionThreshold
+      : null
+
   if (frameRisks && frameRisks.length > 0) {
     const vw = videoWidth && videoWidth > 0 ? videoWidth : 0
     const vh = videoHeight && videoHeight > 0 ? videoHeight : 0
     return frameRisks.map((risk) => {
+      const aboveThreshold = scoreFloor == null || risk.riskScore >= scoreFloor
+      if (!aboveThreshold) {
+        return {
+          timeSec: risk.timestampSec,
+          score: risk.riskScore,
+        }
+      }
       const normalized = normalizeRiskBboxes(risk.bboxes, vw, vh, risk.riskScore)
       const rawBboxes =
         normalized == null && risk.bboxes?.length

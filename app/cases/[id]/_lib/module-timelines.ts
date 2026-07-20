@@ -133,6 +133,18 @@ export function getXceptionFrameScores(data: EvidenceDetailData | null): FrameSc
   return data.analysisInfo.frameScores ?? []
 }
 
+function sortForgeryTimelineTabs(tabs: ForgeryTimelineTab[]): ForgeryTimelineTab[] {
+  const order: Record<string, number> = {
+    [FORGERY_SPATIAL_MODULE]: 0,
+    [FORGERY_TEMPORAL_MODULE]: 1,
+  }
+  return [...tabs].sort((a, b) => {
+    const aRank = order[a.key] ?? 99
+    const bRank = order[b.key] ?? 99
+    return aRank - bRank
+  })
+}
+
 export function buildForgeryTimelineTabs(
   data: EvidenceDetailData | null,
   threshold = getDetectionThreshold(data)
@@ -145,7 +157,7 @@ export function buildForgeryTimelineTabs(
     .map((timeline) => timelineToForgeryTab(timeline, threshold, metaDuration))
 
   if (fromTimelines.length > 0) {
-    return fromTimelines.sort((a, b) => b.videoScore - a.videoScore)
+    return sortForgeryTimelineTabs(fromTimelines)
   }
 
   const fromModelScores = buildForgeryTabsFromModelScores(data, threshold)
@@ -153,7 +165,8 @@ export function buildForgeryTimelineTabs(
     return fromModelScores
   }
 
-  return (data.analysisInfo.moduleResults ?? [])
+  return sortForgeryTimelineTabs(
+    (data.analysisInfo.moduleResults ?? [])
     .filter((module) => isForgeryModule(module))
     .map((module) => {
       const resolvedKey: string =
@@ -192,7 +205,7 @@ export function buildForgeryTimelineTabs(
       }
     })
     .filter((tab, index, tabs) => tabs.findIndex((item) => item.key === tab.key) === index)
-    .sort((a, b) => b.videoScore - a.videoScore)
+  )
 }
 
 function buildForgeryTabsFromModelScores(
@@ -232,7 +245,7 @@ function buildForgeryTabsFromModelScores(
     })
   }
 
-  return [...tabs.values()].sort((a, b) => b.videoScore - a.videoScore)
+  return sortForgeryTimelineTabs([...tabs.values()])
 }
 
 function isForgeryTimelineModule(module: string) {

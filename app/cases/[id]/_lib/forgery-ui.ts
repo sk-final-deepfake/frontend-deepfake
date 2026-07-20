@@ -57,6 +57,36 @@ export function forgeryModuleThreshold(key: ForgeryModuleKey) {
     : DEFAULT_FORGERY_THRESHOLDS.temporal
 }
 
+function shortenForgeryModelVersion(
+  key: ForgeryModuleKey,
+  modelVersion: string | null | undefined,
+  modelName: string | null | undefined
+) {
+  const fallback =
+    key === FORGERY_SPATIAL_MODULE ? "videocof-v2" : "forgery-v1.9-hardneg"
+  let raw = (modelVersion ?? modelName ?? "").trim()
+  if (!raw) return fallback
+
+  raw = raw.replace(/-\d{8}-\d{4}$/, "")
+
+  if (key === FORGERY_SPATIAL_MODULE) {
+    const videocof = raw.match(/videocof-v[\w.]+/i)
+    if (videocof) return videocof[0]
+    return raw.replace(/^trufor[-/]?/i, "") || fallback
+  }
+
+  return raw.replace(/^timesformer[-/]?/i, "") || fallback
+}
+
+export function formatForgeryModelLabel(
+  key: ForgeryModuleKey,
+  modelName: string | null,
+  modelVersion: string | null
+) {
+  const brand = key === FORGERY_SPATIAL_MODULE ? "TruFor" : "TimeSformer"
+  return `${brand} ${shortenForgeryModelVersion(key, modelVersion, modelName)}`
+}
+
 export function getForgerySpatialTimeline(
   data: EvidenceDetailData | null
 ): ForgeryTimelineTab | null {
@@ -143,85 +173,40 @@ function buildSignalForTab(
     return resolveForgeryModuleKey(module.moduleName, module.modelName) === key
   })
 
-  const durationSec = estimateMediaDurationSec(
-    data,
-    key === FORGERY_SPATIAL_MODULE ? tab : getForgerySpatialTimeline(data),
-    key === FORGERY_TEMPORAL_MODULE ? tab : getForgeryTemporalTimeline(data)
-  )
-
   let scoreRaw: number | null = null
   let detected = false
   let modelName: string | null = null
   let modelVersion: string | null = null
-  let rawSegments: Array<{ startTime: number; endTime: number; maxRiskScore?: number }> = []
 
   if (modelScores[0] != null) {
     scoreRaw = modelScores[0].score
     detected = Boolean(modelScores[0].detected)
     modelName = modelScores[0].modelName
     modelVersion = modelScores[0].modelVersion ?? null
-    rawSegments = (tab?.segments ?? []).map((s) => ({
-      startTime: s.startTime,
-      endTime: s.endTime,
-      maxRiskScore: s.maxRiskScore,
-    }))
   } else if (modules[0] != null) {
     scoreRaw = modules[0].score
     detected = Boolean(modules[0].detected)
     modelName = modules[0].modelName ?? null
     modelVersion = modules[0].modelVersion ?? null
-    rawSegments =
-      modules[0].affectedSegments && modules[0].affectedSegments.length > 0
-        ? modules[0].affectedSegments
-        : (tab?.segments ?? []).map((s) => ({
-            startTime: s.startTime,
-            endTime: s.endTime,
-            maxRiskScore: s.maxRiskScore,
-          }))
   } else if (tab) {
     scoreRaw = tab.videoScore
     detected = tab.detected
     modelName = tab.modelName
     modelVersion = tab.modelVersion
-    rawSegments = tab.segments.map((s) => ({
-      startTime: s.startTime,
-      endTime: s.endTime,
-      maxRiskScore: s.maxRiskScore,
-    }))
   } else {
     return null
   }
 
-  if (rawSegments.length === 0 && tab && tab.points.length > 0) {
-    const top = [...tab.points].sort(
-      (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
-    )[0]
-    const t = top.timeSec ?? 0
-    rawSegments = [{ startTime: t, endTime: t, maxRiskScore: top.score }]
-  }
-
-  const segments = rawSegments
-    .map((segment) => {
-      const expanded = expandSegmentToMinDuration(
-        segment.startTime,
-        segment.endTime,
-        MIN_SUSPICIOUS_SEGMENT_SEC,
-        durationSec
-      )
-      return {
-        label: `${formatDuration(expanded.startSec)} ~ ${formatDuration(expanded.endSec)}`,
-        startSec: expanded.startSec,
-      }
-    })
+  // 딥페이크 탐지 탭과 동일: 백엔드 affectedSegments만 표시 (타임라인 추정 구간 미사용)
+  const segments = (modules[0]?.affectedSegments ?? [])
     .slice(0, 3)
+    .map((segment) => ({
+      label: `${formatDuration(segment.startTime)} ~ ${formatDuration(segment.endTime)}`,
+      startSec: segment.startTime,
+    }))
 
   const score = normalizeResultValue(scoreRaw)
-  const modelLabel =
-    modelName?.trim()
-      ? modelVersion?.trim()
-        ? `${modelName.trim()} ${modelVersion.trim()}`
-        : modelName.trim()
-      : null
+  const modelLabel = formatForgeryModelLabel(key, modelName, modelVersion)
 
   return {
     label: forgeryModuleLabel(key),

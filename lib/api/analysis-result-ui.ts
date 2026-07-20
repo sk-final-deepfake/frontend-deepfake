@@ -90,10 +90,15 @@ export type UiMethodologyInfo = {
 
 const MODULE_LABELS: Record<string, string> = {
   deepfake: "딥페이크(얼굴 합성)",
+  deepfake_cnn: "얼굴 합성 흔적",
+  deepfake_temporal: "프레임 흐름 불일치",
+  deepfake_optical: "움직임·조명 불일치",
   lip_sync: "립싱크 불일치",
   frame_edit: "프레임 편집 흔적",
   splicing: "구간 이어붙이기",
   re_encoding: "재인코딩 흔적",
+  forgery_spatial: "국소 위변조 탐지",
+  forgery_temporal: "시간축 위변조 탐지",
 }
 
 /** 신호별 한 줄 정의. 점수·판정을 만들지 않는 순수 설명 사전이다. */
@@ -154,6 +159,13 @@ export function getDetectionModules(modules: ModuleResult[]) {
   return modules.filter((module) => isExecutedDetectionModule(module))
 }
 
+/** 딥페이크 레인만 (위변조 TruFor / forgery TimeSformer 제외). */
+export function getDeepfakeDetectionModules(modules: ModuleResult[]) {
+  return getDetectionModules(modules).filter(
+    (module) => !isForgeryLaneModuleName(module.moduleName, module.modelName)
+  )
+}
+
 export function normalizeResultValue(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return 0
   if (value > 0 && value <= 1) return value
@@ -167,10 +179,19 @@ export function formatScoreOutOf100(value: number | null | undefined) {
 }
 
 export function formatModuleLabel(moduleName: string) {
-  const key = moduleName.toLowerCase()
+  const key = moduleName.toLowerCase().replace(/[\s-]+/g, "_")
   if (MODULE_LABELS[key]) return MODULE_LABELS[key]
 
   const normalized = key
+  // 위변조 키워드는 temporal/face 휴리스틱보다 먼저 (forgery_temporal → 딥페이크 라벨 오염 방지)
+  if (
+    normalized.includes("forgery") ||
+    normalized.includes("tamper") ||
+    normalized.includes("trufor")
+  ) {
+    if (normalized.includes("temporal")) return "시간축 위변조 탐지"
+    return "국소 위변조 탐지"
+  }
   if (normalized.includes("gan") || normalized.includes("fingerprint")) return "생성형 패턴 흔적"
   if (normalized.includes("temporal") || normalized.includes("timeline") || normalized.includes("consistency") || normalized.includes("lip")) return "프레임 흐름 불일치"
   if (normalized.includes("boundary") || normalized.includes("synthesis") || normalized.includes("swap") || normalized.includes("face") || normalized.includes("deepfake")) return "얼굴 합성 흔적"
@@ -262,12 +283,95 @@ function moduleSegments(module: ModuleResult): UiSignalSegment[] {
   }))
 }
 
+/** 딥페이크 모듈이 해당 모듈 판정 기준을 넘겼는지 (융합 T가 아닌 모듈별 T). */
+export function isDeepfakeModuleOverThreshold(
+  module: ModuleResult,
+  data: EvidenceDetailData | null
+): boolean {
+  const score = normalizeResultValue(module.score)
+  const fusionT = getDetectionThreshold(data)
+  const moduleThreshold = resolveModelScoreThreshold(
+    getCanonicalModelScoreKey({
+      moduleName: module.moduleName ?? "",
+      modelName: module.modelName ?? "",
+      score,
+    }),
+    data,
+    fusionT
+  )
+  return module.detected || score >= moduleThreshold
+}
+
+/**
+ * 종합 위험 점수 표시용 (AI 동적 가중과 동일):
+ * F = Late Fusion, G = 위변조 max
+ * 둘 다 있으면 (F²+G²)/(F+G), 한쪽만 있으면 그 값.
+ * soft face-gate(errorCode)면 위변조만.
+ */
+export function resolveIntegratedDisplayRiskScore01(
+  data: EvidenceDetailData | null,
+  forgeryScores01: Array<number | null | undefined>
+): number | null {
+  const forgeryVals = forgeryScores01
+    .filter((score): score is number => score != null && Number.isFinite(score))
+    .map((score) => normalizeResultValue(score))
+  const forgeryMax = forgeryVals.length > 0 ? Math.max(...forgeryVals) : null
+
+  const errorCode = (data?.analysisInfo.errorCode ?? "").trim().toUpperCase()
+  const softFaceGate =
+    errorCode === "NO_HUMAN_FACE" ||
+    errorCode === "FACE_TOO_SMALL" ||
+    errorCode === "NO_FACE" ||
+    errorCode === "FACE_GATE"
+
+  if (softFaceGate) {
+    return forgeryMax
+  }
+
+  const fusion = resolveDeepfakeFusionScore01(data)
+  if (fusion != null && forgeryMax != null) {
+    const total = fusion + forgeryMax
+    if (total <= 0) return 0
+    return (fusion * fusion + forgeryMax * forgeryMax) / total
+  }
+  if (fusion != null) return fusion
+  if (forgeryMax != null) return forgeryMax
+
+  const stored = data?.analysisInfo.riskScore
+  if (stored != null && Number.isFinite(stored)) {
+    return normalizeResultValue(stored)
+  }
+  return null
+}
+
+function resolveDeepfakeFusionScore01(data: EvidenceDetailData | null): number | null {
+  const modelScores = data?.analysisInfo.modelScores ?? []
+  const fusionModel = modelScores.find((model) => {
+    const key = (model.moduleName ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+    return key === "deepfake" || key === "late_fusion" || key === "fusion" || key === "latefusion"
+  })
+  if (fusionModel != null && Number.isFinite(fusionModel.score)) {
+    return normalizeResultValue(fusionModel.score)
+  }
+
+  const modules = data?.analysisInfo.moduleResults ?? []
+  const fusionModule = modules.find((module) => {
+    const key = (module.moduleName ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+    return key === "deepfake" || key === "late_fusion" || key === "fusion"
+  })
+  if (fusionModule != null && Number.isFinite(fusionModule.score)) {
+    return normalizeResultValue(fusionModule.score)
+  }
+  return null
+}
+
 export function buildRiskSignals(data: EvidenceDetailData | null): {
   primary: UiRiskSignal[]
   extra: UiRiskSignal[]
 } {
-  const threshold = getDetectionThreshold(data)
-  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
+  const fusionThreshold = getDetectionThreshold(data)
+  // 딥페이크 요약/탭용 — 위변조 레인은 forgery 탭에서만 표시
+  const modules = getDeepfakeDetectionModules(data?.analysisInfo.moduleResults ?? [])
     .map((module) => ({
       module,
       score: normalizeResultValue(module.score),
@@ -280,14 +384,23 @@ export function buildRiskSignals(data: EvidenceDetailData | null): {
 
   const signals = modules.map(({ module, score }) => {
     const label = formatModuleLabel(module.moduleName)
+    const moduleThreshold = resolveModelScoreThreshold(
+      getCanonicalModelScoreKey({
+        moduleName: module.moduleName ?? "",
+        modelName: module.modelName ?? "",
+        score,
+      }),
+      data,
+      fusionThreshold
+    )
     return {
       label,
       modelLabel: moduleModelLabel(module),
       definition: getSignalDefinition(label),
-      badge: riskBadge(score, module.detected, threshold),
+      badge: riskBadge(score, module.detected, moduleThreshold),
       score,
-      thresholdPercent: Math.round(threshold * 100),
-      tone: riskTone(score, threshold),
+      thresholdPercent: Math.round(moduleThreshold * 100),
+      tone: riskTone(score, moduleThreshold),
       segments: moduleSegments(module),
     }
   })
@@ -308,7 +421,7 @@ export function buildTopRiskFrames(
   if (frameScores.length === 0) return []
 
   const topModule =
-    getDetectionModules(data?.analysisInfo.moduleResults ?? []).sort(
+    getDeepfakeDetectionModules(data?.analysisInfo.moduleResults ?? []).sort(
       (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
     )[0]?.moduleName ?? "deepfake"
 
@@ -335,7 +448,7 @@ export function buildSummaryActions(
   const threshold = getDetectionThreshold(data)
   const thresholdPercent = Math.round(threshold * 100)
   const riskScore = normalizeResultValue(data?.analysisInfo.riskScore)
-  const modules = getDetectionModules(data?.analysisInfo.moduleResults ?? [])
+  const modules = getDeepfakeDetectionModules(data?.analysisInfo.moduleResults ?? [])
   const topModule = [...modules].sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )[0]
@@ -484,7 +597,7 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
     }
   >()
 
-  for (const detectionModule of getDetectionModules(data?.analysisInfo.moduleResults ?? [])) {
+  for (const detectionModule of getDeepfakeDetectionModules(data?.analysisInfo.moduleResults ?? [])) {
     if (isForgeryLaneModuleName(detectionModule.moduleName, detectionModule.modelName)) continue
     const name = detectionModule.modelName?.trim()
     if (!name) continue
@@ -532,14 +645,28 @@ function buildMethodologyModels(data: EvidenceDetailData | null, threshold: numb
   }))
 }
 
-/** TruFor / forgery TimeSformer — 딥페이크 방법론 카드에서 제외 (deepfake_temporal 제외) */
-function isForgeryLaneModuleName(moduleName?: string | null, modelName?: string | null) {
+/**
+ * TruFor / forgery TimeSformer — 딥페이크 UI에서 제외.
+ * deepfake_* 접두어는 항상 딥페이크. frame_edit/splicing 등 레거시 위변조 키도 제외.
+ */
+export function isForgeryLaneModuleName(moduleName?: string | null, modelName?: string | null) {
   const module = (moduleName ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")
   const model = (modelName ?? "").trim().toLowerCase()
+  if (!module && !model) return false
   if (module.startsWith("deepfake")) return false
+  if (module === "cnn" || module === "temporal" || module === "optical") return false
   if (module === "forgery_spatial" || module === "forgery_temporal") return true
   if (module.includes("forgery") || module.includes("tamper")) return true
+  if (module === "frame_edit" || module.includes("frame_edit")) return true
+  if (module === "splicing" || module.includes("splice")) return true
+  if (module === "re_encoding" || module.includes("reencoding") || module.includes("re_encoding")) {
+    return true
+  }
   if (model.includes("trufor")) return true
+  // forgery TimeSformer: module이 애매해도 버전/이름에 forgery가 있으면 위변조
+  if (model.includes("timesformer") && (model.includes("forgery") || model.includes("hardneg"))) {
+    return true
+  }
   return false
 }
 
@@ -645,6 +772,57 @@ function getCanonicalModelScoreKey(model: ModelScore): CanonicalModelScoreKey {
   return "deepfake_cnn"
 }
 
+/** forgery prod thresholds (videocof-v2 / forgery-v1.9-hardneg) */
+const FORGERY_METHODOLOGY_THRESHOLDS = [
+  { label: "TruFor", timelineModule: "forgery_spatial", defaultThreshold: 0.515 },
+  { label: "TS-forgery", timelineModule: "forgery_temporal", defaultThreshold: 0.173386 },
+] as const
+
+function resolveAnalysisId(data: EvidenceDetailData | null): string {
+  const explicit = data?.analysisInfo.analysisId?.trim()
+  if (explicit) return explicit
+
+  const requestId = data?.analysisInfo.analysisRequestId
+  if (requestId != null && Number.isFinite(requestId) && requestId > 0) {
+    return String(requestId)
+  }
+
+  return "-"
+}
+
+function resolveForgeryMethodologyThreshold(
+  data: EvidenceDetailData | null,
+  timelineModule: string,
+  defaultThreshold: number
+): number {
+  const timeline = data?.analysisInfo.moduleTimelines?.find((item) => item.module === timelineModule)
+  const fromTimeline = timeline?.threshold
+  if (fromTimeline != null && Number.isFinite(fromTimeline) && fromTimeline > 0 && fromTimeline <= 1) {
+    return fromTimeline
+  }
+  return defaultThreshold
+}
+
+function buildMethodologyModuleThresholdSummary(
+  models: UiMethodologyModel[],
+  data: EvidenceDetailData | null
+): string {
+  const parts = models
+    .filter((model) => model.name !== "Late Fusion")
+    .map((model) => `${model.name} ${Math.round(model.threshold * 100)}`)
+
+  for (const forgery of FORGERY_METHODOLOGY_THRESHOLDS) {
+    const threshold = resolveForgeryMethodologyThreshold(
+      data,
+      forgery.timelineModule,
+      forgery.defaultThreshold
+    )
+    parts.push(`${forgery.label} ${Math.round(threshold * 100)}`)
+  }
+
+  return parts.length > 0 ? parts.join("\n") : "-"
+}
+
 /**
  * 분석 방법론 탭: 실제 실행된 모델과 재현에 필요한 파라미터만 담는다.
  * 백엔드가 제공하지 않은 값은 "-"로 표시하고 UI에서 만들어내지 않는다.
@@ -663,15 +841,12 @@ export function buildMethodologyInfo(
   const analyzedAt = data?.analysisInfo.completedAt
 
   const settings: UiModelSetting[] = [
-    { label: "분석 ID", value: data?.analysisInfo.analysisId?.trim() || "-" },
+    { label: "분석 ID", value: resolveAnalysisId(data) },
     { label: "분석 일시", value: analyzedAt ? formatDateTime(analyzedAt) : "-" },
     { label: "Fusion 판정 임계값", value: `${Math.round(threshold * 100)} / 100` },
     {
       label: "모듈별 임계값",
-      value: models
-        .filter((model) => model.name !== "Late Fusion")
-        .map((model) => `${model.name} ${Math.round(model.threshold * 100)}`)
-        .join(" · ") || "-",
+      value: buildMethodologyModuleThresholdSummary(models, data),
     },
     {
       label: "입력 해상도",

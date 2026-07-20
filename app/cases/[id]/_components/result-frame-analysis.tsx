@@ -1,21 +1,18 @@
 "use client"
 
-import { useState, type RefObject } from "react"
+import { useEffect, useState } from "react"
 import { FileVideo, Play } from "lucide-react"
 
 import {
   buildTopRiskFrames,
-  formatScoreOutOf100,
   normalizeResultValue,
 } from "@/lib/api/analysis-result-ui"
 import type { EvidenceDetailData, FrameScore, RepresentativeFrame } from "@/lib/api/evidence-detail"
-import { formatDuration } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
 import {
   buildForgeryRepresentativeFrames,
-  forgeryHighRiskGalleryCopy,
-  formatForgeryThresholdLabel,
+  FORGERY_SPATIAL_MODULE,
   FORGERY_TEMPORAL_MODULE,
 } from "../_lib/forgery-ui"
 import {
@@ -26,13 +23,11 @@ import {
   type ForgeryTimelineTab,
 } from "../_lib/module-timelines"
 import { FrameRiskChart } from "./frame-risk-chart"
-import { VideoSeekThumbnail } from "./video-seek-thumbnail"
 
 type ResultFrameAnalysisProps = {
   evidenceDetail: EvidenceDetailData
   detectionThreshold: number
   representativeFrames: RepresentativeFrame[]
-  videoRef?: RefObject<HTMLVideoElement | null>
   onSeek: (seconds: number) => void
 }
 
@@ -42,22 +37,37 @@ export function ResultFrameAnalysis({
   evidenceDetail,
   detectionThreshold,
   representativeFrames,
-  videoRef,
   onSeek,
 }: ResultFrameAnalysisProps) {
   const [category, setCategory] = useState<AnalysisCategory>("deepfake")
   const deepfakeTabs = buildDeepfakeTimelineTabs(evidenceDetail, detectionThreshold)
-  const forgeryTabs = buildForgeryTimelineTabs(evidenceDetail, detectionThreshold)
+  // Overlay cards stay score-sorted; frame-analysis tabs keep a stable TruFor → TimeSformer order
+  // so low-score cases still open the same chart layout as high-score fakes.
+  const forgeryTabs = [...buildForgeryTimelineTabs(evidenceDetail, detectionThreshold)].sort((a, b) => {
+    const order = (key: string) =>
+      key === "forgery_spatial" ? 0 : key === "forgery_temporal" ? 1 : 2
+    return order(a.key) - order(b.key)
+  })
   const [deepfakeKey, setDeepfakeKey] = useState(deepfakeTabs[0]?.key ?? "cnn")
-  const [forgeryKey, setForgeryKey] = useState(forgeryTabs[0]?.key ?? "")
+  const [forgeryKey, setForgeryKey] = useState(
+    () =>
+      forgeryTabs.find((tab) => tab.key === FORGERY_SPATIAL_MODULE)?.key ??
+      forgeryTabs[0]?.key ??
+      ""
+  )
+
+  const forgeryTabKeys = forgeryTabs.map((tab) => tab.key).join("|")
+
+  useEffect(() => {
+    setForgeryKey(
+      forgeryTabs.find((tab) => tab.key === FORGERY_SPATIAL_MODULE)?.key ??
+      forgeryTabs[0]?.key ??
+      ""
+    )
+  }, [evidenceDetail.evidenceInfo.evidenceId, forgeryTabKeys])
 
   const activeDeepfakeTab = deepfakeTabs.find((tab) => tab.key === deepfakeKey) ?? deepfakeTabs[0]
   const activeForgeryTab = forgeryTabs.find((tab) => tab.key === forgeryKey) ?? forgeryTabs[0]
-  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail, {
-    moduleKey: activeForgeryTab?.key,
-    maxFrames: 2,
-  })
-  const forgeryGalleryCopy = forgeryHighRiskGalleryCopy(activeForgeryTab?.key)
 
   return (
     <section>
@@ -110,9 +120,8 @@ export function ResultFrameAnalysis({
           activeTab={activeForgeryTab}
           activeKey={activeForgeryTab?.key ?? ""}
           onSelectTab={setForgeryKey}
-          representativeFrames={forgeryRepresentativeFrames}
-          galleryCopy={forgeryGalleryCopy}
-          videoRef={videoRef}
+          evidenceDetail={evidenceDetail}
+          representativeFrames={representativeFrames}
           onSeek={onSeek}
         />
       )}
@@ -215,18 +224,16 @@ function ForgeryFrameAnalysis({
   activeTab,
   activeKey,
   onSelectTab,
+  evidenceDetail,
   representativeFrames,
-  galleryCopy,
-  videoRef,
   onSeek,
 }: {
   tabs: ForgeryTimelineTab[]
   activeTab?: ForgeryTimelineTab
   activeKey: string
   onSelectTab: (key: string) => void
+  evidenceDetail: EvidenceDetailData
   representativeFrames: RepresentativeFrame[]
-  galleryCopy: { title: string; description: string; empty: string }
-  videoRef?: RefObject<HTMLVideoElement | null>
   onSeek: (seconds: number) => void
 }) {
   if (tabs.length === 0) {
@@ -239,9 +246,26 @@ function ForgeryFrameAnalysis({
   }
 
   const moduleThreshold = activeTab?.threshold ?? 0.515
-  const scores = activeTab?.points ?? []
+  // Keep low-score timelines visible (flat near-zero charts) — do not hide the graph UI.
+  const scores =
+    activeTab?.points && activeTab.points.length > 0
+      ? activeTab.points
+      : activeTab
+        ? [{ timeSec: 0, score: activeTab.videoScore }]
+        : []
   const summary = summarizeFrameScores(scores, moduleThreshold)
   const isTemporal = activeKey === FORGERY_TEMPORAL_MODULE
+  const unitLabel = isTemporal ? "클립" : "프레임"
+  const chartTitle = isTemporal ? "클립별 위험도" : "프레임별 위험도"
+  const topRiskFrames = buildTopRiskFrames(evidenceDetail, scores).map((frame) => ({
+    ...frame,
+    signal: activeTab?.label ?? "위변조",
+  }))
+  const forgeryRepresentativeFrames = buildForgeryRepresentativeFrames(evidenceDetail, {
+    moduleKey: activeKey,
+    maxFrames: 5,
+  })
+  const thumbFrames = [...forgeryRepresentativeFrames, ...representativeFrames]
 
   return (
     <div className="mt-5 space-y-4">
@@ -272,65 +296,40 @@ function ForgeryFrameAnalysis({
         <>
           <p className="text-xs font-semibold text-slate-500">{activeTab.description}</p>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <MetricCard
-              label="모듈 점수"
-              value={formatScoreOutOf100(activeTab.videoScore)}
-              sub={activeTab.detected ? "기준 초과" : formatForgeryThresholdLabel(moduleThreshold)}
-              tone={activeTab.videoScore >= moduleThreshold ? "danger" : "neutral"}
-            />
-            <MetricCard
-              label="의심 구간"
-              value={`${activeTab.segments.length}개`}
-              sub={activeTab.segments.length > 0 ? "구간별 maxRiskScore 제공" : "구간 데이터 없음"}
-            />
-          </div>
-
-          {scores.length > 0 ? (
-            <>
-              <MetricGrid
-                summary={summary}
-                scores={scores}
-                detectionThreshold={moduleThreshold}
-                unitLabel={isTemporal ? "클립" : "프레임"}
-              />
-              <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-                <FrameRiskChart
-                  scores={scores}
-                  threshold={moduleThreshold}
-                  title={`${activeTab.label} ${isTemporal ? "클립별" : "프레임별"} 위험도`}
-                />
-              </div>
-              <SegmentList segments={activeTab.segments} onSeek={onSeek} />
-            </>
-          ) : (
-            <EmptyTimelineMessage
-              title={`${activeTab.label} 프레임 데이터가 없습니다.`}
-              description="해당 모듈이 frameRisks 또는 clipRisks를 보고하면 시간축 차트가 표시됩니다."
-            />
-          )}
+          <MetricGrid
+            summary={summary}
+            scores={scores}
+            detectionThreshold={moduleThreshold}
+            unitLabel={unitLabel}
+          />
 
           <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-            <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">{galleryCopy.title}</h4>
-            <p className="mt-0.5 text-xs font-semibold text-slate-500">{galleryCopy.description}</p>
-            {representativeFrames.length > 0 ? (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {representativeFrames.slice(0, 2).map((frame, index) => (
-                  <RepresentativeThumb
-                    key={`${activeKey}-${frame.timestamp ?? frame.timeSec ?? index}`}
-                    frame={frame}
-                    videoRef={videoRef}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-400 dark:border-border dark:bg-background">
-                {galleryCopy.empty}
-              </p>
-            )}
+            <FrameRiskChart
+              scores={scores}
+              threshold={moduleThreshold}
+              title={chartTitle}
+              emptyMessage={
+                activeTab.points.length === 0
+                  ? `${activeTab.label} 상세 타임라인이 없어 모듈 점수만 표시합니다.`
+                  : `${activeTab.label} 타임라인 데이터가 없습니다.`
+              }
+            />
           </div>
+
+          {topRiskFrames.length > 0 ? (
+            <TopRiskFrameList
+              frames={topRiskFrames}
+              representativeFrames={thumbFrames}
+              onSeek={onSeek}
+            />
+          ) : null}
         </>
-      ) : null}
+      ) : (
+        <EmptyTimelineMessage
+          title="위변조 모델 타임라인이 없습니다."
+          description="분석이 완료된 뒤 TruFor·TimeSformer 타임라인이 제공되면 표시됩니다."
+        />
+      )}
     </div>
   )
 }
@@ -452,74 +451,6 @@ function TopRiskFrameList({
         })}
       </div>
     </div>
-  )
-}
-
-function SegmentList({
-  segments,
-  onSeek,
-}: {
-  segments: ForgeryTimelineTab["segments"]
-  onSeek: (seconds: number) => void
-}) {
-  if (segments.length === 0) return null
-
-  return (
-    <div className="rounded-xl border border-slate-100 bg-white p-5 dark:border-border dark:bg-card">
-      <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">의심 구간 목록</h4>
-      <div className="mt-3 space-y-2">
-        {segments.map((segment, index) => (
-          <button
-            key={`${segment.startTime}-${segment.endTime}-${index}`}
-            type="button"
-            onClick={() => onSeek(segment.startTime)}
-            className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-left transition-colors hover:bg-slate-50 dark:border-border dark:hover:bg-secondary/40"
-          >
-            <span className="font-mono text-sm font-semibold text-slate-950 dark:text-foreground">
-              {formatDuration(segment.startTime)} ~ {formatDuration(segment.endTime)}
-            </span>
-            <span className="text-sm font-bold text-red-700">
-              {Math.round(normalizeResultValue(segment.maxRiskScore) * 100)} / 100
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function RepresentativeThumb({
-  frame,
-  videoRef,
-}: {
-  frame: RepresentativeFrame
-  videoRef?: RefObject<HTMLVideoElement | null>
-}) {
-  const timeSec = frame.timeSec ?? 0
-  return (
-    <article className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-      <p className="text-xs font-semibold text-slate-500">
-        {frame.timeSec != null ? formatDuration(frame.timeSec) : frame.timestamp ?? "-"}
-      </p>
-      <div className="mt-2 aspect-video overflow-hidden rounded-md bg-slate-200 dark:bg-secondary">
-        {videoRef ? (
-          <VideoSeekThumbnail
-            videoRef={videoRef}
-            timeSec={timeSec}
-            imageUrl={frame.imageUrl}
-            heatmapImageUrl={frame.heatmapImageUrl}
-            label="고위험 시점"
-          />
-        ) : frame.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={frame.imageUrl} alt="대표 프레임" className="size-full object-cover" />
-        ) : (
-          <div className="flex size-full items-center justify-center">
-            <FileVideo className="size-5 text-slate-400" aria-hidden="true" />
-          </div>
-        )}
-      </div>
-    </article>
   )
 }
 

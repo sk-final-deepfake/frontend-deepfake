@@ -11,8 +11,205 @@ type ModelOverlayLayerProps = {
   videoRef: RefObject<HTMLVideoElement | null>
 }
 
-/** TruFor samples ~16 frames — allow wider sync than deepfake per-frame scores. */
-const SPATIAL_MATCH_SEC = 2.5
+/**
+ * Match nearest TruFor sample. Keep this tight so below-threshold gaps do not
+ * keep showing the previous high-risk box across the whole clip.
+ */
+const SPATIAL_MATCH_SEC = 0.75
+/** Max gap between two samples to interpolate across (FE display only). */
+const SPATIAL_INTERP_MAX_GAP_SEC = 2.5
+
+type SpatialBoxSample = {
+  timeSec: number
+  score: number
+  boxes: OverlaySpatialBBox[]
+}
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t
+}
+
+function lerpBox(a: OverlaySpatialBBox, b: OverlaySpatialBBox, t: number): OverlaySpatialBBox {
+  return {
+    x: lerp(a.x, b.x, t),
+    y: lerp(a.y, b.y, t),
+    w: lerp(a.w, b.w, t),
+    h: lerp(a.h, b.h, t),
+    score: lerp(a.score, b.score, t),
+  }
+}
+
+function buildSpatialBoxSamples(
+  markers: ModelOverlayOption["spatialMarkers"],
+  threshold: number,
+  videoWidth: number,
+  videoHeight: number
+): SpatialBoxSample[] {
+  return markers
+    .filter((marker) => marker.score >= threshold && markerHasBoxes(marker))
+    .map((marker) => ({
+      timeSec: marker.timeSec,
+      score: marker.score,
+      boxes: pickDisplayBoxes(resolveMarkerBoxes(marker, videoWidth, videoHeight)),
+    }))
+    .filter((sample) => sample.boxes.length > 0)
+    .sort((a, b) => a.timeSec - b.timeSec)
+}
+
+/**
+ * Interpolate bbox between adjacent TruFor samples so the box tracks smoothly
+ * while the playhead moves. Does not change analysis scores/threshold.
+ */
+function interpolateSpatialAtTime(
+  samples: SpatialBoxSample[],
+  currentTime: number
+): { boxes: OverlaySpatialBBox[]; score: number } | null {
+  if (!samples.length) return null
+
+  const first = samples[0]
+  const last = samples[samples.length - 1]
+
+  if (currentTime <= first.timeSec) {
+    if (first.timeSec - currentTime > SPATIAL_MATCH_SEC) return null
+    return { boxes: first.boxes, score: first.score }
+  }
+  if (currentTime >= last.timeSec) {
+    if (currentTime - last.timeSec > SPATIAL_MATCH_SEC) return null
+    return { boxes: last.boxes, score: last.score }
+  }
+
+  let i = 0
+  while (i < samples.length - 1 && samples[i + 1].timeSec < currentTime) i += 1
+  const a = samples[i]
+  const b = samples[i + 1]
+  const gap = b.timeSec - a.timeSec
+  if (!(gap > 0)) return { boxes: a.boxes, score: a.score }
+
+  // Large hole between samples → only show when near an endpoint (no inventing).
+  if (gap > SPATIAL_INTERP_MAX_GAP_SEC) {
+    if (currentTime - a.timeSec <= SPATIAL_MATCH_SEC) {
+      return { boxes: a.boxes, score: a.score }
+    }
+    if (b.timeSec - currentTime <= SPATIAL_MATCH_SEC) {
+      return { boxes: b.boxes, score: b.score }
+    }
+    return null
+  }
+
+  const t = (currentTime - a.timeSec) / gap
+  const pairCount = Math.min(a.boxes.length, b.boxes.length)
+  const boxes: OverlaySpatialBBox[] = []
+  for (let j = 0; j < pairCount; j += 1) {
+    boxes.push(lerpBox(a.boxes[j], b.boxes[j], t))
+  }
+  // If counts differ, keep the nearer sample's extra boxes without inventing motion.
+  if (pairCount === 0) {
+    return currentTime - a.timeSec <= b.timeSec - currentTime
+      ? { boxes: a.boxes, score: a.score }
+      : { boxes: b.boxes, score: b.score }
+  }
+  return { boxes, score: lerp(a.score, b.score, t) }
+}
+
+/** object-fit: contain 으로 그려진 실제 영상 영역 (플레이어 요소 기준 px) */
+type ContainedVideoLayout = {
+  left: number
+  top: number
+  width: number
+  height: number
+  elementW: number
+  elementH: number
+}
+
+function getContainedVideoLayout(video: HTMLVideoElement): ContainedVideoLayout | null {
+  const elementW = video.clientWidth
+  const elementH = video.clientHeight
+  const videoW = video.videoWidth
+  const videoH = video.videoHeight
+  if (elementW <= 0 || elementH <= 0 || videoW <= 0 || videoH <= 0) return null
+
+  const videoAspect = videoW / videoH
+  const elementAspect = elementW / elementH
+  let width: number
+  let height: number
+  let left: number
+  let top: number
+
+  if (videoAspect > elementAspect) {
+    // 좌우 맞춤 → 위아래 레터박스
+    width = elementW
+    height = elementW / videoAspect
+    left = 0
+    top = (elementH - height) / 2
+  } else {
+    // 상하 맞춤 → 좌우 필러박스
+    height = elementH
+    width = elementH * videoAspect
+    top = 0
+    left = (elementW - width) / 2
+  }
+
+  return { left, top, width, height, elementW, elementH }
+}
+
+/** 영상 정규화 좌표(0..1) → 플레이어 컨테이너 % (contain 오프셋 반영) */
+function boxToContainPercent(
+  box: OverlaySpatialBBox,
+  layout: ContainedVideoLayout
+): { left: number; top: number; width: number; height: number } {
+  const { left, top, width, height, elementW, elementH } = layout
+  return {
+    left: ((left + box.x * width) / elementW) * 100,
+    top: ((top + box.y * height) / elementH) * 100,
+    width: (box.w * width / elementW) * 100,
+    height: (box.h * height / elementH) * 100,
+  }
+}
+
+function boxArea(box: OverlaySpatialBBox) {
+  return Math.max(0, box.w) * Math.max(0, box.h)
+}
+
+function intersectionArea(a: OverlaySpatialBBox, b: OverlaySpatialBBox) {
+  const x0 = Math.max(a.x, b.x)
+  const y0 = Math.max(a.y, b.y)
+  const x1 = Math.min(a.x + a.w, b.x + b.w)
+  const y1 = Math.min(a.y + a.h, b.y + b.h)
+  return Math.max(0, x1 - x0) * Math.max(0, y1 - y0)
+}
+
+/**
+ * Nested boxes: the smaller one is usually the real local peak.
+ * Prefer compact boxes; drop larger parents that mostly contain them.
+ * Analysis coords/scores are unchanged — display selection only.
+ */
+function pickDisplayBoxes(boxes: OverlaySpatialBBox[]): OverlaySpatialBBox[] {
+  if (!boxes.length) return []
+
+  // Smallest first so localized peaks win over broad blobs.
+  const sorted = [...boxes].sort((a, b) => boxArea(a) - boxArea(b) || b.score - a.score)
+  const picked: OverlaySpatialBBox[] = []
+
+  for (const box of sorted) {
+    // Already covered by a tighter box we kept.
+    const mostlyInsidePicked = picked.some((keep) => {
+      const overlap = intersectionArea(keep, box)
+      return overlap / Math.max(boxArea(box), 1e-9) >= 0.55
+    })
+    if (mostlyInsidePicked) continue
+
+    // This is a broad parent of a tighter box we already kept — skip.
+    const containsPicked = picked.some((keep) => {
+      const overlap = intersectionArea(box, keep)
+      return overlap / Math.max(boxArea(keep), 1e-9) >= 0.55
+    })
+    if (containsPicked) continue
+
+    picked.push(box)
+    if (picked.length >= 2) break
+  }
+  return picked
+}
 
 function normalizeRawBboxes(
   raw: NonNullable<ModelOverlayOption["spatialMarkers"][number]["rawBboxes"]>,
@@ -47,6 +244,65 @@ function resolveMarkerBoxes(
     return normalizeRawBboxes(marker.rawBboxes, videoWidth, videoHeight, marker.score)
   }
   return []
+}
+
+function TamperRegionMarker({
+  box,
+  layout,
+  primary,
+  frameScore,
+}: {
+  box: OverlaySpatialBBox
+  layout: ContainedVideoLayout
+  primary: boolean
+  /** Frame-level TruFor risk for the label (keep analysis score; box is location only). */
+  frameScore?: number
+}) {
+  const pos = boxToContainPercent(box, layout)
+  const labelScore =
+    typeof frameScore === "number" && Number.isFinite(frameScore)
+      ? normalizeResultValue(frameScore)
+      : normalizeResultValue(box.score)
+  const scorePct = Math.round(labelScore * 100)
+  const corner = primary ? "border-[#e11d48]" : "border-[#fb7185]/70"
+  const cornerSize = primary ? "h-3.5 w-3.5 sm:h-4 sm:w-4" : "h-2.5 w-2.5"
+  const borderW = primary ? "border-[2.5px]" : "border-2"
+  // 상단에 붙으면 라벨이 잘리니 박스 안쪽으로 내린다.
+  const labelAbove = pos.top >= 7
+
+  return (
+    <div
+      className="absolute transition-[left,top,width,height] duration-75 ease-linear"
+      style={{
+        left: `${pos.left}%`,
+        top: `${pos.top}%`,
+        width: `${pos.width}%`,
+        height: `${pos.height}%`,
+      }}
+    >
+      {primary ? (
+        <div className="absolute inset-0 bg-[#e11d48]/18 mix-blend-multiply" />
+      ) : (
+        <div className="absolute inset-0 border border-dashed border-[#fb7185]/55 bg-[#e11d48]/06" />
+      )}
+
+      <div className={`absolute left-0 top-0 ${cornerSize} ${borderW} ${corner} border-b-0 border-r-0`} />
+      <div className={`absolute right-0 top-0 ${cornerSize} ${borderW} ${corner} border-b-0 border-l-0`} />
+      <div className={`absolute bottom-0 left-0 ${cornerSize} ${borderW} ${corner} border-t-0 border-r-0`} />
+      <div className={`absolute bottom-0 right-0 ${cornerSize} ${borderW} ${corner} border-t-0 border-l-0`} />
+
+      {primary ? (
+        <div
+          className={`absolute left-0 z-10 flex max-w-[min(100%,14rem)] items-center gap-1.5 whitespace-nowrap rounded-sm bg-[#9f1239]/95 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white shadow-sm sm:text-[11px] ${
+            labelAbove ? "-top-6 sm:-top-7" : "top-1.5"
+          }`}
+        >
+          <span className="inline-block size-1.5 shrink-0 rounded-full bg-white/95" aria-hidden />
+          위조 의심 영역 · {scorePct}점
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 type BannerTone = {
@@ -153,25 +409,68 @@ function riskAtTime(
 export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) {
   const [currentTime, setCurrentTime] = useState(0)
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 })
+  const [containLayout, setContainLayout] = useState<ContainedVideoLayout | null>(null)
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
-    const sync = () => {
+    let raf = 0
+
+    const syncTimeAndIntrinsics = () => {
       setCurrentTime(video.currentTime)
       const w = video.videoWidth || 0
       const h = video.videoHeight || 0
       if (w > 0 && h > 0) setVideoSize({ width: w, height: h })
+      setContainLayout(getContainedVideoLayout(video))
     }
-    sync()
-    video.addEventListener("timeupdate", sync)
-    video.addEventListener("seeked", sync)
-    video.addEventListener("loadedmetadata", sync)
+
+    const syncLayout = () => {
+      setContainLayout(getContainedVideoLayout(video))
+    }
+
+    const tick = () => {
+      setCurrentTime(video.currentTime)
+      if (!video.paused && !video.ended) {
+        raf = requestAnimationFrame(tick)
+      }
+    }
+
+    const onPlay = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(tick)
+    }
+
+    const onPauseOrSeek = () => {
+      cancelAnimationFrame(raf)
+      syncTimeAndIntrinsics()
+    }
+
+    syncTimeAndIntrinsics()
+    video.addEventListener("timeupdate", syncTimeAndIntrinsics)
+    video.addEventListener("seeked", onPauseOrSeek)
+    video.addEventListener("loadedmetadata", syncTimeAndIntrinsics)
+    video.addEventListener("play", onPlay)
+    video.addEventListener("pause", onPauseOrSeek)
+    video.addEventListener("ended", onPauseOrSeek)
+    video.addEventListener("resize", syncLayout)
+    window.addEventListener("resize", syncLayout)
+    const ro =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => syncLayout()) : null
+    ro?.observe(video)
+    if (!video.paused && !video.ended) onPlay()
+
     return () => {
-      video.removeEventListener("timeupdate", sync)
-      video.removeEventListener("seeked", sync)
-      video.removeEventListener("loadedmetadata", sync)
+      cancelAnimationFrame(raf)
+      video.removeEventListener("timeupdate", syncTimeAndIntrinsics)
+      video.removeEventListener("seeked", onPauseOrSeek)
+      video.removeEventListener("loadedmetadata", syncTimeAndIntrinsics)
+      video.removeEventListener("play", onPlay)
+      video.removeEventListener("pause", onPauseOrSeek)
+      video.removeEventListener("ended", onPauseOrSeek)
+      video.removeEventListener("resize", syncLayout)
+      window.removeEventListener("resize", syncLayout)
+      ro?.disconnect()
     }
   }, [videoRef, option?.id])
 
@@ -194,8 +493,11 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
 
   const activeSpatial = useMemo(() => {
     if (!option?.spatialMarkers.length) return null
-    const withBoxes = option.spatialMarkers.filter(markerHasBoxes)
-    const pool = withBoxes.length > 0 ? withBoxes : option.spatialMarkers
+    // Prefer threshold-cleared frames that actually have localization boxes.
+    const aboveThreshold = option.spatialMarkers.filter(
+      (marker) => marker.score >= threshold && markerHasBoxes(marker)
+    )
+    const pool = aboveThreshold.length > 0 ? aboveThreshold : []
     let best: (typeof option.spatialMarkers)[number] | null = null
     let bestDelta = Number.POSITIVE_INFINITY
     for (const marker of pool) {
@@ -206,11 +508,29 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
       }
     }
     return best
-  }, [option?.spatialMarkers, currentTime])
+  }, [option?.spatialMarkers, currentTime, threshold])
+
+  const spatialBoxSamples = useMemo(() => {
+    if (!option?.spatialMarkers.length) return []
+    return buildSpatialBoxSamples(
+      option.spatialMarkers,
+      threshold,
+      videoSize.width,
+      videoSize.height
+    )
+  }, [option?.spatialMarkers, threshold, videoSize.width, videoSize.height])
+
+  const trackedSpatial = useMemo(
+    () => interpolateSpatialAtTime(spatialBoxSamples, currentTime),
+    [spatialBoxSamples, currentTime]
+  )
 
   const anyTamperBoxes = useMemo(
-    () => option?.spatialMarkers.some(markerHasBoxes) ?? false,
-    [option?.spatialMarkers]
+    () =>
+      option?.spatialMarkers.some(
+        (marker) => marker.score >= threshold && markerHasBoxes(marker)
+      ) ?? false,
+    [option?.spatialMarkers, threshold]
   )
 
   const cnnRisk = useMemo(() => {
@@ -266,37 +586,35 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
   }
 
   if (isForgerySpatial) {
-    const score = activeSpatial ? normalizeResultValue(activeSpatial.score) : cnnRisk
+    const score = trackedSpatial
+      ? normalizeResultValue(trackedSpatial.score)
+      : activeSpatial
+        ? normalizeResultValue(activeSpatial.score)
+        : cnnRisk
     const scorePct = Math.round(score * 100)
-    const boxes = resolveMarkerBoxes(activeSpatial, videoSize.width, videoSize.height)
+    const boxes = trackedSpatial?.boxes ?? []
     const statusHint = !anyTamperBoxes
       ? " · bbox 없음(최신 GPU로 재분석 필요)"
       : boxes.length === 0
-        ? " · 이 구간 샘플 없음"
+        ? " · 임계값 미만 · 박스 숨김"
         : null
     return (
       <div className="pointer-events-none absolute inset-0">
-        {boxes.length > 0 ? (
-          boxes.map((box, idx) => {
-            const boxScore = normalizeResultValue(box.score)
-            const tone = boxScore >= elevateFloor ? "border-orange-500 bg-orange-500/18" : "border-amber-400 bg-amber-400/12"
-            return (
-              <div
-                key={`${box.x}-${box.y}-${idx}`}
-                className={`absolute rounded-sm border-2 ${tone}`}
-                style={{
-                  left: `${box.x * 100}%`,
-                  top: `${box.y * 100}%`,
-                  width: `${box.w * 100}%`,
-                  height: `${box.h * 100}%`,
-                  opacity: 0.45 + boxScore * 0.5,
-                }}
+        {boxes.length > 0 && containLayout
+          ? boxes.map((box, idx) => (
+              <TamperRegionMarker
+                key={`tracked-${idx}`}
+                box={box}
+                layout={containLayout}
+                primary={idx === 0}
+                frameScore={score}
               />
-            )
-          })
-        ) : null}
-        <div className="absolute bottom-4 left-4 rounded-md bg-orange-600/95 px-2.5 py-1 text-xs font-bold text-white">
-          {label} · risk {scorePct}점
+            ))
+          : null}
+        <div className="absolute bottom-4 left-4 max-w-[min(92%,22rem)] rounded-md bg-[#9f1239]/95 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
+          {boxes.length > 0
+            ? `위조 의심 영역 추적 중 · TruFor ${scorePct}점`
+            : `${label} · risk ${scorePct}점`}
           {statusHint}
         </div>
       </div>
