@@ -149,6 +149,7 @@ function DeepfakeFrameAnalysis({
   representativeFrames,
   evidenceDetail,
   videoRef,
+  hlsPlayback,
   onSeek,
 }: {
   tabs: DeepfakeTimelineTab[]
@@ -243,6 +244,7 @@ function ForgeryFrameAnalysis({
   evidenceDetail,
   representativeFrames,
   videoRef,
+  hlsPlayback,
   onSeek,
 }: {
   tabs: ForgeryTimelineTab[]
