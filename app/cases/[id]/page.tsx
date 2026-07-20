@@ -112,7 +112,9 @@ import {
   getDeepfakeDetectionModules,
   getDetectionThreshold,
   getPriorityReviewRange,
+  isDeepfakeModuleOverThreshold,
   normalizeResultValue,
+  resolveIntegratedDisplayRiskScore01,
   type UiMethodologyModel,
   type UiRiskSignal,
   type UiSummaryAction,
@@ -1102,15 +1104,7 @@ function CaseResultView({
     caseData.evidences.find((evidence) => evidence.evidenceId === selectedEvidenceId) ??
     caseData.evidences[0] ??
     null
-  const riskTone = evidenceDetail ? getCaseRiskTone(evidenceDetail) : "red"
-  const resultVerdict = getManipulationSuspicionLabel(riskTone)
-  const riskScore = formatResultScore(evidenceDetail?.analysisInfo.riskScore ?? null)
-  const confidenceScore = formatResultScore(evidenceDetail?.analysisInfo.confidenceScore ?? null)
-  const riskScoreLabel = riskScore ? `${riskScore} / 100` : "- / 100"
-  const confidenceScoreLabel = confidenceScore ? `${confidenceScore}%` : "-"
-  const resultEvidenceIdLabel = selectedEvidence ? `EVD-${selectedEvidence.evidenceId}` : caseData.caseId
-  const analyzedAt = evidenceDetail?.analysisInfo.completedAt ?? evidenceDetail?.analysisInfo.requestedAt ?? caseData.createdAt
-  const hlsPlayback = evidenceDetail?.hlsPlayback ?? null
+  const riskToneBase = evidenceDetail ? getCaseRiskTone(evidenceDetail) : "red"
   const frameScores = getXceptionFrameScores(evidenceDetail)
   const detectionThreshold = getDetectionThreshold(evidenceDetail)
   const summaryActions = buildSummaryActions(evidenceDetail, frameScores)
@@ -1118,12 +1112,40 @@ function CaseResultView({
   const allRiskSignals = [...primaryRiskSignals, ...extraRiskSignals]
   const deepfakeRiskSignals = allRiskSignals.filter((signal) => !isForgeryRiskSignal(signal))
   const forgeryRiskSignals = buildForgeryResultTabSignals(evidenceDetail, detectionThreshold)
+  const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
+  const forgeryChartModels = buildForgeryChartModels(forgeryRiskSignals)
   const detectionModules = getDeepfakeDetectionModules(evidenceDetail?.analysisInfo.moduleResults ?? []).sort(
     (a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score)
   )
-  const overThresholdSignalCount = detectionModules.filter(
-    (module) => normalizeResultValue(module.score) >= detectionThreshold
+  // 모듈별 판정 기준(광학~41, 시간 50, CNN 78, fusion T…)으로 초과 판정. 융합 60 고정 비교 금지.
+  const deepfakeOverThresholdCount = detectionModules.filter((module) =>
+    isDeepfakeModuleOverThreshold(module, evidenceDetail)
   ).length
+  const forgeryOverThresholdCount = forgeryChartModels.filter((model) => model.overThreshold).length
+  const overThresholdSignalCount = deepfakeOverThresholdCount + forgeryOverThresholdCount
+  const overThresholdSignalTotal = detectionModules.length + forgeryChartModels.length
+  const integratedRisk01 = resolveIntegratedDisplayRiskScore01(
+    evidenceDetail,
+    forgeryChartModels.map((model) => model.score)
+  )
+  const riskScore = formatResultScore(
+    integratedRisk01 != null ? integratedRisk01 * 100 : (evidenceDetail?.analysisInfo.riskScore ?? null)
+  )
+  const confidenceScore = formatResultScore(evidenceDetail?.analysisInfo.confidenceScore ?? null)
+  const riskScoreLabel = riskScore ? `${riskScore} / 100` : "- / 100"
+  const confidenceScoreLabel = confidenceScore ? `${confidenceScore}%` : "-"
+  const riskTone: ReturnType<typeof getCaseRiskTone> =
+    integratedRisk01 != null
+      ? integratedRisk01 >= 0.7
+        ? "red"
+        : integratedRisk01 >= 0.4
+          ? "orange"
+          : "green"
+      : riskToneBase
+  const resultVerdict = getManipulationSuspicionLabel(riskTone)
+  const resultEvidenceIdLabel = selectedEvidence ? `EVD-${selectedEvidence.evidenceId}` : caseData.caseId
+  const analyzedAt = evidenceDetail?.analysisInfo.completedAt ?? evidenceDetail?.analysisInfo.requestedAt ?? caseData.createdAt
+  const hlsPlayback = evidenceDetail?.hlsPlayback ?? null
   const priorityReviewRange = getPriorityReviewRange(evidenceDetail, frameScores)
   const representativeFrames = evidenceDetail?.analysisInfo.representativeFrames ?? []
 
@@ -1147,8 +1169,6 @@ function CaseResultView({
     }).catch(() => undefined)
   }, [mediaContext, selectedEvidenceId])
   const methodology = buildMethodologyInfo(evidenceDetail, frameScores)
-  const forgeryMethodologyItems = buildForgeryMethodologyItems(forgeryRiskSignals)
-  const forgeryChartModels = buildForgeryChartModels(forgeryRiskSignals)
 
   function seekResultVideo(seconds: number) {
     requestAnimationFrame(() => {
@@ -1337,15 +1357,14 @@ function CaseResultView({
                     />
                     <FrameMetricCard
                       label="기준 초과 신호"
-                      value={`${overThresholdSignalCount} / ${detectionModules.length}개`}
-                      sub={`위험 점수 ${Math.round(detectionThreshold * 100)}점 이상`}
+                      value={`${overThresholdSignalCount} / ${overThresholdSignalTotal}개`}
+                      sub="딥페이크·위변조 모듈별 판정 기준"
                       tone={overThresholdSignalCount > 0 ? "danger" : "neutral"}
                     />
                   </div>
 
                   <ModelConsensusCard
                     models={methodology.models}
-                    thresholdPercent={Math.round(detectionThreshold * 100)}
                     summary={sanitizeAnalysisSummaryForUi(evidenceDetail.analysisInfo.summary)}
                   />
 
@@ -4722,11 +4741,9 @@ function FrameMetricCard({
 
 function ModelConsensusCard({
   models,
-  thresholdPercent,
   summary,
 }: {
   models: UiMethodologyModel[]
-  thresholdPercent: number
   summary?: string | null
 }) {
   const scored = models.filter((model) => model.score != null)
@@ -4745,7 +4762,7 @@ function ModelConsensusCard({
               : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
           )}
         >
-          {scored.length}개 모델 중 {overCount}개 기준({thresholdPercent}) 초과
+          {scored.length}개 모델 중 {overCount}개 모듈별 기준 초과
         </span>
       </div>
 

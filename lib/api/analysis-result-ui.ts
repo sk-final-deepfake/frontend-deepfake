@@ -283,11 +283,52 @@ function moduleSegments(module: ModuleResult): UiSignalSegment[] {
   }))
 }
 
+/** 딥페이크 모듈이 해당 모듈 판정 기준을 넘겼는지 (융합 T가 아닌 모듈별 T). */
+export function isDeepfakeModuleOverThreshold(
+  module: ModuleResult,
+  data: EvidenceDetailData | null
+): boolean {
+  const score = normalizeResultValue(module.score)
+  const fusionT = getDetectionThreshold(data)
+  const moduleThreshold = resolveModelScoreThreshold(
+    getCanonicalModelScoreKey({
+      moduleName: module.moduleName ?? "",
+      modelName: module.modelName ?? "",
+      score,
+    }),
+    data,
+    fusionT
+  )
+  return module.detected || score >= moduleThreshold
+}
+
+/**
+ * 종합 위험 점수 표시용: 저장된 riskScore와 위변조 레인 max를 합쳐
+ * AI 통합 규칙(max of lanes)과 맞춘다. AI가 이미 통합 점수를 쓰면 동일하다.
+ */
+export function resolveIntegratedDisplayRiskScore01(
+  data: EvidenceDetailData | null,
+  forgeryScores01: Array<number | null | undefined>
+): number | null {
+  const candidates: number[] = []
+  const stored = data?.analysisInfo.riskScore
+  if (stored != null && Number.isFinite(stored)) {
+    candidates.push(normalizeResultValue(stored))
+  }
+  for (const score of forgeryScores01) {
+    if (score != null && Number.isFinite(score)) {
+      candidates.push(normalizeResultValue(score))
+    }
+  }
+  if (candidates.length === 0) return null
+  return Math.max(...candidates)
+}
+
 export function buildRiskSignals(data: EvidenceDetailData | null): {
   primary: UiRiskSignal[]
   extra: UiRiskSignal[]
 } {
-  const threshold = getDetectionThreshold(data)
+  const fusionThreshold = getDetectionThreshold(data)
   // 딥페이크 요약/탭용 — 위변조 레인은 forgery 탭에서만 표시
   const modules = getDeepfakeDetectionModules(data?.analysisInfo.moduleResults ?? [])
     .map((module) => ({
@@ -302,14 +343,23 @@ export function buildRiskSignals(data: EvidenceDetailData | null): {
 
   const signals = modules.map(({ module, score }) => {
     const label = formatModuleLabel(module.moduleName)
+    const moduleThreshold = resolveModelScoreThreshold(
+      getCanonicalModelScoreKey({
+        moduleName: module.moduleName ?? "",
+        modelName: module.modelName ?? "",
+        score,
+      }),
+      data,
+      fusionThreshold
+    )
     return {
       label,
       modelLabel: moduleModelLabel(module),
       definition: getSignalDefinition(label),
-      badge: riskBadge(score, module.detected, threshold),
+      badge: riskBadge(score, module.detected, moduleThreshold),
       score,
-      thresholdPercent: Math.round(threshold * 100),
-      tone: riskTone(score, threshold),
+      thresholdPercent: Math.round(moduleThreshold * 100),
+      tone: riskTone(score, moduleThreshold),
       segments: moduleSegments(module),
     }
   })
