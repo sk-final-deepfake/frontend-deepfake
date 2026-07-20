@@ -5,7 +5,7 @@ import type {
   ModuleResult,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
-import { formatDateTime, formatDuration } from "@/lib/formatters"
+import { formatDateTime, formatDuration, formatTimeRangeSec } from "@/lib/formatters"
 
 const TIMELINE_MODULE = "video_timeline"
 const DEFAULT_HIGH_RISK_THRESHOLD = 0.6
@@ -51,6 +51,8 @@ export type UiRiskSignal = {
 
 export type UiTopRiskFrame = {
   time: string
+  startSec: number
+  endSec: number
   seconds: number
   score: number
   signal: string
@@ -491,11 +493,15 @@ export function buildTopRiskFrames(
     .sort((a, b) => normalizeResultValue(b.score) - normalizeResultValue(a.score))
     .slice(0, 5)
     .map((frame, index) => {
-      const seconds = frame.timeSec ?? index
+      const centerSec = frame.timeSec ?? index
+      const startSec = frame.startSec ?? Math.max(0, centerSec - 0.5)
+      const endSec = frame.endSec ?? centerSec + 0.5
       const score = Math.round(normalizeResultValue(frame.score) * 100)
       return {
-        time: frame.timestamp ?? formatDuration(seconds),
-        seconds,
+        time: frame.timestamp ?? formatTimeRangeSec(startSec, endSec),
+        startSec,
+        endSec,
+        seconds: centerSec,
         score,
         signal: formatModuleLabel(topModule),
       }

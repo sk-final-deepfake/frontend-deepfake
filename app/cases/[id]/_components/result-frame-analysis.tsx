@@ -419,7 +419,7 @@ function MetricCard({
   )
 }
 
-function TopRiskFrameGalleryCard({
+function TopRiskFrameRow({
   frame,
   index,
   videoRef,
@@ -445,10 +445,10 @@ function TopRiskFrameGalleryCard({
     <button
       type="button"
       onClick={() => onSeek(frame.seconds)}
-      className="w-[92px] shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50/80 text-left transition-colors hover:border-slate-200 hover:bg-white dark:border-border dark:bg-background dark:hover:bg-secondary/30"
+      className="flex w-full items-stretch gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-2 text-left transition-colors hover:border-slate-200 hover:bg-white dark:border-border dark:bg-background dark:hover:bg-secondary/30"
     >
       {showThumb ? (
-        <div className="relative aspect-video w-full bg-slate-950">
+        <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-md bg-slate-950 sm:w-32">
           <VideoSeekThumbnail
             videoRef={videoRef}
             timeSec={frame.seconds}
@@ -464,16 +464,19 @@ function TopRiskFrameGalleryCard({
             {index + 1}
           </span>
         </div>
-      ) : null}
-      <div className={cn("px-2 py-2", !showThumb && "pt-2.5")}>
-        {!showThumb ? (
-          <span className="text-[10px] font-bold text-slate-400">{index + 1}</span>
-        ) : null}
-        <p className="mt-0.5 truncate font-mono text-[11px] font-semibold text-slate-950 dark:text-foreground">
+      ) : (
+        <div className="flex w-8 shrink-0 items-center justify-center text-xs font-bold text-slate-400">
+          {index + 1}
+        </div>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 py-0.5">
+        <p className="whitespace-nowrap font-mono text-sm font-semibold text-slate-950 dark:text-foreground">
           {frame.time}
         </p>
-        <p className="mt-0.5 text-xs font-bold text-red-700">{frame.score} / 100</p>
-        <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">{frame.signal}</p>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <p className="text-sm font-bold text-red-700">{frame.score} / 100</p>
+          <p className="text-xs font-semibold text-slate-500">{frame.signal}</p>
+        </div>
       </div>
     </button>
   )
@@ -524,7 +527,7 @@ function TopRiskFrameList({
         <h4 className="text-sm font-bold text-slate-950 dark:text-foreground">상위 위험 프레임</h4>
         <p className="mt-0.5 text-xs font-semibold text-slate-500">카드를 선택하면 영상이 해당 지점으로 이동합니다.</p>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-col gap-2">
         {frames.map((frame, index) => {
           const representative = matchRepresentativeFrame(
             representativeFrames,
@@ -532,8 +535,8 @@ function TopRiskFrameList({
             frame.time
           )
           return (
-            <TopRiskFrameGalleryCard
-              key={`${frame.seconds}-${frame.time}-${index}`}
+            <TopRiskFrameRow
+              key={`${frame.startSec}-${frame.endSec}-${frame.score}-${index}`}
               frame={frame}
               index={index}
               videoRef={videoRef}

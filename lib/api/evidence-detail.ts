@@ -95,6 +95,8 @@ export type ModuleResult = {
 
 export type FrameScore = {
   timeSec?: number | null
+  startSec?: number | null
+  endSec?: number | null
   timestamp?: string | null
   score: number
 }

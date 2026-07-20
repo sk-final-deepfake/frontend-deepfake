@@ -15,6 +15,7 @@ import type {
   PairRisk,
   SuspiciousSegment,
 } from "@/lib/api/evidence-detail"
+import { formatTimeRangeSec, formatTimelineSeconds } from "@/lib/formatters"
 
 import {
   DEFAULT_FORGERY_THRESHOLDS,
@@ -348,19 +349,31 @@ function buildDeepfakeTimelineSegments(
   return data.analysisInfo.opticalSuspiciousSegments ?? []
 }
 
+const POINT_FRAME_HALF_WINDOW_SEC = 0.5
+const PAIR_FRAME_HALF_WINDOW_SEC = 0.25
+
 function segmentsToFrameScores(segments: SuspiciousSegment[]): FrameScore[] {
   return segments.map((segment) => ({
     timeSec: Number(((segment.startTime + segment.endTime) / 2).toFixed(2)),
-    timestamp: `${formatSeconds(segment.startTime)}-${formatSeconds(segment.endTime)}`,
+    startSec: segment.startTime,
+    endSec: segment.endTime,
+    timestamp: formatTimeRangeSec(segment.startTime, segment.endTime),
     score: segment.maxRiskScore,
   }))
 }
 
 function frameRisksToFrameScores(risks: FrameRisk[]): FrameScore[] {
-  return risks.map((risk) => ({
-    timeSec: risk.timestampSec,
-    score: risk.riskScore,
-  }))
+  return risks.map((risk) => {
+    const startSec = Math.max(0, risk.timestampSec - POINT_FRAME_HALF_WINDOW_SEC)
+    const endSec = risk.timestampSec + POINT_FRAME_HALF_WINDOW_SEC
+    return {
+      timeSec: risk.timestampSec,
+      startSec,
+      endSec,
+      timestamp: formatTimeRangeSec(startSec, endSec),
+      score: risk.riskScore,
+    }
+  })
 }
 
 /** Worker가 KakaoTalk mp4 길이를 ~0.6s로 잘못 잡을 때 메타데이터 길이로 spread 복원. */
@@ -409,16 +422,25 @@ function rescaleTruncatedSpatialSegments(
 function clipRisksToFrameScores(risks: ClipRisk[]): FrameScore[] {
   return risks.map((risk) => ({
     timeSec: Number(((risk.startTimeSec + risk.endTimeSec) / 2).toFixed(2)),
-    timestamp: `${formatSeconds(risk.startTimeSec)}-${formatSeconds(risk.endTimeSec)}`,
+    startSec: risk.startTimeSec,
+    endSec: risk.endTimeSec,
+    timestamp: formatTimeRangeSec(risk.startTimeSec, risk.endTimeSec),
     score: risk.riskScore,
   }))
 }
 
 function pairRisksToFrameScores(risks: PairRisk[]): FrameScore[] {
-  return risks.map((risk) => ({
-    timeSec: risk.timestampSec,
-    score: risk.riskScore,
-  }))
+  return risks.map((risk) => {
+    const startSec = Math.max(0, risk.timestampSec - PAIR_FRAME_HALF_WINDOW_SEC)
+    const endSec = risk.timestampSec + PAIR_FRAME_HALF_WINDOW_SEC
+    return {
+      timeSec: risk.timestampSec,
+      startSec,
+      endSec,
+      timestamp: formatTimeRangeSec(startSec, endSec),
+      score: risk.riskScore,
+    }
+  })
 }
 
 function findModelScore(scores: ModelScore[], moduleName: string) {
@@ -477,13 +499,11 @@ function formatForgeryModuleLabel(moduleName: string, modelName?: string | null)
   return moduleName
 }
 
-function formatSeconds(value: number) {
-  const normalized = Math.max(0, Number.isFinite(value) ? value : 0)
-  const minutes = Math.floor(normalized / 60)
-  const seconds = Math.floor(normalized % 60)
-  const tenth = Math.floor((normalized % 1) * 10)
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenth}`
+export function formatSeconds(value: number) {
+  return formatTimelineSeconds(value)
 }
+
+export { formatTimeRangeSec } from "@/lib/formatters"
 
 export function summarizeFrameScores(scores: FrameScore[], threshold: number) {
   const peak =

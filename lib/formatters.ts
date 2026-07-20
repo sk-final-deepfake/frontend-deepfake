@@ -72,3 +72,16 @@ export function formatDuration(totalSeconds?: number | null): string {
 
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 }
+
+// 21.3 -> 00:21.3 (타임라인 구간 표시용)
+export function formatTimelineSeconds(value: number) {
+  const normalized = Math.max(0, Number.isFinite(value) ? value : 0)
+  const minutes = Math.floor(normalized / 60)
+  const seconds = Math.floor(normalized % 60)
+  const tenth = Math.floor((normalized % 1) * 10)
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenth}`
+}
+
+export function formatTimeRangeSec(startSec: number, endSec: number) {
+  return `${formatTimelineSeconds(startSec)} - ${formatTimelineSeconds(endSec)}`
+}
