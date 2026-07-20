@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { features } from "@/lib/features"
-import { normalizeUserRole } from "@/lib/permissions"
+import { normalizeUserRole, getPostLoginHomePath } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
 const inputClassName = cn(
@@ -237,9 +237,7 @@ function getRoleLabel(role: string) {
 }
 
 function getLoginRedirectPath(role: string) {
-  if (normalizeUserRole(role) === "ORG_ADMIN") return "/admin"
-  if (isReviewerRole(role)) return "/main"
-  return "/mypage"
+  return getPostLoginHomePath(role)
 }
 
 function canUseMockLogin() {

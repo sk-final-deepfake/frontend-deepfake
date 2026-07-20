@@ -27,13 +27,35 @@ export function SummaryTab({
   riskSoftClassName,
   progressSteps,
 }: SummaryTabProps) {
-  const { evidenceInfo, integrityInfo, analysisInfo } = data
+  const { evidenceInfo, integrityInfo, analysisInfo, signatureInfo } = data
   const reportStatus = analysisInfo.status === "COMPLETED" ? "생성 완료" : "생성 전"
   const confidence = formatScorePercent(analysisInfo.confidenceScore)
   const qualityScore = confidence == null ? "-" : `${confidence} / 100`
   const shortHash = integrityInfo.originalHash
     ? `${integrityInfo.originalHash.slice(0, 12)}...${integrityInfo.originalHash.slice(-8)}`
     : "-"
+  const signatureStatus = (signatureInfo?.signatureStatus ?? "").toUpperCase()
+  const signatureLabel =
+    signatureStatus === "SIGNED"
+      ? signatureInfo?.signatureValid
+        ? "유효"
+        : "무효"
+      : signatureStatus === "FAILED"
+        ? "실패"
+        : "미서명"
+  const signaturePill =
+    signatureLabel === "유효"
+      ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300"
+      : signatureLabel === "무효" || signatureLabel === "실패"
+        ? "bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300"
+        : "bg-slate-100 text-slate-600 dark:bg-slate-900/40 dark:text-slate-300"
+  const securityAlert = integrityInfo.securityStatus === "SECURITY_ALERT" || integrityInfo.integrityValid === false
+  const verificationLabel = securityAlert
+    ? "보안 경고"
+    : integrityInfo.verificationStatus || "완료"
+  const verificationPill = securityAlert
+    ? "bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300"
+    : "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300"
 
   return (
     <>
@@ -48,8 +70,8 @@ export function SummaryTab({
         <CompactPanel title="무결성 검증" icon={Fingerprint}>
           <InfoLine label="해시 알고리즘" value={integrityInfo.hashAlgorithm || "SHA-256"} />
           <InfoLine label="해시 값" value={shortHash} valueClassName="max-w-[160px] truncate font-mono text-xs" />
-          <InfoLine label="전자서명" value={integrityInfo.chainValid ? "유효" : "미검증"} pillClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300" />
-          <InfoLine label="검증 상태" value={integrityInfo.verificationStatus || "완료"} pillClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300" />
+          <InfoLine label="전자서명" value={signatureLabel} pillClassName={signaturePill} />
+          <InfoLine label="검증 상태" value={verificationLabel} pillClassName={verificationPill} />
           <Button
             type="button"
             variant="outline"

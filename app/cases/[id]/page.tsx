@@ -1776,6 +1776,22 @@ function CaseIntegrityView({
         </Alert>
       ) : evidenceDetail ? (
         <>
+          {(evidenceDetail.integrityInfo.securityStatus === "SECURITY_ALERT" ||
+            evidenceDetail.integrityInfo.integrityValid === false) && (
+            <Alert variant="destructive">
+              <AlertCircle className="size-4" />
+              <AlertTitle>보안 경고</AlertTitle>
+              <AlertDescription>
+                {evidenceDetail.integrityInfo.failedChecks?.length
+                  ? evidenceDetail.integrityInfo.failedChecks
+                      .map((check) => check.message || check.errorCode)
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "서명·CoC 체인·블록체인 검증에서 이상이 감지되었습니다. 알림함을 확인하세요."}
+              </AlertDescription>
+            </Alert>
+          )}
+
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <IntegrityStatusCard
               label="원본 해시"
@@ -1785,9 +1801,23 @@ function CaseIntegrityView({
             />
             <IntegrityStatusCard
               label="전자서명"
-              value={signatureInfo ? (signatureValid ? "유효" : "확인 필요") : "미서명"}
+              value={
+                signatureSigned
+                  ? signatureValid
+                    ? "유효"
+                    : "무효"
+                  : signatureInfo
+                    ? "미서명"
+                    : "미서명"
+              }
               description={signatureInfo?.signatureAlgorithm || "발급기관 서명"}
-              tone={signatureInfo ? (signatureValid ? "safe" : "danger") : "neutral"}
+              tone={
+                signatureSigned
+                  ? signatureValid
+                    ? "safe"
+                    : "danger"
+                  : "neutral"
+              }
             />
             <IntegrityStatusCard
               label="블록체인"
@@ -4826,17 +4856,25 @@ function ModelConsensusCard({
 function TrustChecklistCard({ data }: { data: EvidenceDetailData }) {
   const chainValid = data.integrityInfo.chainValid
   const signature = data.signatureInfo ?? null
-  const signatureOk = Boolean(signature?.signatureValid)
+  const signatureSigned = (signature?.signatureStatus ?? "").toUpperCase() === "SIGNED"
+  const signatureOk = signatureSigned && signature?.signatureValid === true
   const blockchain = data.blockchainInfo ?? null
-  const blockchainOk = (blockchain?.status ?? "").toUpperCase() === "ANCHORED"
+  const blockchainOk =
+    (blockchain?.status ?? "").toUpperCase() === "ANCHORED" && blockchain?.hashValid !== false
   const cocCount = data.cocLogs?.length ?? 0
+  const securityAlert =
+    data.integrityInfo.securityStatus === "SECURITY_ALERT" || data.integrityInfo.integrityValid === false
 
   const items = [
     { label: "무결성 해시", ok: chainValid, value: chainValid ? "원본 일치" : "확인 필요" },
-    { label: "전자서명", ok: signatureOk, value: signature ? (signatureOk ? "유효" : "확인 필요") : "미서명" },
+    {
+      label: "전자서명",
+      ok: signatureOk || !signatureSigned,
+      value: signatureSigned ? (signatureOk ? "유효" : "무효") : "미서명",
+    },
     {
       label: "블록체인 앵커링",
-      ok: blockchainOk,
+      ok: blockchainOk || !blockchain,
       value: blockchain ? getBlockchainStatusLabel(blockchain.status) : "미앵커",
     },
     { label: "보관 이력(CoC)", ok: cocCount > 0, value: cocCount > 0 ? `${cocCount}건 기록` : "기록 없음" },
@@ -4848,6 +4886,11 @@ function TrustChecklistCard({ data }: { data: EvidenceDetailData }) {
         <h3 className="text-base font-bold text-slate-950 dark:text-foreground">증거 신뢰성 체크</h3>
         <span className="text-xs font-semibold text-slate-400">무결성 · 서명 · 블록체인 · 보관 이력</span>
       </div>
+      {securityAlert ? (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200">
+          보안 경고 — 서명·체인·블록체인 검증 이상을 확인하세요.
+        </div>
+      ) : null}
       <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {items.map((item) => (
           <div

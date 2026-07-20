@@ -112,4 +112,10 @@ export interface AdminEvidenceDetail extends AdminEvidence {
   metadata?: AdminEvidenceMetadata | null
   analysisHistory: AdminEvidenceAnalysis[]
   custodyLogs: AdminEvidenceCustodyLog[]
+  integrityValid?: boolean
+  securityStatus?: "OK" | "SECURITY_ALERT" | string
+  signatureValid?: boolean | null
+  chainValid?: boolean
+  blockchainHashValid?: boolean | null
+  securityAlertCodes?: string[]
 }

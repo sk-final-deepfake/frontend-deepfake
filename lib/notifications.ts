@@ -5,6 +5,8 @@ export type AppNotification = {
   createdAt: string
   href?: string
   read?: boolean
+  /** API 알림 유형 — SECURITY_ALERT 강조 표시용 */
+  type?: string
 }
 
 type NewAppNotification = Omit<AppNotification, "id" | "createdAt" | "read">
