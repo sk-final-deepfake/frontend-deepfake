@@ -154,21 +154,30 @@ export function ResultEvidenceMedia({
     return option.spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
   }, [])
 
+  const isLiveTruForSpatial = useCallback((option: ModelOverlayOption | null | undefined) => {
+    return option?.id === "forgery:forgery_spatial"
+  }, [])
+
   const needsOverlayGeneration = useCallback(
     (option: ModelOverlayOption | null | undefined) => {
       if (!option) return false
       if (option.overlayVideoUrl) return false
-      // Live CSS boxes are enough — do not spin a baked-MP4 job (avoids stuck 2%).
+      // TruFor always uses live CSS on HLS — never request baked green-box MP4.
+      if (isLiveTruForSpatial(option)) return false
       if (hasLiveTruForBboxes(option)) return false
       if (option.category === "deepfake" && deepfakeOverlayBlocked) return false
       return true
     },
-    [deepfakeOverlayBlocked, hasLiveTruForBboxes]
+    [deepfakeOverlayBlocked, hasLiveTruForBboxes, isLiveTruForSpatial]
   )
 
   const handleGenerateOverlay = useCallback(async () => {
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
     if (activeOverlay.overlayVideoUrl) {
+      setIsRequesting(false)
+      return
+    }
+    if (isLiveTruForSpatial(activeOverlay)) {
       setIsRequesting(false)
       return
     }
@@ -206,6 +215,7 @@ export function ResultEvidenceMedia({
     activeOverlay,
     applyJobStatus,
     deepfakeOverlayBlocked,
+    isLiveTruForSpatial,
     onOverlayReady,
     selectedEvidenceId,
   ])
@@ -296,11 +306,12 @@ export function ResultEvidenceMedia({
     activeOverlay &&
       (activeOverlay.clipWindows.length > 0 ||
         activeOverlay.spatialMarkers.length > 0 ||
+        activeOverlay.id === "forgery:forgery_spatial" ||
         (activeOverlay.id === "deepfake:cnn" && activeOverlay.timelineScores.length > 0))
   )
 
   // Overlay tab / model selection: request baked MP4 when missing.
-  // TruFor with localization bboxes uses live CSS boxes — skip stale border MP4 jobs.
+  // TruFor always uses live CSS — skip stale green baked-MP4 jobs.
   useEffect(() => {
     if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
@@ -308,7 +319,7 @@ export function ResultEvidenceMedia({
       setIsRequesting(false)
       return
     }
-    if (hasLiveTruForBboxes(activeOverlay)) {
+    if (isLiveTruForSpatial(activeOverlay) || hasLiveTruForBboxes(activeOverlay)) {
       // Must clear optimistic spinner — generate POST is intentionally skipped.
       setIsRequesting(false)
       return
@@ -332,6 +343,7 @@ export function ResultEvidenceMedia({
     handleGenerateOverlay,
     hasLiveTruForBboxes,
     isGenerating,
+    isLiveTruForSpatial,
     mediaView,
     selectedEvidenceId,
   ])
