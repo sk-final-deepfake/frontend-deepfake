@@ -1,5 +1,6 @@
 import { apiDownload, apiRequest } from "@/lib/api/client"
 import { features } from "@/lib/features"
+import { getSession, isMockAuthSession } from "@/lib/auth"
 import { mockAssignReviewerToCase } from "@/lib/mock/forensic-api"
 import { mockUsers, normalizeUserRole, type UserRole } from "@/lib/permissions"
 import {
@@ -22,6 +23,9 @@ import type {
   UserStatus,
 } from "@/app/admin/_types/admin"
 import type { OrgType } from "@/app/signup/organizationData"
+import type { CaseSummary } from "@/app/mypage/_types/case"
+import type { ListSort } from "@/lib/user-settings"
+import { mockFetchMyAnalysisHistory } from "@/lib/mock/forensic-api"
 
 type AdminUserPageResponse = {
   items: AdminUser[]
@@ -670,6 +674,40 @@ export async function deleteAdminUser(userId: string): Promise<void> {
       return undefined
     }
   )
+}
+
+export async function fetchAdminReviewCases(options?: {
+  sort?: ListSort
+  page?: number
+  size?: number
+  q?: string
+}): Promise<{
+  content: CaseSummary[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+}> {
+  if (features.mockApi || isMockAuthSession(getSession())) {
+    return mockFetchMyAnalysisHistory(options)
+  }
+
+  const sort = options?.sort ?? "newest"
+  const page = options?.page ?? 0
+  const size = options?.size ?? 100
+
+  const params = new URLSearchParams({
+    sort,
+    page: String(page),
+    size: String(size),
+  })
+
+  const keyword = options?.q?.trim()
+  if (keyword) {
+    params.set("q", keyword)
+  }
+
+  return apiRequest(`/api/v1/admin/review-cases?${params}`)
 }
 
 export async function fetchAdminReviewers(
