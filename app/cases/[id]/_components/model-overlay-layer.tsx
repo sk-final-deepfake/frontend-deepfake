@@ -191,8 +191,9 @@ type PickDisplayBoxesOptions = {
 }
 
 /**
- * Nested boxes: the smaller one is usually the real local peak.
- * Prefer compact boxes; drop larger parents that mostly contain them.
+ * Broad parent blobs (over maxAreaRatio of the frame) are dropped; among the
+ * remaining compact boxes the highest local score wins, so tiny low-score
+ * noise blobs do not beat the real localization peak.
  * Analysis coords/scores are unchanged — display selection only.
  */
 function pickDisplayBoxes(
@@ -205,8 +206,8 @@ function pickDisplayBoxes(
   const maxAreaRatio = options.maxAreaRatio ?? 1
   const containOverlap = options.containOverlap ?? 0.55
 
-  // Smallest first so localized peaks win over broad blobs.
-  const sorted = [...boxes].sort((a, b) => boxArea(a) - boxArea(b) || b.score - a.score)
+  // Highest score first among compact boxes; ties go to the smaller box.
+  const sorted = [...boxes].sort((a, b) => b.score - a.score || boxArea(a) - boxArea(b))
   const picked: OverlaySpatialBBox[] = []
 
   for (const box of sorted) {
