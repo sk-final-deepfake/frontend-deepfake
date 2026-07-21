@@ -1363,7 +1363,14 @@ function CaseResultView({
                   </div>
 
                   <ModelConsensusCard
-                    models={methodology.models}
+                    models={[
+                      ...methodology.models,
+                      ...forgeryChartModels.map((model) =>
+                        model.name === "TimeSformer"
+                          ? { ...model, name: "TS-forgery" }
+                          : model
+                      ),
+                    ]}
                     summary={evidenceDetail.analysisInfo.summary}
                   />
 
@@ -4807,12 +4814,17 @@ function ModelConsensusCard({
         </span>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={cn(
+          "mt-4 grid gap-2 sm:grid-cols-2",
+          models.length > 4 ? "xl:grid-cols-3" : "xl:grid-cols-4"
+        )}
+      >
         {models.map((model) => {
           const percent = model.score != null ? Math.round(model.score * 100) : null
           return (
             <div
-              key={`${model.name}-${model.version}`}
+              key={`${model.name}-${model.version}-${model.role}`}
               className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5 dark:border-border dark:bg-background"
             >
               <div className="flex items-baseline justify-between gap-2">
