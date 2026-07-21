@@ -284,18 +284,16 @@ function buildForgeryOverlayOption(
       marker.score >= tab.threshold &&
       ((marker.bboxes?.length ?? 0) > 0 || (marker.rawBboxes?.length ?? 0) > 0)
   )
-  const cachedOverlayUrl =
+  const overlayVideoUrl =
     normalizeUrl(artifact?.overlayVideoUrl) ??
     normalizeUrl(timeline?.overlayVideoUrl) ??
     topLevelUrl ??
     normalizeUrl(moduleResult?.overlayVideoUrl)
-  // TruFor always uses live CSS on the original HLS — never fall back to the
-  // stale green baked-MP4 border overlay. No forged region ⇒ no boxes drawn.
-  const overlayVideoUrl = isSpatial ? null : cachedOverlayUrl
+  // Prefer baked TruFor MP4 (GPU trufor_overlay). Until ready, keep spatialMarkers
+  // so HLS can show a live CSS preview while the overlay job runs.
   const timelineScores = tab.points
   const ready =
     Boolean(overlayVideoUrl) ||
-    isSpatial ||
     hasTamperBboxes ||
     artifact?.status === "ready" ||
     timelineScores.length > 0 ||
@@ -309,19 +307,17 @@ function buildForgeryOverlayOption(
     shortLabel: meta.shortLabel,
     overlayVideoUrl,
     ready,
-    overlayBadge: isSpatial ? "위조 의심 영역을 표시합니다" : meta.badge,
+    overlayBadge: meta.badge,
     timelineCaption: `${tab.label || meta.label} 구간 위험도`,
     timelineScores,
     clipWindows,
     spatialMarkers,
     detectionThreshold: tab.threshold,
     description: isSpatial
-      ? "TruFor localization 박스를 영상에 표시합니다. 위조 의심 구간이 없으면 박스를 그리지 않습니다."
+      ? "GPU에서 생성한 TruFor localization 오버레이 영상을 재생합니다."
       : artifact?.description?.trim() || meta.description,
     pendingMessage: isSpatial
-      ? hasTamperBboxes
-        ? "localization 박스를 표시 중입니다."
-        : "현재 프레임에 위조 의심 영역이 없어 박스를 표시하지 않습니다."
+      ? "오버레이 탭을 열면 TruFor 오버레이를 생성한 뒤 재생합니다."
       : "오버레이 탭을 열면 TimeSformer 오버레이를 생성한 뒤 재생합니다.",
   }
 }

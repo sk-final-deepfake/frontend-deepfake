@@ -149,35 +149,19 @@ export function ResultEvidenceMedia({
     })
   }, [])
 
-  const hasLiveTruForBboxes = useCallback((option: ModelOverlayOption | null | undefined) => {
-    if (!option || option.id !== "forgery:forgery_spatial") return false
-    return option.spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
-  }, [])
-
-  const isLiveTruForSpatial = useCallback((option: ModelOverlayOption | null | undefined) => {
-    return option?.id === "forgery:forgery_spatial"
-  }, [])
-
   const needsOverlayGeneration = useCallback(
     (option: ModelOverlayOption | null | undefined) => {
       if (!option) return false
       if (option.overlayVideoUrl) return false
-      // TruFor always uses live CSS on HLS — never request baked green-box MP4.
-      if (isLiveTruForSpatial(option)) return false
-      if (hasLiveTruForBboxes(option)) return false
       if (option.category === "deepfake" && deepfakeOverlayBlocked) return false
       return true
     },
-    [deepfakeOverlayBlocked, hasLiveTruForBboxes, isLiveTruForSpatial]
+    [deepfakeOverlayBlocked]
   )
 
   const handleGenerateOverlay = useCallback(async () => {
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
     if (activeOverlay.overlayVideoUrl) {
-      setIsRequesting(false)
-      return
-    }
-    if (isLiveTruForSpatial(activeOverlay)) {
       setIsRequesting(false)
       return
     }
@@ -215,7 +199,6 @@ export function ResultEvidenceMedia({
     activeOverlay,
     applyJobStatus,
     deepfakeOverlayBlocked,
-    isLiveTruForSpatial,
     onOverlayReady,
     selectedEvidenceId,
   ])
@@ -310,17 +293,11 @@ export function ResultEvidenceMedia({
         (activeOverlay.id === "deepfake:cnn" && activeOverlay.timelineScores.length > 0))
   )
 
-  // Overlay tab / model selection: request baked MP4 when missing.
-  // TruFor always uses live CSS — skip stale green baked-MP4 jobs.
+  // Overlay tab / model selection: request baked MP4 when missing (incl. TruFor).
   useEffect(() => {
     if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
     if (activeOverlay.overlayVideoUrl) {
-      setIsRequesting(false)
-      return
-    }
-    if (isLiveTruForSpatial(activeOverlay) || hasLiveTruForBboxes(activeOverlay)) {
-      // Must clear optimistic spinner — generate POST is intentionally skipped.
       setIsRequesting(false)
       return
     }
@@ -341,9 +318,7 @@ export function ResultEvidenceMedia({
     deepfakeOverlayBlocked,
     generateError,
     handleGenerateOverlay,
-    hasLiveTruForBboxes,
     isGenerating,
-    isLiveTruForSpatial,
     mediaView,
     selectedEvidenceId,
   ])
