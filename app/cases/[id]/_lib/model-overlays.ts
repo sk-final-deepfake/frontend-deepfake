@@ -115,7 +115,7 @@ const FORGERY_OVERLAY_META = {
   spatial: {
     label: "TruFor (Spatial)",
     shortLabel: "TruFor",
-    badge: "GPU baked · picked bbox",
+    badge: "GPU baked · raw risk bboxes",
     description: "TruFor localization map에서 뽑은 변조 영역을 네모칸으로 추적합니다.",
     pendingMessage: "오버레이 탭을 열면 TruFor 오버레이를 생성한 뒤 재생합니다.",
   },
