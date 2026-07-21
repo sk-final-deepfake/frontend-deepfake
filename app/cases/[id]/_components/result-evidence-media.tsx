@@ -310,6 +310,12 @@ export function ResultEvidenceMedia({
       return
     }
     if (isGenerating) return
+    // COMPLETED but detail never got the URL — drop local job and re-request
+    // (BE always rebuilds forgery_spatial; other modules return existing URL).
+    if (activeJob?.status === "COMPLETED" && !activeOverlay.overlayVideoUrl) {
+      clearModuleAttempt(activeModulePath)
+      return
+    }
     if (activeJob?.status === "FAILED") return
     if (activeJob?.status === "COMPLETED") return
     if (generateError) return
@@ -319,6 +325,7 @@ export function ResultEvidenceMedia({
     activeJob?.status,
     activeModulePath,
     activeOverlay,
+    clearModuleAttempt,
     deepfakeOverlayBlocked,
     generateError,
     handleGenerateOverlay,
@@ -353,12 +360,13 @@ export function ResultEvidenceMedia({
     useOverlaySrc && activeOverlay?.category === "deepfake" && Boolean(deepfakeAdvisoryMessage)
 
   // Always show progress while generating — even if live CSS preview data exists.
-  // TruFor: never fall back to CSS boxes; keep the modal until GPU baked MP4 arrives.
+  // Do NOT tie this to isTruForSpatial alone: that left a forever modal when the
+  // job finished but evidence detail had not yet picked up overlayVideoUrl.
   const showProgressModal =
     useOverlaySrc &&
     !activeOverlayUrl &&
     !showDeepfakeAdvisory &&
-    (isTruForSpatial || isRequesting || isGenerating || isFailed)
+    (isRequesting || isGenerating || isFailed)
 
   const progressPercent = Math.max(
     0,
