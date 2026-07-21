@@ -285,11 +285,15 @@ export function ResultEvidenceMedia({
     }
   }, [applyJobStatus, jobByModule, onOverlayReady, selectedEvidenceId])
 
+  // TruFor spatial must NEVER use CSS ModelOverlayLayer — that draws
+  // "위조 의심 영역 · N점" which does not match GPU baked frames
+  // (draw_trufor_bboxes label="picked"). Wait for overlay MP4 only.
+  const isTruForSpatial = activeOverlay?.id === "forgery:forgery_spatial"
   const canLivePreview = Boolean(
     activeOverlay &&
+      !isTruForSpatial &&
       (activeOverlay.clipWindows.length > 0 ||
         activeOverlay.spatialMarkers.length > 0 ||
-        activeOverlay.id === "forgery:forgery_spatial" ||
         (activeOverlay.id === "deepfake:cnn" && activeOverlay.timelineScores.length > 0))
   )
 
@@ -349,13 +353,12 @@ export function ResultEvidenceMedia({
     useOverlaySrc && activeOverlay?.category === "deepfake" && Boolean(deepfakeAdvisoryMessage)
 
   // Always show progress while generating — even if live CSS preview data exists.
-  // Previously !canLivePreview hid the modal for Xception/TimeSformer/GMFlow, so
-  // users only saw a silent live box until the baked MP4 appeared.
+  // TruFor: never fall back to CSS boxes; keep the modal until GPU baked MP4 arrives.
   const showProgressModal =
     useOverlaySrc &&
     !activeOverlayUrl &&
     !showDeepfakeAdvisory &&
-    (isRequesting || isGenerating || isFailed)
+    (isTruForSpatial || isRequesting || isGenerating || isFailed)
 
   const progressPercent = Math.max(
     0,

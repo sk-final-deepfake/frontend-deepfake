@@ -115,7 +115,7 @@ const FORGERY_OVERLAY_META = {
   spatial: {
     label: "TruFor (Spatial)",
     shortLabel: "TruFor",
-    badge: "위조 의심 영역을 표시합니다",
+    badge: "GPU baked · picked bbox",
     description: "TruFor localization map에서 뽑은 변조 영역을 네모칸으로 추적합니다.",
     pendingMessage: "오버레이 탭을 열면 TruFor 오버레이를 생성한 뒤 재생합니다.",
   },
@@ -289,16 +289,20 @@ function buildForgeryOverlayOption(
     normalizeUrl(timeline?.overlayVideoUrl) ??
     topLevelUrl ??
     normalizeUrl(moduleResult?.overlayVideoUrl)
-  // Prefer baked TruFor MP4 (GPU trufor_overlay). Until ready, keep spatialMarkers
-  // so HLS can show a live CSS preview while the overlay job runs.
+  // TruFor spatial: FE plays GPU-baked MP4 only (module_overlays →
+  // pick_localized_bboxes + draw_trufor_bboxes(..., label="picked")).
+  // spatialMarkers stay for timeline UI; they must not drive CSS box drawing.
   const timelineScores = tab.points
-  const ready =
-    Boolean(overlayVideoUrl) ||
-    hasTamperBboxes ||
-    artifact?.status === "ready" ||
-    timelineScores.length > 0 ||
-    clipWindows.length > 0 ||
-    spatialMarkers.length > 0
+  const ready = isSpatial
+    ? Boolean(overlayVideoUrl) ||
+      hasTamperBboxes ||
+      artifact?.status === "ready" ||
+      timelineScores.length > 0 ||
+      spatialMarkers.length > 0
+    : Boolean(overlayVideoUrl) ||
+      artifact?.status === "ready" ||
+      timelineScores.length > 0 ||
+      clipWindows.length > 0
 
   return {
     id,
@@ -311,13 +315,14 @@ function buildForgeryOverlayOption(
     timelineCaption: `${tab.label || meta.label} 구간 위험도`,
     timelineScores,
     clipWindows,
+    // Keep markers for chart/threshold; ResultEvidenceMedia skips CSS for TruFor.
     spatialMarkers,
     detectionThreshold: tab.threshold,
     description: isSpatial
-      ? "GPU에서 생성한 TruFor localization 오버레이 영상을 재생합니다."
+      ? "GPU TruFor bbox(picked 라벨)가 구워진 오버레이 MP4를 재생합니다."
       : artifact?.description?.trim() || meta.description,
     pendingMessage: isSpatial
-      ? "오버레이 탭을 열면 TruFor 오버레이를 생성한 뒤 재생합니다."
+      ? "오버레이 탭을 열면 GPU가 TruFor bbox 오버레이(MP4)를 생성한 뒤 재생합니다."
       : "오버레이 탭을 열면 TimeSformer 오버레이를 생성한 뒤 재생합니다.",
   }
 }
