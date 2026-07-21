@@ -78,6 +78,8 @@ export function ResultEvidenceMedia({
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [isRequesting, setIsRequesting] = useState(false)
   const autoRequestKeyRef = useRef<string | null>(null)
+  /** TruFor MP4s may be blank from an older bake; rebuild once per evidence session. */
+  const truForRebuiltRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
     setMediaView("original")
@@ -152,16 +154,24 @@ export function ResultEvidenceMedia({
   const needsOverlayGeneration = useCallback(
     (option: ModelOverlayOption | null | undefined) => {
       if (!option) return false
-      if (option.overlayVideoUrl) return false
       if (option.category === "deepfake" && deepfakeOverlayBlocked) return false
+      // TruFor: BE always rebuilds forgery_spatial. Force one rebuild per evidence so
+      // a blank/old bake (pick dropped all boxes) is replaced with a drawable MP4.
+      if (option.id === "forgery:forgery_spatial" && selectedEvidenceId != null) {
+        if (!truForRebuiltRef.current.has(selectedEvidenceId)) return true
+      }
+      if (option.overlayVideoUrl) return false
       return true
     },
-    [deepfakeOverlayBlocked]
+    [deepfakeOverlayBlocked, selectedEvidenceId]
   )
 
   const handleGenerateOverlay = useCallback(async () => {
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
-    if (activeOverlay.overlayVideoUrl) {
+    const forceTruForRebuild =
+      activeOverlay.id === "forgery:forgery_spatial" &&
+      !truForRebuiltRef.current.has(selectedEvidenceId)
+    if (activeOverlay.overlayVideoUrl && !forceTruForRebuild) {
       setIsRequesting(false)
       return
     }
@@ -171,7 +181,7 @@ export function ResultEvidenceMedia({
     }
 
     const modulePath = activeModulePath
-    const requestKey = `${selectedEvidenceId}:${modulePath}`
+    const requestKey = `${selectedEvidenceId}:${modulePath}:rebuild=${forceTruForRebuild}`
     // Deduplicate in-flight POSTs only. Do not block just because optimistic
     // isRequesting was set — that previously left the UI stuck at 2%.
     if (autoRequestKeyRef.current === requestKey) {
@@ -185,6 +195,9 @@ export function ResultEvidenceMedia({
       const status = await requestOverlayGeneration(selectedEvidenceId, modulePath)
       applyJobStatus(status)
       if (status.status === "COMPLETED") {
+        if (activeOverlay.id === "forgery:forgery_spatial") {
+          truForRebuiltRef.current.add(selectedEvidenceId)
+        }
         onOverlayReady?.()
       }
     } catch (error) {
@@ -265,6 +278,9 @@ export function ResultEvidenceMedia({
           if (cancelled) return
           applyJobStatus(status)
           if (status.status === "COMPLETED") {
+            if (status.module === "forgery_spatial") {
+              truForRebuiltRef.current.add(evidenceId)
+            }
             onOverlayReady?.()
           }
         } catch {
@@ -301,7 +317,10 @@ export function ResultEvidenceMedia({
   useEffect(() => {
     if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
-    if (activeOverlay.overlayVideoUrl) {
+    const forceTruForRebuild =
+      activeOverlay.id === "forgery:forgery_spatial" &&
+      !truForRebuiltRef.current.has(selectedEvidenceId)
+    if (activeOverlay.overlayVideoUrl && !forceTruForRebuild) {
       setIsRequesting(false)
       return
     }
@@ -317,7 +336,7 @@ export function ResultEvidenceMedia({
       return
     }
     if (activeJob?.status === "FAILED") return
-    if (activeJob?.status === "COMPLETED") return
+    if (activeJob?.status === "COMPLETED" && !forceTruForRebuild) return
     if (generateError) return
 
     void handleGenerateOverlay()
