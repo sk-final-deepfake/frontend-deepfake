@@ -18,9 +18,9 @@ type ModelOverlayLayerProps = {
 const SPATIAL_MATCH_SEC = 0.75
 /** Max gap between two samples to interpolate across (FE display only). */
 const SPATIAL_INTERP_MAX_GAP_SEC = 2.5
-/** TruFor: hide broad torso/head blobs; keep compact chest/face peaks. */
+/** TruFor: hide broad torso/head blobs; keep compact peaks (highest score = primary). */
 const TRUFOR_DISPLAY_MAX_AREA_RATIO = 0.35
-const TRUFOR_DISPLAY_MAX_BOXES = 1
+const TRUFOR_DISPLAY_MAX_BOXES = 5
 
 type SpatialBoxSample = {
   timeSec: number
