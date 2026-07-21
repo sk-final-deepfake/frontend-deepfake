@@ -21,6 +21,8 @@ const SPATIAL_INTERP_MAX_GAP_SEC = 2.5
 /** TruFor: hide broad torso/head blobs; keep compact peaks (highest score = primary). */
 const TRUFOR_DISPLAY_MAX_AREA_RATIO = 0.35
 const TRUFOR_DISPLAY_MAX_BOXES = 5
+/** Per-box localization score floor (not frame DET). */
+const TRUFOR_DISPLAY_MIN_BOX_SCORE = 0.6
 
 type SpatialBoxSample = {
   timeSec: number
@@ -44,18 +46,19 @@ function lerpBox(a: OverlaySpatialBBox, b: OverlaySpatialBBox, t: number): Overl
 
 function buildSpatialBoxSamples(
   markers: ModelOverlayOption["spatialMarkers"],
-  threshold: number,
   videoWidth: number,
   videoHeight: number
 ): SpatialBoxSample[] {
+  // Gate by per-box map score inside pickDisplayBoxes — not frame DET.
   return markers
-    .filter((marker) => marker.score >= threshold && markerHasBoxes(marker))
+    .filter((marker) => markerHasBoxes(marker))
     .map((marker) => ({
       timeSec: marker.timeSec,
       score: marker.score,
       boxes: pickDisplayBoxes(resolveMarkerBoxes(marker, videoWidth, videoHeight), {
         maxBoxes: TRUFOR_DISPLAY_MAX_BOXES,
         maxAreaRatio: TRUFOR_DISPLAY_MAX_AREA_RATIO,
+        minScore: TRUFOR_DISPLAY_MIN_BOX_SCORE,
       }),
     }))
     .filter((sample) => sample.boxes.length > 0)
@@ -188,6 +191,7 @@ type PickDisplayBoxesOptions = {
   maxBoxes?: number
   maxAreaRatio?: number
   containOverlap?: number
+  minScore?: number
 }
 
 /**
@@ -205,12 +209,14 @@ function pickDisplayBoxes(
   const maxBoxes = Math.max(1, options.maxBoxes ?? 2)
   const maxAreaRatio = options.maxAreaRatio ?? 1
   const containOverlap = options.containOverlap ?? 0.55
+  const minScore = options.minScore ?? 0
 
   // Highest score first among compact boxes; ties go to the smaller box.
   const sorted = [...boxes].sort((a, b) => b.score - a.score || boxArea(a) - boxArea(b))
   const picked: OverlaySpatialBBox[] = []
 
   for (const box of sorted) {
+    if (box.score < minScore) continue
     if (boxArea(box) > maxAreaRatio) continue
 
     // Already covered by a tighter box we kept.
@@ -515,14 +521,11 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
 
   const activeSpatial = useMemo(() => {
     if (!option?.spatialMarkers.length) return null
-    // Prefer threshold-cleared frames that actually have localization boxes.
-    const aboveThreshold = option.spatialMarkers.filter(
-      (marker) => marker.score >= threshold && markerHasBoxes(marker)
-    )
-    const pool = aboveThreshold.length > 0 ? aboveThreshold : []
+    // Prefer frames that actually have localization boxes (box score gated later).
+    const withBoxes = option.spatialMarkers.filter((marker) => markerHasBoxes(marker))
     let best: (typeof option.spatialMarkers)[number] | null = null
     let bestDelta = Number.POSITIVE_INFINITY
-    for (const marker of pool) {
+    for (const marker of withBoxes) {
       const delta = Math.abs(marker.timeSec - currentTime)
       if (delta <= SPATIAL_MATCH_SEC && delta < bestDelta) {
         best = marker
@@ -530,17 +533,16 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
       }
     }
     return best
-  }, [option?.spatialMarkers, currentTime, threshold])
+  }, [option?.spatialMarkers, currentTime])
 
   const spatialBoxSamples = useMemo(() => {
     if (!option?.spatialMarkers.length) return []
     return buildSpatialBoxSamples(
       option.spatialMarkers,
-      threshold,
       videoSize.width,
       videoSize.height
     )
-  }, [option?.spatialMarkers, threshold, videoSize.width, videoSize.height])
+  }, [option?.spatialMarkers, videoSize.width, videoSize.height])
 
   const trackedSpatial = useMemo(
     () => interpolateSpatialAtTime(spatialBoxSamples, currentTime),
@@ -548,11 +550,8 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
   )
 
   const anyTamperBoxes = useMemo(
-    () =>
-      option?.spatialMarkers.some(
-        (marker) => marker.score >= threshold && markerHasBoxes(marker)
-      ) ?? false,
-    [option?.spatialMarkers, threshold]
+    () => option?.spatialMarkers.some((marker) => markerHasBoxes(marker)) ?? false,
+    [option?.spatialMarkers]
   )
 
   const cnnRisk = useMemo(() => {
