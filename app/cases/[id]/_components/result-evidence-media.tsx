@@ -367,7 +367,9 @@ export function ResultEvidenceMedia({
   const failureMessage =
     generateError ||
     activeJob?.errorMessage ||
-    "오버레이 생성에 실패했습니다. 원본으로 돌아간 뒤 다시 오버레이를 눌러 주세요."
+    (isTruForSpatial
+      ? "TruFor 국소 bbox가 없거나 오버레이 렌더링에 실패했습니다. 원본으로 돌아간 뒤 다시 시도하거나, 분석을 다시 돌려 주세요."
+      : "오버레이 생성에 실패했습니다. 원본으로 돌아간 뒤 다시 오버레이를 눌러 주세요.")
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:sticky lg:top-4 lg:self-start dark:border-border dark:bg-card">
