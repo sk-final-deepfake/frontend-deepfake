@@ -78,6 +78,8 @@ export function ResultEvidenceMedia({
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [isRequesting, setIsRequesting] = useState(false)
   const autoRequestKeyRef = useRef<string | null>(null)
+  /** TruFor MP4s may be blank from an older bake; rebuild once per evidence session. */
+  const truForRebuiltRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
     setMediaView("original")
@@ -149,35 +151,27 @@ export function ResultEvidenceMedia({
     })
   }, [])
 
-  const hasLiveTruForBboxes = useCallback((option: ModelOverlayOption | null | undefined) => {
-    if (!option || option.id !== "forgery:forgery_spatial") return false
-    return option.spatialMarkers.some((marker) => (marker.bboxes?.length ?? 0) > 0)
-  }, [])
-
-  const isLiveTruForSpatial = useCallback((option: ModelOverlayOption | null | undefined) => {
-    return option?.id === "forgery:forgery_spatial"
-  }, [])
-
   const needsOverlayGeneration = useCallback(
     (option: ModelOverlayOption | null | undefined) => {
       if (!option) return false
-      if (option.overlayVideoUrl) return false
-      // TruFor always uses live CSS on HLS — never request baked green-box MP4.
-      if (isLiveTruForSpatial(option)) return false
-      if (hasLiveTruForBboxes(option)) return false
       if (option.category === "deepfake" && deepfakeOverlayBlocked) return false
+      // TruFor: BE always rebuilds forgery_spatial. Force one rebuild per evidence so
+      // a blank/old bake (pick dropped all boxes) is replaced with a drawable MP4.
+      if (option.id === "forgery:forgery_spatial" && selectedEvidenceId != null) {
+        if (!truForRebuiltRef.current.has(selectedEvidenceId)) return true
+      }
+      if (option.overlayVideoUrl) return false
       return true
     },
-    [deepfakeOverlayBlocked, hasLiveTruForBboxes, isLiveTruForSpatial]
+    [deepfakeOverlayBlocked, selectedEvidenceId]
   )
 
   const handleGenerateOverlay = useCallback(async () => {
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
-    if (activeOverlay.overlayVideoUrl) {
-      setIsRequesting(false)
-      return
-    }
-    if (isLiveTruForSpatial(activeOverlay)) {
+    const forceTruForRebuild =
+      activeOverlay.id === "forgery:forgery_spatial" &&
+      !truForRebuiltRef.current.has(selectedEvidenceId)
+    if (activeOverlay.overlayVideoUrl && !forceTruForRebuild) {
       setIsRequesting(false)
       return
     }
@@ -187,7 +181,7 @@ export function ResultEvidenceMedia({
     }
 
     const modulePath = activeModulePath
-    const requestKey = `${selectedEvidenceId}:${modulePath}`
+    const requestKey = `${selectedEvidenceId}:${modulePath}:rebuild=${forceTruForRebuild}`
     // Deduplicate in-flight POSTs only. Do not block just because optimistic
     // isRequesting was set — that previously left the UI stuck at 2%.
     if (autoRequestKeyRef.current === requestKey) {
@@ -201,6 +195,9 @@ export function ResultEvidenceMedia({
       const status = await requestOverlayGeneration(selectedEvidenceId, modulePath)
       applyJobStatus(status)
       if (status.status === "COMPLETED") {
+        if (activeOverlay.id === "forgery:forgery_spatial") {
+          truForRebuiltRef.current.add(selectedEvidenceId)
+        }
         onOverlayReady?.()
       }
     } catch (error) {
@@ -215,7 +212,6 @@ export function ResultEvidenceMedia({
     activeOverlay,
     applyJobStatus,
     deepfakeOverlayBlocked,
-    isLiveTruForSpatial,
     onOverlayReady,
     selectedEvidenceId,
   ])
@@ -282,6 +278,9 @@ export function ResultEvidenceMedia({
           if (cancelled) return
           applyJobStatus(status)
           if (status.status === "COMPLETED") {
+            if (status.module === "forgery_spatial") {
+              truForRebuiltRef.current.add(evidenceId)
+            }
             onOverlayReady?.()
           }
         } catch {
@@ -302,25 +301,26 @@ export function ResultEvidenceMedia({
     }
   }, [applyJobStatus, jobByModule, onOverlayReady, selectedEvidenceId])
 
+  // TruFor spatial must NEVER use CSS ModelOverlayLayer — that draws
+  // "위조 의심 영역 · N점" which does not match GPU baked frames
+  // (draw_trufor_bboxes label="picked"). Wait for overlay MP4 only.
+  const isTruForSpatial = activeOverlay?.id === "forgery:forgery_spatial"
   const canLivePreview = Boolean(
     activeOverlay &&
+      !isTruForSpatial &&
       (activeOverlay.clipWindows.length > 0 ||
         activeOverlay.spatialMarkers.length > 0 ||
-        activeOverlay.id === "forgery:forgery_spatial" ||
         (activeOverlay.id === "deepfake:cnn" && activeOverlay.timelineScores.length > 0))
   )
 
-  // Overlay tab / model selection: request baked MP4 when missing.
-  // TruFor always uses live CSS — skip stale green baked-MP4 jobs.
+  // Overlay tab / model selection: request baked MP4 when missing (incl. TruFor).
   useEffect(() => {
     if (mediaView !== "overlay") return
     if (!selectedEvidenceId || !activeModulePath || !activeOverlay) return
-    if (activeOverlay.overlayVideoUrl) {
-      setIsRequesting(false)
-      return
-    }
-    if (isLiveTruForSpatial(activeOverlay) || hasLiveTruForBboxes(activeOverlay)) {
-      // Must clear optimistic spinner — generate POST is intentionally skipped.
+    const forceTruForRebuild =
+      activeOverlay.id === "forgery:forgery_spatial" &&
+      !truForRebuiltRef.current.has(selectedEvidenceId)
+    if (activeOverlay.overlayVideoUrl && !forceTruForRebuild) {
       setIsRequesting(false)
       return
     }
@@ -329,8 +329,14 @@ export function ResultEvidenceMedia({
       return
     }
     if (isGenerating) return
+    // COMPLETED but detail never got the URL — drop local job and re-request
+    // (BE always rebuilds forgery_spatial; other modules return existing URL).
+    if (activeJob?.status === "COMPLETED" && !activeOverlay.overlayVideoUrl) {
+      clearModuleAttempt(activeModulePath)
+      return
+    }
     if (activeJob?.status === "FAILED") return
-    if (activeJob?.status === "COMPLETED") return
+    if (activeJob?.status === "COMPLETED" && !forceTruForRebuild) return
     if (generateError) return
 
     void handleGenerateOverlay()
@@ -338,12 +344,11 @@ export function ResultEvidenceMedia({
     activeJob?.status,
     activeModulePath,
     activeOverlay,
+    clearModuleAttempt,
     deepfakeOverlayBlocked,
     generateError,
     handleGenerateOverlay,
-    hasLiveTruForBboxes,
     isGenerating,
-    isLiveTruForSpatial,
     mediaView,
     selectedEvidenceId,
   ])
@@ -374,8 +379,8 @@ export function ResultEvidenceMedia({
     useOverlaySrc && activeOverlay?.category === "deepfake" && Boolean(deepfakeAdvisoryMessage)
 
   // Always show progress while generating — even if live CSS preview data exists.
-  // Previously !canLivePreview hid the modal for Xception/TimeSformer/GMFlow, so
-  // users only saw a silent live box until the baked MP4 appeared.
+  // Do NOT tie this to isTruForSpatial alone: that left a forever modal when the
+  // job finished but evidence detail had not yet picked up overlayVideoUrl.
   const showProgressModal =
     useOverlaySrc &&
     !activeOverlayUrl &&
@@ -389,7 +394,9 @@ export function ResultEvidenceMedia({
   const failureMessage =
     generateError ||
     activeJob?.errorMessage ||
-    "오버레이 생성에 실패했습니다. 원본으로 돌아간 뒤 다시 오버레이를 눌러 주세요."
+    (isTruForSpatial
+      ? "TruFor 국소 bbox가 없거나 오버레이 렌더링에 실패했습니다. 원본으로 돌아간 뒤 다시 시도하거나, 분석을 다시 돌려 주세요."
+      : "오버레이 생성에 실패했습니다. 원본으로 돌아간 뒤 다시 오버레이를 눌러 주세요.")
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-none lg:sticky lg:top-4 lg:self-start dark:border-border dark:bg-card">

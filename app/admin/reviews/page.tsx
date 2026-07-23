@@ -17,10 +17,10 @@ import { ORG_TYPES, type OrgType } from "@/app/signup/organizationData";
 import { Button } from "@/components/ui/button";
 import {
     assignAdminCaseReviewer,
+    fetchAdminReviewCases,
     fetchAdminReviewers,
     type AdminReviewer,
 } from "@/lib/api/admin";
-import { fetchMyAnalysisHistory } from "@/lib/api/mypage";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { mockUsers } from "@/lib/permissions";
@@ -307,7 +307,7 @@ export default function AdminReviewAssignmentPage() {
     const loadCases = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await fetchMyAnalysisHistory({
+            const response = await fetchAdminReviewCases({
                 page: 0,
                 size: FETCH_SIZE,
             });

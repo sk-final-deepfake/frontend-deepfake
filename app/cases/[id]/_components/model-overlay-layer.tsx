@@ -18,6 +18,11 @@ type ModelOverlayLayerProps = {
 const SPATIAL_MATCH_SEC = 0.75
 /** Max gap between two samples to interpolate across (FE display only). */
 const SPATIAL_INTERP_MAX_GAP_SEC = 2.5
+/** TruFor: hide broad torso/head blobs; keep compact peaks (highest score = primary). */
+const TRUFOR_DISPLAY_MAX_AREA_RATIO = 0.35
+const TRUFOR_DISPLAY_MAX_BOXES = 5
+/** Per-box localization score floor (not frame DET). */
+const TRUFOR_DISPLAY_MIN_BOX_SCORE = 0.6
 
 type SpatialBoxSample = {
   timeSec: number
@@ -41,16 +46,20 @@ function lerpBox(a: OverlaySpatialBBox, b: OverlaySpatialBBox, t: number): Overl
 
 function buildSpatialBoxSamples(
   markers: ModelOverlayOption["spatialMarkers"],
-  threshold: number,
   videoWidth: number,
   videoHeight: number
 ): SpatialBoxSample[] {
+  // Gate by per-box map score inside pickDisplayBoxes — not frame DET.
   return markers
-    .filter((marker) => marker.score >= threshold && markerHasBoxes(marker))
+    .filter((marker) => markerHasBoxes(marker))
     .map((marker) => ({
       timeSec: marker.timeSec,
       score: marker.score,
-      boxes: pickDisplayBoxes(resolveMarkerBoxes(marker, videoWidth, videoHeight)),
+      boxes: pickDisplayBoxes(resolveMarkerBoxes(marker, videoWidth, videoHeight), {
+        maxBoxes: TRUFOR_DISPLAY_MAX_BOXES,
+        maxAreaRatio: TRUFOR_DISPLAY_MAX_AREA_RATIO,
+        minScore: TRUFOR_DISPLAY_MIN_BOX_SCORE,
+      }),
     }))
     .filter((sample) => sample.boxes.length > 0)
     .sort((a, b) => a.timeSec - b.timeSec)
@@ -178,35 +187,54 @@ function intersectionArea(a: OverlaySpatialBBox, b: OverlaySpatialBBox) {
   return Math.max(0, x1 - x0) * Math.max(0, y1 - y0)
 }
 
+type PickDisplayBoxesOptions = {
+  maxBoxes?: number
+  maxAreaRatio?: number
+  containOverlap?: number
+  minScore?: number
+}
+
 /**
- * Nested boxes: the smaller one is usually the real local peak.
- * Prefer compact boxes; drop larger parents that mostly contain them.
+ * Broad parent blobs (over maxAreaRatio of the frame) are dropped; among the
+ * remaining compact boxes the highest local score wins, so tiny low-score
+ * noise blobs do not beat the real localization peak.
  * Analysis coords/scores are unchanged — display selection only.
  */
-function pickDisplayBoxes(boxes: OverlaySpatialBBox[]): OverlaySpatialBBox[] {
+function pickDisplayBoxes(
+  boxes: OverlaySpatialBBox[],
+  options: PickDisplayBoxesOptions = {}
+): OverlaySpatialBBox[] {
   if (!boxes.length) return []
 
-  // Smallest first so localized peaks win over broad blobs.
-  const sorted = [...boxes].sort((a, b) => boxArea(a) - boxArea(b) || b.score - a.score)
+  const maxBoxes = Math.max(1, options.maxBoxes ?? 2)
+  const maxAreaRatio = options.maxAreaRatio ?? 1
+  const containOverlap = options.containOverlap ?? 0.55
+  const minScore = options.minScore ?? 0
+
+  // Highest score first among compact boxes; ties go to the smaller box.
+  const sorted = [...boxes].sort((a, b) => b.score - a.score || boxArea(a) - boxArea(b))
   const picked: OverlaySpatialBBox[] = []
 
   for (const box of sorted) {
+    if (box.score < minScore) continue
+    if (boxArea(box) > maxAreaRatio) continue
+
     // Already covered by a tighter box we kept.
     const mostlyInsidePicked = picked.some((keep) => {
       const overlap = intersectionArea(keep, box)
-      return overlap / Math.max(boxArea(box), 1e-9) >= 0.55
+      return overlap / Math.max(boxArea(box), 1e-9) >= containOverlap
     })
     if (mostlyInsidePicked) continue
 
     // This is a broad parent of a tighter box we already kept — skip.
     const containsPicked = picked.some((keep) => {
       const overlap = intersectionArea(box, keep)
-      return overlap / Math.max(boxArea(keep), 1e-9) >= 0.55
+      return overlap / Math.max(boxArea(keep), 1e-9) >= containOverlap
     })
     if (containsPicked) continue
 
     picked.push(box)
-    if (picked.length >= 2) break
+    if (picked.length >= maxBoxes) break
   }
   return picked
 }
@@ -493,14 +521,11 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
 
   const activeSpatial = useMemo(() => {
     if (!option?.spatialMarkers.length) return null
-    // Prefer threshold-cleared frames that actually have localization boxes.
-    const aboveThreshold = option.spatialMarkers.filter(
-      (marker) => marker.score >= threshold && markerHasBoxes(marker)
-    )
-    const pool = aboveThreshold.length > 0 ? aboveThreshold : []
+    // Prefer frames that actually have localization boxes (box score gated later).
+    const withBoxes = option.spatialMarkers.filter((marker) => markerHasBoxes(marker))
     let best: (typeof option.spatialMarkers)[number] | null = null
     let bestDelta = Number.POSITIVE_INFINITY
-    for (const marker of pool) {
+    for (const marker of withBoxes) {
       const delta = Math.abs(marker.timeSec - currentTime)
       if (delta <= SPATIAL_MATCH_SEC && delta < bestDelta) {
         best = marker
@@ -508,17 +533,16 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
       }
     }
     return best
-  }, [option?.spatialMarkers, currentTime, threshold])
+  }, [option?.spatialMarkers, currentTime])
 
   const spatialBoxSamples = useMemo(() => {
     if (!option?.spatialMarkers.length) return []
     return buildSpatialBoxSamples(
       option.spatialMarkers,
-      threshold,
       videoSize.width,
       videoSize.height
     )
-  }, [option?.spatialMarkers, threshold, videoSize.width, videoSize.height])
+  }, [option?.spatialMarkers, videoSize.width, videoSize.height])
 
   const trackedSpatial = useMemo(
     () => interpolateSpatialAtTime(spatialBoxSamples, currentTime),
@@ -526,11 +550,8 @@ export function ModelOverlayLayer({ option, videoRef }: ModelOverlayLayerProps) 
   )
 
   const anyTamperBoxes = useMemo(
-    () =>
-      option?.spatialMarkers.some(
-        (marker) => marker.score >= threshold && markerHasBoxes(marker)
-      ) ?? false,
-    [option?.spatialMarkers, threshold]
+    () => option?.spatialMarkers.some((marker) => markerHasBoxes(marker)) ?? false,
+    [option?.spatialMarkers]
   )
 
   const cnnRisk = useMemo(() => {
